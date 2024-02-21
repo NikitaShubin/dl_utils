@@ -41,7 +41,7 @@ yolo_img_exts = {'.bmp', '.dng', '.jpeg', '.jpg', '.mpo', '.png', '.tif', '.tiff
 
 class YOLOLabels:
     '''
-    Формирует объект, содержащий описание разметки в формате YOLO.
+    Формирует объект, содержащий описание разметки одного изображения в формате YOLO.
     '''
     def __init__(self                                                         ,
                  df      : 'Датафрейм, содержащий сегменты для текущего кадра',
@@ -139,6 +139,7 @@ class YOLOLabels:
                 # Если исключения работают корректно, то красный цвет не должен вообще встречаться в превью!
                 
                 image = points3.draw(image, label, color, 3, False)
+            
             except:
                 print(points, '\n')
                 print(points1.points, '\n')

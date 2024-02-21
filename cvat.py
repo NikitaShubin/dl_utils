@@ -76,9 +76,10 @@ import pandas as pd
 import xml.etree.ElementTree as ET
 from tqdm import tqdm
 from matplotlib import pyplot as plt
+from scipy.optimize import linear_sum_assignment
 
-from utils import mpmap, ImReadBuffer
-from cv_utils import Mask
+from utils import mpmap, ImReadBuffer, reorder_lists
+from cv_utils import Mask, build_masks_IoU_matrix
 
 
 # Словарь имён и типов полей, которые надо считать из разметки:
@@ -252,7 +253,7 @@ def cvat_backup_task_dir2task(task_dir):
             
             # Пополняем список сегментами текущего объекта для разных кадров:
             dfs += [shape2df(shape, track, track_id) for shape in track['shapes']]
-            
+        
         # Объединяем все датафреймы в один:
         df = pd.concat(dfs)
         # Процесс объединения вынесен из цикла, т.к. он очень затратен.
@@ -788,22 +789,29 @@ class CVATPoints:
             a = np.linspace(0, 2 * np.pi, n, False) # Углы в радианах от 0 до 2pi
             x = ax * np.cos(a) + cx
             y = ay * np.sin(a) + cy
-
-            return type(self)(np.vstack([x, y]).T, 'polygon', self.rotation * apply_rot, imsize=self.imsize, rotate_immediately=apply_rot)
             
+            return type(self)(np.vstack([x, y]).T, 'polygon', self.rotation * apply_rot, imsize=self.imsize, rotate_immediately=apply_rot)
+        
         elif self.type == 'rectangle':
             xmin, ymin, xmax, ymax = self.asrectangle(apply_rot)
             x = np.array([xmin, xmax, xmax, xmin])
             y = np.array([ymin, ymin, ymax, ymax])
-
+            
             return type(self)(np.vstack([x, y]).T, 'polygon', self.rotation * apply_rot, imsize=self.imsize, rotate_immediately=apply_rot)
         
         elif self.type == 'polygon':
             return type(self)(self.points, 'polygon', self.rotation * apply_rot, imsize=self.imsize, rotate_immediately=apply_rot)
-            
+        
         else:
             raise ValueError('Неизвестный тип сегмента: %s' % self.type)
     # Параметр apply_rot пришлось ввести во избежание рекурсии при вызове метода apply_rot().
+    
+    # Создаёт словарь аргументов для создания маски:
+    def to_Mask_kwargs(self):
+        return {'array':self.draw(color=255, thickness=-1).astype(bool),
+                'rect' :self.asrectangle()                             }
+    # Используется так:
+    # mask = Mask(**points.to_Mask_kwargs())
     
     # Создаёт однострочный датафрейм, или добавляет новую строку к старому с даннымии о контуре:
     def to_dfraw(self, df=None, **kwargs):
@@ -811,7 +819,7 @@ class CVATPoints:
     
     # Получить параметры для формирования cvat-разметки annotation.xml:
     def xmlparams(self):
-
+        
         # Инициализация списка позиционных параметров:
         args = []
         # В настоящий момент должен содержать только тип метки.
@@ -1037,7 +1045,8 @@ class CVATPoints:
         if len(poly_list) > 1:
             
             # Создаём копию точек первого контура:
-            points = cls(poly_list[0]).points
+            points = cls(poly_list[0]).fuse_multipoly().points
+            # При этом на всякий случай удаляем повторяющиеся точки.
 
             # Берём последную точку этого контура:
             last_point = points[-1:, :]
@@ -1047,8 +1056,16 @@ class CVATPoints:
 
             # Наращиваем контур, дублируя в каждой из составляющих последние точки:
             for new_poly in poly_list[1:]:
-                new_points = cls(new_poly).points
+                new_points = cls(new_poly).fuse_multipoly().points
                 points = np.vstack([points, new_points, new_points[-1:, :]])
+            # В каждой составляющей также удаляем повторяющиеся точки.
+            
+            try:
+                cls(points, rotation=rotation, imsize=imsize).split_multipoly()
+            except:
+                print(poly_list)
+                print(points)
+                raise
             
             return cls(points, rotation=rotation, imsize=imsize)
         
@@ -1098,7 +1115,8 @@ class CVATPoints:
         contours, _ = cv2.findContours(mask, cv2.RETR_TREE, findContours_mode)
         
         # Убираем лишнее измерение в каждом контуре и оставляем лишь те контуры, что вообще содержат точки:
-        contours = [contour.squeeze() for contour in contours if len(contour)]
+        contours = [contour.squeeze().astype(int) for contour in contours if len(contour)]
+        # Также переводим координаты в целочисленный тип.
         
         # Собираем контуры в один:
         points = cls.unite_multipoly(contours, imsize=tuple(mask.shape[:2]))
@@ -1159,7 +1177,7 @@ class CVATPoints:
             return self.unite_multipoly(multipoly, rotation=self.rotation, imsize=self.imsize)
         
         # Если контур всего один, то обрабатываем его:
-        reduced_poly = cv2.approxPolyDP(self.points, epsilon, True).squeeze()
+        reduced_poly = cv2.approxPolyDP(self.points.astype(int), epsilon, True).squeeze()
 
         # Если в упрощённом контуре меньше 3-х точек, то возвращаем исходный контур:
         if reduced_poly.size < 6:
@@ -1659,7 +1677,7 @@ def subtask2xml(subtask, xml_file='./annotation.xml'):
     ET.ElementTree(annotations).write(xml_file, encoding="utf-8", xml_declaration=True)
 
 
-def task_auto_annottation(task, img2df, label=None, store_prev_annotation = True):
+def task_auto_annottation(task, img2df, label=None, store_prev_annotation=True, desc=None):
     '''
     Применяет img2df для автоматической разметки бекапа
     cvat-задачи и сохраняет результат в файл annotation_file.
@@ -1671,38 +1689,46 @@ def task_auto_annottation(task, img2df, label=None, store_prev_annotation = True
     img_buffer = ImReadBuffer()
     
     # Перебор подзадач:
-    for df, file, true_frames in task:
+    for subtask_ind, (df, file, true_frames) in enumerate(task, 1):
         
         # Инициализируем список датафреймов для последующего объединения:
         frame_dfs = []
         
+        # Уточняем название статусбара:
+        desc_ = f'{desc} ({subtask_ind} / {len(task)})' if len(task) > 1 else desc
+        
         # Перебор кадров:
-        for frame, true_frame in true_frames.items():
+        for frame, true_frame in tqdm(true_frames.items(), desc=desc_, disable=desc is None):
             
             # Читаем очередной кадр и переводим его в RGB:
             img = img_buffer(file, true_frame)[..., ::-1]
-
+            
             # Получаем датафрейм, содержащий результат авторазметки:
             frame_df = img2df(img)
-
+            
             # Коррекция значений в столбцах ...
             frame_df[     'label'] =      label # ... метки класса ...
             frame_df[     'frame'] =      frame # ... номера кадра прореженной последовательности ...
             frame_df['true_frame'] = true_frame # ... номера кадра полной      последовательности.
-
+            
             # Добавление очередного датафрейма в общий список:
             frame_dfs.append(frame_df)
-
+        
         # Формируем объединённый датафремй, содержащий или исключающий исходную разметку: 
         df = pd.concat([df] + frame_dfs if store_prev_annotation else frame_dfs)
-
+        
         # Внесение очередной подзадачи в итоговую задачу:
         task_.append((df, file, true_frames))
     
     return task_
 
 
-def cvat_backup_task_dir2auto_annotation_xml(cvat_backup_task_dir, img2df, label=None, store_prev_annotation=True, xml_file=None):
+def cvat_backup_task_dir2auto_annotation_xml(cvat_backup_task_dir,
+                                             img2df,
+                                             label=None,
+                                             store_prev_annotation=True,
+                                             xml_file=None,
+                                             desc=None):
     '''
     Выполняет автоматическую разметку задачи по её бекапу и сохраняет в cvat-совместимый xml-файл.
     '''
@@ -1713,8 +1739,11 @@ def cvat_backup_task_dir2auto_annotation_xml(cvat_backup_task_dir, img2df, label
     # Читаем имеющуюся разметку:
     task = cvat_backup_task_dir2task(cvat_backup_task_dir)
     
+    # Пока работает только для задач, состоящих лишь из одной подзадачи:
+    assert len(task) == 1
+    
     # Выполняем доразметку:
-    task_ = task_auto_annottation(task, img2df, label, store_prev_annotation = True)
+    task_ = task_auto_annottation(task, img2df, label, store_prev_annotation=store_prev_annotation, desc=desc)
     
     # AФормируем один или несколько xml-файлов для каждой подзадачи:
     
@@ -1737,15 +1766,28 @@ def cvat_backup_task_dir2auto_annotation_xml(cvat_backup_task_dir, img2df, label
     return task_
 
 
-def cvat_backup_dir2auto_annotation_xmls(cvat_backup_dir, img2df, label=None, store_prev_annotation=True, xml_dir=None):
+def cvat_backup_dir2auto_annotation_xmls(cvat_backup_dir,
+                                         img2df,
+                                         label='unlabled',
+                                         store_prev_annotation=True,
+                                         xml_dir=None,
+                                         num_procs=2,
+                                         desc=None):
     '''
     Выполняет автоматическую разметку распакованного бекапа cvat-датасета и сохраняет в cvat-совместимые xml-файлы.
     '''
-    tasks = []
-
+    # Инициируем аргументы для mpmap:
+    cvat_backup_task_dirs  = []
+    img2dfs                = []
+    labels                 = []
+    store_prev_annotations = []
+    xml_files              = []
+    
+    # Составляем аргументы для mpmap:
+    
     # Перебираем все вложенные в папку с датасетом директории:
     for cvat_backup_task_dir in os.listdir(cvat_backup_dir):
-        print(cvat_backup_task_dir)
+        #print(f'Обробатываем задачу из папки "{cvat_backup_task_dir}" ...')
         
         # Уточняем полный путь до поддиректории:
         cvat_backup_task_dir = os.path.join(cvat_backup_dir, cvat_backup_task_dir)
@@ -1759,12 +1801,45 @@ def cvat_backup_dir2auto_annotation_xmls(cvat_backup_dir, img2df, label=None, st
         # Если путь до папки с итоговой разметкой задан, то каждый xml-файл размещается в ней под именем папки с соответствующей задачей.
         # Если путь не задан, то каждый xml-файл размещается в папке с соответствующей задачей.
         
-        tasks.append(cvat_backup_task_dir2auto_annotation_xml(cvat_backup_task_dir, img2df, label, store_prev_annotation, xml_file))
+        # Вносим каждый из параметров в свой список:
+        cvat_backup_task_dirs .append(cvat_backup_task_dir)
+        img2dfs               .append(img2df)
+        labels                .append(label)
+        store_prev_annotations.append(store_prev_annotation)
+        xml_files             .append(xml_file)
     
-    return tasks
+    # Выполняем авторазметку в параллельном режиме:
+    return mpmap(cvat_backup_task_dir2auto_annotation_xml,
+                 cvat_backup_task_dirs,
+                 img2dfs,
+                 labels,
+                 store_prev_annotations,
+                 xml_files,
+                 num_procs=num_procs,
+                 desc=desc)
 
 
-def subtask_shapes2tracks(subtask, minIoU=0.8):
+def df2masks(df, imsize):
+    '''
+    Растеризирует объекты из датафрейма.
+    '''
+    # Формируем список масок:
+    masks = [Mask(**CVATPoints.from_dfraw(dfraw, imsize).to_Mask_kwargs()) for dfraw in df.iloc]
+    
+    # Вынуждаем маски заранее подсчитать свои площади:
+    [mask.area() for mask in masks]
+    
+    return masks
+
+
+# ВременнАя фильтрация:
+def subtask_shapes2tracks(subtask,
+                          minIoU=0.6,
+                          depth=20,
+                          untracked_label='unlabled',
+                          cut_tails=False,
+                          drop_untracked_shapes=True,
+                          desc='Трекинг несвязных форм в подзадаче'):
     '''
     Трекинг несвязных форм в подзадаче.
     Полезен при доразметке видео после прогона через автоматическую
@@ -1775,98 +1850,288 @@ def subtask_shapes2tracks(subtask, minIoU=0.8):
     # Расщепление подзадачи на составляющие:
     df, file, true_frames = subtask
     
-    # Устанавливаем ещё неиспользованный track_id:
+    # Номера столбцов датафрейма:
+    track_id_ind   = np.where(df.columns == 'track_id'  )[0][0] # track_id
+    label_ind      = np.where(df.columns == 'label'     )[0][0] # label
+    frame_ind      = np.where(df.columns == 'frame'     )[0][0] # frame
+    true_frame_ind = np.where(df.columns == 'true_frame')[0][0] # true_frame
+    # Нужны для доступа к ячейкам через df.iloc.
+    
+    # Число кадров в последовательности:
+    seq_len = len(true_frames)
+    
+    # Разбиваем общий датафрейм на множество покадровых, ...
+    # ... содежащих только формы (без треков):
+    shape_dfs = [df[df['track_id'].isna() & (df['frame'] == frame)] for frame in range(seq_len)]
+    # Между объектами из этих датафреймов и будет устанавливаться связь.
+    
+    # Определяем размеры каждого кадра:
+    with ImReadBuffer() as buffer:
+        imsizes = [buffer(file, frame).shape[:2] for frame in range(seq_len)]
+    
+    # Получаем списки масок по каждому из кадров:
+    masks = mpmap(df2masks, shape_dfs, imsizes, num_procs=1)
+    
+    # Датафрейм с уже существующими треками.
+    track_df = df[df['track_id'].notna()]
+    # С ним будет объединён результат выстраивания цепочек форм в треки.
+    
+    # Перебираем все возможные пары номеров кадров, ...
+    # ... отстаящих друг от друга не более чем на depth:
+    keys = []
+    cur_masks_list  = []
+    next_masks_list = []
+    desc_list       = []
+    num_procs_list  = []
+    
+    # Формируем список задач для вычисления матриц связностей через mpmap:
+    for cur_frame in range(seq_len - 1):
+        for next_frame in range(cur_frame + 1, min(cur_frame + depth + 1, seq_len)):
+            keys.append((cur_frame, next_frame))      # Ключи для последующего преобразования списка в словарь
+            cur_masks_list .append(masks[ cur_frame]) # Списки масок текущего кадра
+            next_masks_list.append(masks[next_frame]) # Списки масок одного из последующих кадров
+            desc_list      .append(None)              # Отключаем статусбар дочерних процессов
+            num_procs_list .append(1)                 # Отключаем параллельность в дочерних процессах
+    
+    # Оценка вычислительной сложности каждой из задач для mpmap:
+    complexity_list = [len(masks1) * len(masks2) for masks1, masks2 in zip(cur_masks_list, next_masks_list)]
+    
+    # Аргументы mpmap сортируются в порядке убывания сложности задачи:
+    keys, *mpmap_args = reorder_lists(np.argsort(complexity_list)[::-1],
+                                      keys,
+                                      cur_masks_list,
+                                      next_masks_list,
+                                      desc_list,
+                                      num_procs_list)
+    # Полезно для сокращения общего времени параллельных вычислений в mpmap.
+    
+    # Параллельное вычисление матриц связностей:
+    IoUmats = mpmap(build_masks_IoU_matrix, *mpmap_args, desc=desc, num_procs=0)
+    
+    # Преобразуем результаты параллельных вычислений из списка в словарь:
+    IoUmats = {key:val for key, val in zip(keys, IoUmats)}
+    
+    # Начинаем строить цепочки наследования:
+    
+    # Определяем номер, с которого начинаются ещё не занятые track_id:
     track_id = df['track_id'].max()
     if np.isnan(track_id): track_id = 0 # Устанавливаем в 0, если они не использовались вообще
     
-    # Номера столбцов датафрейма:
-    track_id_ind = np.where(df.columns == 'track_id')[0][0] # track_id
-    label_ind    = np.where(df.columns == 'label'   )[0][0] # label
+    # Получаем датафрейм первого кадра:
+    first_df = shape_dfs[0]
     
-    # Определяем размер видео по первому кадру:
-    with ImReadBuffer() as buffer:
-        imsize = buffer(file, 0).shape[:2]
+    # Выделяем те формы в первом кадре, для которых установлен класс:
+    untracked_shapes_mask = first_df.iloc[:, label_ind] != untracked_label
     
-    # Создание чистого изображения для инициализации отрисовки всех масок:
-    clear_frame = np.zeros(imsize, np.uint8)
+    # Преобразуем все размеченные формы первого кадра в треки (расставляем номера для их track_id):
+    first_df.iloc[untracked_shapes_mask, track_id_ind] = range(track_id, track_id + untracked_shapes_mask.sum())
     
-    # Инициируем переменные предыдущего кадра пустыми списками:
-    prev_df, prev_points, prev_masks = [[]] * 3
-    dfs = []
+    # Инициируем списки флагов подтверждения для каждой из масок:
+    isexists = [np.ones(len(_), dtype=bool) for _ in masks]
     
-    # Перебор кадров:
-    for frame, true_frame in tqdm(true_frames.items()):
+    # Перебираем все рассмотренные в IoUmats связи:
+    
+    # Перебираем номера текущих кадров:
+    for cur_ind in range(1, seq_len):
         
-        # Датафрейм объекдов для текущего кадра:
-        cur_df = df[df['frame'] == frame]
-        #cur_df.index = range(len(cur_df))
+        # Инициируем список матриц связностей, подлежащих конкатенации:
+        cur_IoUmats = []
         
-        # Список объектовкачестве экземпляров класса текущего кадра в  CVATPoints:
-        cur_points = [CVATPoints.from_dfraw(cur_df.iloc[i, :], imsize) for i in range(len(cur_df))]
-        
-        # Список объектов текущего кадра в качестве экземпляров класса Mask:
-        cur_masks = [Mask(p.draw(clear_frame, color=255, thickness=-1).astype(bool), p.asrectangle()) for p in cur_points]
-        
-        # Выполняем обработку если на текущем и предыдущем кадрах есть объекты:
-        if len(prev_df) and len(cur_df):
+        # Перебираем номера предыдущих кадров:
+        for prev_ind in range(max(0, cur_ind - depth), cur_ind):
             
-            # Построение матрицы связностей объектов:
-            IoUmat = np.zeros((len(cur_df), len(prev_df))) # Инициация матрицы связностей объектов
+            # Получаем очередную матрицу связности сегментов текущего ...
+            # ... кадра с сегментами одного из предыдущих кадров:
+            IoUmat = IoUmats[(prev_ind, cur_ind)]
             
-            # Перебираем все объекты текущего кадра:
-            for cur_ind in range(len(cur_df)):
-                
-                # Пропускаем этот объект, если он уже track, a не shape:
-                if cur_df.iloc[cur_ind, track_id_ind] is not None:
-                    continue
-                
-                # Перебираем все объекты предыдущего кадра:
-                for prev_ind in range(len(prev_df)):
-                    
-                    # Только на первом кадре допускается искать shape, а не track:
-                    if frame > 1 and prev_df.iloc[prev_ind, track_id_ind] is None:
-                        continue
-                    
-                    # Считаем IoU для текущей пары объектов и вносим результат в матрицу связностей:
-                    IoUmat[cur_ind, prev_ind] = cur_masks[cur_ind].IoU(prev_masks[prev_ind])
+            # Обнуляем все IoU, оказавшиеся ниже порогового значения:
+            IoUmat[IoUmat < minIoU] = 0
             
-            # Выявляем связи объектов до тех пор, пока хоть одна связь в матрице превышает заданный порог:
-            while IoUmat.max() > minIoU:
+            # Обнуляем строки всех неподтверждённых объеков:
+            IoUmat[np.invert(isexists[prev_ind]), :] = 0
+            
+            # Добавляем таблицу связностей в список матриц для конкатинации:
+            cur_IoUmats.append(IoUmat)
+        
+        # Конкатинация матриц:
+        cur_IoUmats = np.vstack(cur_IoUmats)
+        
+        # Обнуляем столбцы всех неподтверждённых объеков:
+        cur_IoUmats[:, np.invert(isexists[cur_ind])] = 0
+        
+        # Применяем венгерский алгоритм, выполняющий оптимальные назначения:
+        prev_mask_inds, cur_mask_inds = linear_sum_assignment(cur_IoUmats, maximize=True)
+        # Сегментам из текущего кадра ставятся в соответсвие ...
+        # ... сегменты из предыдущих кадров (см. двудольный граф).
+        
+        # Сортируем индексы связных сегментов в порядке убывания связей:
+        sorted_inds = np.argsort(cur_IoUmats[prev_mask_inds, cur_mask_inds])[::-1]
+        prev_mask_inds, cur_mask_inds = reorder_lists(sorted_inds,
+                                                      prev_mask_inds,
+                                                      cur_mask_inds)
+        
+        # Инициируем множество уже использованных треков: 
+        track_ids2drop = set()
+        
+        # Перебор индексов всех найденных пар сегментов:
+        for prev_mask_ind, cur_mask_ind in zip(prev_mask_inds, cur_mask_inds):
+            
+            cur_IoU = cur_IoUmats[prev_mask_ind, cur_mask_ind]
+            # Если связность сегментов существенная:
+            if cur_IoU:
                 
-                # Устанавливаем связь между объектами (берём пару с максимальным IoU):
-                cur_ind, prev_ind = np.unravel_index(IoUmat.argmax(), IoUmat.shape)
+                # Определяем номер предыдущего кадра и номер объекта в нём:
                 
-                # Если track_id предыдущего объекта не задан:
-                if prev_df.iloc[prev_ind, track_id_ind] is None:
-                    
-                    # Ставим в его качестве текущий неиспользованный track_id для обоих объектов:
-                    prev_df.iloc[prev_ind, track_id_ind] = cur_df.iloc[cur_ind, track_id_ind] = track_id
-                    
-                    # Обновляем неиспользованный track_id путём прирощения:
-                    track_id += 1
+                # Перебираем номера предыдущих кадров:
+                for prev_ind in range(max(0, cur_ind - depth), cur_ind):
+                    shifted_prev_mask_ind = prev_mask_ind - len(isexists[prev_ind])
+                    if shifted_prev_mask_ind < 0:
+                        break
+                    prev_mask_ind = shifted_prev_mask_ind
+                # Это как бы реиндексация, необходимая для получения координат ...
+                # ... ячейки таблицы связностей, ещё до конкатенации.
                 
-                # Если track_id предыдущего объекта задан, то ставим его и на текущий объект:
+                # Убеждаемся,что реиндексацию провели верно:
+                assert cur_IoU == IoUmats[(prev_ind, cur_ind)][prev_mask_ind, cur_mask_ind]
+                
+                # 
+                track_id = shape_dfs[prev_ind].iloc[prev_mask_ind, track_id_ind]
+                
+                if track_id in track_ids2drop:
+                    isexists[cur_ind][cur_mask_ind] = False
+                
                 else:
-                    cur_df.iloc[cur_ind, track_id_ind] = prev_df.iloc[prev_ind, track_id_ind]
-                
-                # Ставим текущему объекту метку от предыдущего: 
-                cur_df.iloc[cur_ind, label_ind] = prev_df.iloc[prev_ind, label_ind]
-                
-                # Исключаем для этих объектов возможность образовывать иные пары:
-                IoUmat[cur_ind, :] = IoUmat[:, prev_ind] = 0
-        
-        # Делаем все параметры текущего кадра параметрами предыдущего кадра:
-        prev_df, prev_points, prev_masks = cur_df, cur_points, cur_masks
-        # Готовимся к следующей итерации.
-        
-        # Вносим обработанный датафрейм текущего кадра в список:
-        dfs.append(cur_df)
+                    track_ids2drop.add(track_id)
+                    
+                    # Увязываем сегмент текущего кадра в трек сегмента из предыдущих кадров:
+                    for colimn_ind in {label_ind, track_id_ind}:
+                        shape_dfs[ cur_ind].iloc[ cur_mask_ind, colimn_ind] = \
+                        shape_dfs[prev_ind].iloc[prev_mask_ind, colimn_ind]
+            
+            # Если связность незначительная, то помечаем ...
+            # ... сегмент текущего кадра, как неподтверждённый:
+            else:
+                isexists[cur_ind][cur_mask_ind] = False
     
-    # Объединяем данные для каждого кадра в единий датафрейм:
-    df = pd.concat(dfs)
+    # "Отрубаем хвосты" трекам, если надо:
+    if cut_tails:
+        
+        # Инициируем множество уже рассмотренных треков:
+        excluded_track_ids = set(shape_dfs[-1].iloc[:, track_id_ind])
+        # Добавляем в него все "дожившие" до последнего кадра треки.
+        # Множество используется для отличия уже рассмотренных треков ...
+        # ... от "новых", которые как раз и надо будет "обрубать".
+        
+        next_frame      = shape_dfs[-1].iloc[0,      frame_ind]
+        next_true_frame = shape_dfs[-1].iloc[0, true_frame_ind]
+        next_ind = seq_len - 1
+        # Перебираем все кадры в обратном порядке, кроме крайних:
+        for cur_ind in reversed(range(1, seq_len - 1)):
+            
+            # 
+            additional_dfs = []
+            
+            # Перебираем все объекты в данном кадре:
+            for row in shape_dfs[cur_ind].iloc:
+                
+                # Получаем track_id текущего объекта:
+                track_id = row.iloc[track_id_ind]
+                
+                # Пропускаем не треки:
+                if track_id is None: continue
+                
+                # Пропускаем уже рассмотренные треки:
+                if track_id in excluded_track_ids: continue
+                
+                # Вносим track_id текущего объекта в множество уже рассмотренных:
+                excluded_track_ids.add(track_id)
+                
+                additional_df = pd.DataFrame(row).T
+                additional_df[     'frame'] =      next_frame
+                additional_df['true_frame'] = next_true_frame
+                additional_df['outside'   ] = "1"
+                additional_df['source'    ] = additional_df['source'] + ' + tacker'
+                
+                additional_dfs.append(additional_df)
+            
+            # Добавляем все "заглушки" в следующий кадр:
+            shape_dfs[next_ind] = pd.concat([shape_dfs[next_ind]] + additional_dfs)
+            
+            next_frame      = row.iloc[     frame_ind]
+            next_true_frame = row.iloc[true_frame_ind]
+            next_ind = cur_ind
+    
+    # Объединение оставшихся сегментов и построенных треков с уже имевшимися треками:
+    df = pd.concat([track_df] + shape_dfs)
+    
+    # Выбрасываем оставшиеся сегменты (не включённые в трек) из результата, если нужно:
+    if drop_untracked_shapes:
+        df = df[df['track_id'].notna()]
     
     # Возвращаем подзадачу с обновлённым датафреймом:
     return df, file, true_frames
+
+
+def tasks2_train_val_test_other(tasks):
+    '''
+    Разделение задач на обучающую, проверочную и тестовую
+    подвыборки по указанному типу для каждой задачи в самом CVAT.
+    
+    Все задачи, не отнесённые в одну из трёх основных подвыборок
+    будут занесены в отдельный словарь other_tasks_dict
+    (имя -> [неприкаянные_задачи]).
+    '''
+    # Инициализируем списки итоговых подвыборок:
+    train_tasks, val_tasks, test_tasks, other_tasks_dict = [], [], [], {}
+    #train_tasks_, val_tasks_, test_tasks_ = [], [], []
+    
+    # Перебор задач:
+    for task in tasks:
+        
+        # Инициализация множества папок, в которых находятся задачи:
+        task_dirs = set()
+        # Такая папка должна быть только одна, но это надо ...
+        # ... проверить, для чего и создётся данное можество.
+        
+        # Перебор подзадач:
+        for df, file, true_frames in task:
+            
+            # Вносим во множество папок для задач, все папки, содержащие подзадачи текущей задачи:
+            if isinstance(file, (tuple, list, set)):
+                task_dirs |= set([os.path.dirname(os.path.dirname(_)) for _ in file])
+            elif isinstance(file, str):
+                task_dirs.add(os.path.dirname(os.path.dirname(file)))
+        
+        # У всех файлов одной задачи должна быть одна общая папка:
+        assert len(task_dirs) == 1
+        task_dir = task_dirs.pop() # Берём эту единственную папку
+        
+        # Читаем метаданные задачи:
+        with open(os.path.join(task_dir,'task.json'), 'r', encoding='utf-8') as f:
+            task_desc = json.load(f)
+        subset = task_desc['subset'] # Название подвыборки
+        name   = task_desc['name'  ] # Название задачи
+        
+        # Выясняем, к какой подвыборке принадлежит текущая задача:
+        if subset.lower() == 'train': # Если это Train
+            train_tasks.append(task)
+            #train_tasks_.append(name)
+        elif subset.lower() == 'validation': # Если это Val
+            val_tasks.append(task)
+            #val_tasks_.append(name)
+        elif subset.lower() == 'test': # Если это Test
+            test_tasks.append(task)
+            #test_tasks_.append(name)
+        else:
+            # Если подвыборка явно не классифицирована, заносим её в отдельный словарь:
+            other_tasks_dict[subset] = other_tasks_dict.get(subset, []) + [task]
+            print(f'Неоднозначная метка "{subset}" задачи "{name}" в папке "{task_dir}"!')
+    '''
+    print(*sorted(train_tasks_), sep='\n', end='\n\n')
+    print(*sorted(  val_tasks_), sep='\n', end='\n\n')
+    print(*sorted( test_tasks_), sep='\n', end='\n\n')
+    '''
+    return train_tasks, val_tasks, test_tasks, other_tasks_dict
 
 
 def flat_tasks(tasks):
@@ -1898,6 +2163,31 @@ def flat_tasks(tasks):
     
     # Собираем и возвращаем новый список задач:
     return list(files.values())
+
+
+def sort_tasks_by_len(tasks, *args):
+    '''
+    Сортирует список задач по убыванию числа входящих кадров.
+    
+    Параллельная обработка отсортированных таким образом 
+    задач выполняется несколько эффективнее.
+    '''
+    # Формируем список чисел кадров по каждой задаче:
+    task_lens = []
+    for task in tasks:
+        task_len = 0
+        for df, file, true_frames in task:
+            task_len += len(true_frames)
+        
+        task_lens.append(task_len)
+    
+    # Получаем отсортированный список индексов:
+    sorted_inds = np.argsort(task_lens)[::-1]
+    
+    # Сортируем длины задач, сами задачи и другие списки, если они представлены:
+    task_lens, tasks, *args = reorder_lists(sorted_inds, task_lens, tasks, *args)
+    
+    return task_lens, tasks, *args
 
 
 def drop_bbox_labled_cvat_tasks(tasks):
@@ -2129,4 +2419,4 @@ for rotation in [0, 15]:
 """
 
 
-__all__ = CVATPoints, cvat_backups2tasks, drop_bbox_labled_cvat_tasks, sort_tasks
+#__all__ = 'CVATPoints', 'cvat_backups2tasks', 'drop_bbox_labled_cvat_tasks', 'sort_tasks'

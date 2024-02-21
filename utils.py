@@ -95,9 +95,10 @@ import tempfile
 
 import numpy as np
 
+from inspect import isclass
 from functools import reduce
 from zipfile import ZipFile
-from shutil import rmtree
+from shutil import rmtree, copyfile
 from tqdm import tqdm
 from time import time
 from multiprocessing import pool, Pool
@@ -210,6 +211,182 @@ cv2_vid_exts = {'.mpg', '.mpeg', '.mp4', '.mkv', '.avi', '.mov', '.ts'}
 cv2_img_exts = {'.bmp', '.jpg', '.jpeg', '.tif', '.tiff', '.png'}
 
 
+def overlap_with_alpha(image, watermark, return_with_watermark=False):
+    '''
+    Накладывает на исходное изображение водяной знак, содержащий альфаканал.
+    '''
+    # Получаем размеры изображений:
+    img_shape =     image.shape
+    wtm_shape = watermark.shape
+    
+    # Фиксируем тип исходного изображения:
+    img_dtype = image.dtype
+    
+    # Некоторые проверки входных данных:
+    assert img_shape[:2] == wtm_shape[:2] # Размеры изображений должны совпадать
+    assert wtm_shape[2] in {2, 4}         # Водяной знак обязан иметь альфаканал
+    
+    # Если исходное изображение или водяной знак представлено ...
+    # ... целыми числами, то меняем его тип на тип с плавающей точкой:
+    if isint(image    ): image     = image     / np.iinfo(image    .dtype).max
+    if isint(watermark): watermark = watermark / np.iinfo(watermark.dtype).max
+    # Вместе с этим нормализуем значения (максимально возможное значение = 1.)
+    
+    # Переводим оба изображения в float32, т.к. cv2 ...
+    # ... не работает с другими типами плавающих точек:
+    image     = image    .astype(np.float32)
+    watermark = watermark.astype(np.float32)
+    
+    # Разделяем исходное изображение на содержимое и альфаканал, если он есть:
+    
+    # Если изображение не имеет альфаканал:
+    if len(img_shape) == 2 or img_shape[2] in {1, 3}:
+        img       = image
+        img_alpha = None
+    
+    # Если изображение имеет альфаканал:
+    elif img_shape[2] in {2, 4}:
+        img       = image[..., :-1]
+        img_alpha = image[...,  -1]
+    
+    else:
+        raise ValueError(f'Некорректный размер изображения: {img_shape}!')
+    
+    # Разделяем исходное изображение на содержимое и альфаканал:
+    wtm       = watermark[..., :-1]
+    wtm_alpha = watermark[...,  -1]
+    
+    # Если размеры исходного изображения и водяного ...
+    # ... знака не совпадают, то исправляем это:
+    if img.shape != wtm.shape:
+        
+        # Если в исходном изображении вообще 2 измерения:
+        if len(img.shape) == 2:
+            
+            # Если в водяной знак цветной, переводим в монохромный:
+            if wtm.shape[2] == 3:
+                print(wtm.shape, wtm.dtype)
+                wtm = cv2.cvtColor(wtm, cv2.COLOR_RGB2GRAY)
+            
+            # Если в водяном знаке всего 1 канал, отбрасываем лишнее измерение:
+            elif wtm.shape[2] == 1:
+                wtm = wtm[..., 0]
+            
+            # До сюда код доходить не должен:
+            else:
+                raise Exception('В коде допущена ошибка!')
+        
+        # Если в исходном изображении всего 1 канал:
+        elif img.shape[2] == 1:
+            wtm = cv2.cvtColor(wtm, cv2.COLOR_RGB2GRAY)[..., np.newaxis]
+        # Переводим водяной знак в оттенки ...
+        # ... серого с числом каналов, равным 1.
+        
+        # Если исходное изображение цветное, ...
+        # ... делаем цветным и водяной знак:
+        elif img.shape[2] == 3:
+            wtm = np.dstack([wtm] * 3)
+        
+        # До сюда код доходить не должен:
+        else:
+            raise Exception('В коде допущена ошибка!')
+    
+    # За основу маски наложения берём альфаканал водяного знака:
+    mask = wtm_alpha
+    
+    # Если маска наложения не соразмерна исходному изображению, исправляем:
+    if img.shape != mask.shape:
+        if img.shape[2] == 1:
+            mask = mask[..., np.newaxis]
+        elif img.shape[2] == 3:
+            mask = np.dstack([mask] * 3)
+    
+    # Рассчитываем конечное изображение (выполняем наложение):
+    rzlt = img * (1 - mask) + wtm * mask
+    
+    # Обновляем альфаканал, если он был:
+    if img_alpha is not None:
+        
+        # Выполняем наложение альфаканалов:
+        rzlt_alpha = np.dstack([img_alpha[..., np.newaxis],
+                                wtm_alpha[..., np.newaxis]]).max(-1, keepdims=True)
+        
+        # Добавляем альфаканал к конечному изображению:
+        rzlt = np.dstack([rzlt, rzlt_alpha])
+    
+    # Если типы текущего и исходного изображений не совпадают:
+    if rzlt.dtype != img_dtype:
+        
+        # Обращаем нормализацию, если надо:
+        if isint(img_dtype):
+            rzlt *= np.iinfo(img_dtype).max
+        
+        # Возвращаем конечному изображению исходный тип:
+        rzlt = rzlt.astype(img_dtype)
+    
+    # Возвращаем результат вместе с собранной маской ...
+    # ... (чтобы использовать повторно), либо без неё:
+    if return_with_watermark:
+        return rzlt, np.dstack([wtm, wtm_alpha])
+    else:
+        return rzlt
+
+
+def text2img(text : 'Растеризируемый текст'              ,
+             img  : 'Изображение или его размер' = 'auto',
+             scale: 'Масштаб шрифта'             = 0.6   ):
+    '''
+    Простой способ векторизации текста или нанесения надписи на изображение.
+    По умолчанию формируется оптимальный для текста размер полутонового изображения.
+    '''
+    # Разделяем текст на строки:
+    lines = text.split('\n')
+    
+    # Флаг автоматической обрезки итогового изображени:
+    auto_crop = False
+
+    # Размер символа в пикселях:
+    scale_rate = scale / 0.6
+    char_size  = int(scale_rate * 20)
+    shift_size = int(scale_rate *  2)
+    
+    # Если размер изображения выбирается автоматически:
+    if isinstance(img, str) and img.lower() == 'auto':
+        h = shift_size + char_size * len(lines)           # высоту берём в зависимости от числа строк
+        w = shift_size + char_size * max(map(len, lines)) # ширину берём в зависимости от длины самой большой строки
+        img = np.zeros((h, w), np.uint8)  # Инициализируем изображение
+        auto_crop = True                  # Отмечаем, что изображение нужно потом обрезать
+    
+    # Если передано само изображение, ничего не делаем:
+    elif isinstance(img, np.ndarray) and img.ndim in {2, 3}:
+        pass
+    
+    # Создаём изображение по размеру, если он задан:
+    elif hasattr(img, '__len__') and len(img) in {2, 3}:
+        img = np.zeros(img, np.uint8)
+    
+    else:
+        raise ValueError('В качестве параметра "img" должно быть передано' +
+                         f' изображение, его размер или значение. Получено {img}!')
+    
+    # Наносим каждую строку текста:
+    for line_ind, line in enumerate(lines, 1):
+        img = cv2.putText(img                               ,
+                          line                              ,
+                          (shift_size, char_size * line_ind),
+                          cv2.FONT_HERSHEY_COMPLEX          ,
+                          scale                             ,
+                          (255, 255, 255)                   ,
+                          int(np.ceil(scale_rate))          ,
+                          cv2.LINE_AA                       )
+    
+    # Кропим изображение, если надо:
+    if auto_crop:
+        img = autocrop(img)
+    
+    return img
+
+
 def draw_contrast_text(image, text):
     '''
     Делает многострочные контрастные надписи на заданном изображении.
@@ -223,7 +400,7 @@ def draw_contrast_text(image, text):
                 image = cv2.putText(image, line, (i, j + 20 * line_ind), cv2.FONT_HERSHEY_COMPLEX, 0.6, (  0,   0,   0), 1, cv2.LINE_AA)
 
         # Рисуем саму белую строку:
-        image         = cv2.putText(image, line, (i, j + 20 * line_ind), cv2.FONT_HERSHEY_COMPLEX, 0.6, (255, 255, 255), 1, cv2.LINE_AA)
+        image         = cv2.putText(image, line, (0, 0 + 20 * line_ind), cv2.FONT_HERSHEY_COMPLEX, 0.6, (255, 255, 255), 1, cv2.LINE_AA)
         
     return image
 
@@ -266,15 +443,15 @@ def img_dir2video(img_dir, video_file='preview.avi', tmp_file=None, desc=None, i
     сохраняя соотношение сторон за счёт паддинга.
     Используется для превью.
     '''
+    # Принудительный перевод размера кадра в кортеж:
+    imsize = tuple(imsize)
+    
     if tmp_file is None:
         video_file_name, video_file_ext = os.path.splitext(video_file)
         tmp_file = video_file_name + '_tmp' + video_file_ext
     
     # Сортированный по имени список изображений:
-    images = sorted(os.listdir(img_dir))
-    
-    # Отбрасываем все файлы, не являющиеся изображениями:
-    images = [image for image in images if os.path.splitext(image)[-1].lower() in cv2_img_exts]
+    images = sorted(get_file_list(img_dir, extentions=cv2_img_exts))
     
     # Если изображений нет, то выходим:
     if len(images) == 0:
@@ -292,9 +469,6 @@ def img_dir2video(img_dir, video_file='preview.avi', tmp_file=None, desc=None, i
         # Пытаемся считать, масштабировать и записать новый кадр:
         try:
             
-            # Уточняем путь до файла:
-            file = os.path.join(img_dir, file)
-            
             # Читаем очередной кадр:
             img = cv2.imread(file)
             
@@ -310,8 +484,9 @@ def img_dir2video(img_dir, video_file='preview.avi', tmp_file=None, desc=None, i
                 rmpath(file)
         
         # Пропускаем кадр, если что-то пошло не так:
-        except:
+        except Exception as e:
             print(f'Пропущена запись кадра "{file}" в видео "{video_file}"!')
+            print(e)
             continue
     
     # Закрываем записанный видеофайл:
@@ -323,7 +498,7 @@ def img_dir2video(img_dir, video_file='preview.avi', tmp_file=None, desc=None, i
     # Отключаем вывод, если нужно:
     if desc is None: cmd_line += '>/dev/null 2>&1'
     
-    # Пересжимаем файл и удаляем непересжатую версию:    
+    # Пересжимаем файл и удаляем непересжатую версию:
     os.system(cmd_line)
     rmpath(tmp_file)
     
@@ -348,7 +523,7 @@ class ImReadBuffer:
         # Задаём внутенние состояния по умолчанию:
         self.reset_state()
     
-    def __call__(self, file, frame=0):
+    def __call__(self, file, frame=0, save2file=None):
 
         # Если передан не один файл, а целый набор изображений:
         if isinstance(file, (list, tuple)):
@@ -367,6 +542,18 @@ class ImReadBuffer:
                 self.close() # Сбрасываем внутренние состояния
                 self.img = cv2.imread(file)
                 self.file = file
+            
+            # Если изображение надо сохранять:
+            if save2file is not None:
+                
+                # Если тип исходного и конечного файла одинаков, то просто копируем без пересжатия:
+                if file_ext == os.path.splitext(save2file)[-1].lower():
+                    copyfile(self.file, save2file)
+                
+                # Если типы не совпадают, придётся сохранять с пересжатием:
+                else:
+                    cv2.imwrite(save2file, self.img)
+                    
         
         # Если файл является видеопоследовательностью:
         elif file_ext in cv2_vid_exts:
@@ -391,6 +578,10 @@ class ImReadBuffer:
                 
                 # Инкримент номера кадра
                 self.frame += 1
+            
+            # Сохраняем изображение, если надо:
+            if save2file is not None:
+                cv2.imwrite(save2file, self.img)
         
         # Если файл не является изображением или видео:
         else:
@@ -433,22 +624,43 @@ def mkdirs(path):
     return False
 
 
-def rmpath(path):
+def rmpath(path, ask=False):
     '''
     Удаляет файл или папку вместе с её содержимым.
     Возвращает False, если путь не существовал.
     '''
+    # Ничего не делаем, если файла просто нет:
+    if not os.path.exists(path):
+        return True
+    
     try:
+        # Если это папка:
         if os.path.isdir(path):
+            
+            # Уточняем у пользователя, если надо:
+            if ask:
+                ans = input(f'Удалить папку "{path}" со всем содержимым?\n' + \
+                            '("д", "y" / "н", "n", "")').strip().lower()
+                if ans not in {'д', 'y'}:
+                    return False
+            
             rmtree(path)
             return True
-
+        
+        # Если это Файл:
         elif os.path.isfile(path):
+            # Уточняем у пользователя, если надо:
+            if ask:
+                ans = input(f'Удалить файл "{path}" со всем содержимым?\n' + \
+                            '("д", "y" / "н", "n", "")').strip().lower()
+                if ans not in {'д', 'y'}:
+                    return False
+            
             os.remove(path)
             return True
-
+        
         else:
-            return False
+            raise ValueError(f'Не файл и не папка "{path}"!')
     
     except PermissionError:
         raise PermissionError(f'Недостаточно прав удалить "{path}"!')
@@ -532,7 +744,7 @@ def obj2yaml(obj, file='./cfg.yaml', encoding='utf-8', allow_unicode=True):
     Параметры по-умолчанию позволяют сохранять кириллицу.
     '''
     with open(file, 'w', encoding=encoding) as stream:
-        yaml.safe_dump(obj, stream, allow_unicode=allow_unicode)
+        yaml.safe_dump(obj, stream, allow_unicode=allow_unicode, sort_keys=False)
     
     return file
 
@@ -545,6 +757,57 @@ def yaml2obj(file='./cfg.yaml', encoding='utf-8'):
         obj = yaml.safe_load(stream)
     
     return obj
+
+
+def get_file_list(path, extentions=[]):
+    '''
+    Возвращает список всех файлов, содержащихся по указанному пути (включая поддиректории).
+    '''    
+    # Обработка параметра extentions:
+    
+    # Если вместо списка/множества/кортежа расширений ...
+    # ... указана строка, то делаем из неё множество:
+    if isinstance(extentions, str):
+        extentions = {extentions}
+    
+    # Если же это действительно список/множество/кортеж:
+    elif isinstance(extentions, (list, tuple, set)):
+        
+        # Формируем список элементов, не являющихся строками:
+        exts = [ext for ext in extentions if not isinstance(ext, str)]
+        
+        # Если список не пуст, выводим ошибку:
+        if exts:
+            raise ValueError(f'Найдены следующие некорректные объекты в списка/множества/кортежа расширений: {exts}')
+    
+    else:
+        raise ValueError('extentions должен быть строкой, или списком/кортежем/множеством строк. Получен %s' % extentions)
+
+    # Переводим все элементы списка в нижний регистр:
+    extentions = {ext.lower() for ext in extentions}
+
+    # Рекурсивное заполнение списка найденных файлов:
+    
+    # Инициализация списка найденных файлов:
+    file_list = []
+    
+    # Перебор всего содержимого заданной папки:
+    for file in os.listdir(path):
+
+        # Уточняем путь до текущего файла:
+        file = os.path.join(path, file)
+
+        # Если текущий файл - каталог, то добавляем всё его ...
+        # ... содержимое в список через рекурсивный вызов:
+        if os.path.isdir(file):
+            file_list += get_file_list(file, extentions)
+
+        # Если тип текущего файла соответствует искомому, либо ...
+        # ... типы искомых файлов не заданы, то вносим файл в список:
+        elif not len(extentions) or os.path.splitext(file)[1].lower() in extentions:
+            file_list.append(file)
+    
+    return file_list
 
 
 ########################
@@ -570,26 +833,79 @@ def istarmap(self, func, iterable, chunksize=1):
 pool.Pool.istarmap = istarmap
 # Взято с https://stackoverflow.com/a/57364423
 
+def batch_mpmap_func(func, *args):
+    return [func_(*args_) for func_, *args_ in zip(func, *args)]
+    
+def batch_mpmap_args(func, args, batch_size=10):
+    '''
+    Группирует аргументы и создаёт соовтествующую функцию для mpmap.
+    Используется для выполнения в mpmap нескольких задачь в одном процессе.
+    '''
+    #def batched_func(*agrs):
+        #return mpmap(func, *args, num_procs=1)
+        
+
+    num_args  = len(args   )
+    num_tasks = len(args[0])
+    
+    agrs_batches = [[] for _ in range(num_args + 1)]
+    
+    for start_ind in range(0, num_tasks, batch_size):
+        
+        end_ind = start_ind + batch_size
+        if end_ind >= num_tasks:
+            end_ind = None
+
+        
+        for arg_ind in range(num_args):
+            agrs_batches[arg_ind + 1].append(args[arg_ind][start_ind:end_ind])
+        
+        agrs_batches[0].append([func] * len(agrs_batches[-1][-1]))
+    
+    return agrs_batches
+
 
 def mpmap(func      : 'Функция, применяемая отдельно к каждому элементу списка аргументов'            ,
           *args     : 'Список аргументов'                                                             ,
           num_procs : 'Число одновременно запускаемых процессов. По умолчанию = числу ядер ЦПУ' = 0   ,
+          batch_size: 'Группировать несколько элементов в одном процессе для мелких задач'      = 1   ,
           desc      : 'Текст статус-бара. По-умолчанию статус-бар не отображается'              = None):
     '''
     Обрабатывает каждый элемент списка в отдельном процессе.
     Т.е. это некий аналог map-функции в параллельном режиме.
     '''
+    # Размер группы не может быть нулевым:
+    batch_size = batch_size or 1
+    #if batch_size == 0:
+    #    batch_size = 1
     
     if len(args) == 0:
         raise ValueError('Должен быть задан хотя бы один список/кортеж аргументов!')
+    
+    # Если число процессов задано вещественным числом, то берём его как ...
+    # ... коэффициент для общего числа ядер в системе:
+    if isfloat(num_procs):
+        num_procs = int(num_procs * os.cpu_count())
     
     # Если нужно запускать всего 1 процесс одновременно, то обработка будет в текущем процессе:
     if num_procs == 1:
         return list(tqdm(map(func, *args), total=reduce(min, map(len, args)), desc=desc, disable=not desc))
     
-    # Если нужен реальный параллелизм:
+    # Если в одном процессе должно быть сразу несколько задач:
+    if batch_size > 1:
+        # Формируем сгруппированные аргументы:
+        batched_args = batch_mpmap_args(func, args, batch_size=batch_size)
+        
+        #print(args, '!')
+        #print(batched_args, '!!')
+        
+        # Выполняем параллельную обработку групп:
+        return flatten_list(mpmap(batch_mpmap_func, *batched_args, num_procs=num_procs, desc=desc))
+    
+    # Если нужен реальный параллелизм для каждой задачи:
     with Pool(num_procs if num_procs else None) as p:
         if len(args) > 1:
+            #print(args, '!!!')
             total = reduce(min, map(len, args))
             args = zip(*args)
             pmap = p.istarmap
@@ -713,6 +1029,27 @@ def train_val_test_split(*args, val_size=0.2, test_size=0.1, random_state=0):
 ###################
 # Другие утилиты: #
 ###################
+
+
+def a2hw(a, drop_tail=False):
+    '''
+    Принудительно дублирует входное значение, если оно одно.
+    
+    Т.е.:
+        a2hf(a)      == (a, a)
+        a2hf([a])    == (a, a)
+        a2hf((a, b)) == (a, b)
+        
+        a2hf((a, b, c), drop_tail=True) == (a, b)
+        a2hf((a, b, c)): Error
+    '''
+    if hasattr(a, '__len__'):
+        if   len(a) == 1              : return (a[0], a[0])
+        elif len(a) == 2              : return a
+        elif len(a)  > 2 and drop_tail: return a[:2]
+        else: raise ValueError(f'Ожидался объект, содержащий 1 или 2 значения. Получен {a}!')
+    else:
+        return (a, a)
 
 
 # Словарь перевода римских цифр в арабские числа:
@@ -849,22 +1186,139 @@ class AnnotateIt():
         print('\r' + self.end_annotation)
 
 
+def apply_on_cartesian_product(func     : 'Функция двух аргументов'          ,
+                               values1  : 'Первый список объектов'           ,
+                               values2  : 'Первый список объектов'    = None ,
+                               symmetric: 'Функция симметрическая?'   = False,
+                               diag_val : 'Чему равно func(a, a)'     = None ,
+                               num_procs: 'Число процессов для mpmap' = 0    ,
+                               desc     : 'Название статусбара'       = None ):
+    '''
+    Формирует матрицу применения функции func(a, b) к
+    декартовому произведению элементов из values1 и values2.
+    
+    Если values2 не задан, то values1 умножается сам на
+    себя. Если при этом задаётся diag_val, то им заменяются
+    все диагональные элементы квадратной матрицы.
+    
+    Если symmetric == True, то func считается симметрической
+    (т.е. func(a, b) == func(b, a)), и итоговая матрица
+    будет рассчитываться по упрощённой схеме для ускорения
+    вычислений.
+    '''
+    # Для выполнения вычислений в параллельном режиме
+    # сначала составляется список значений каждого
+    # агрумента функции, а так же соответствующий ему
+    # список индексов (в какую ячейку вносить результат).
+    
+    # Инициализация матрицы результатов:
+    if values2:
+        mat = np.zeros((len(values1), len(values2)), dtype=object)
+    else:
+        mat = np.zeros([len(values1)] * 2          , dtype=object)
+    
+    ###############################
+    # Формируем спиок аргументов. #
+    ###############################
+    
+    # Инициализация списков аргументов и индексов для задач:
+    args1 = []
+    args2 = []
+    inds  = []
+    
+    # Если второй список объектов задан:
+    if values2:
+        
+        # Заполняем списки аргументов и индексов задач:
+        for i, v1 in enumerate(values1):
+            for j, v2 in enumerate(values2):
+                args1.append(v1)
+                args2.append(v2)
+                inds .append([(i, j)])
+    
+    # Если второй список объектов не задан, то ...
+    # ... строим связность первого списка с собой:
+    else: 
+        
+        # Заполнение таблицы:
+        for i, v1 in enumerate(values1):
+            
+            # Если значение диагональных элементов не задано:
+            if diag_val is None:
+                
+                # Добавляем очередную задачу для ячейки (i, i):
+                args1.append(v1)
+                args2.append(v1)
+                inds .append([(i, i)])
+
+            # Если значение диагональных элементов задано, то сразу прописываем его в матрицу:
+            else:
+                mat[i, i] = diag_val
+
+            # Последнюю строку пропускаем, т.к. все её элементы уже учтены: 
+            if i == len(values1) - 1: continue
+            # Элемент диагонали был учтён в предыдущих строках, а ...
+            # ... остальные в последующих благодаря работе не только ...
+            # ... с (i, j), но и с (j, i)!
+            
+            # Все остальные элементы рассчитываем обычным образом:
+            for j, v2 in enumerate(values1[i + 1:], i + 1):
+                
+                # Если функция симметрическая, то матрица будет симметрична относительно главной диаганали:
+                if symmetric:
+                    args1.append(v1); args2.append(v2); inds.append([(i, j), (j, i)])
+                
+                # Если функция несимметрическая, то создаются две задачи (для (i, j) и (j, i)):
+                else:
+                    args1.append(v1); args2.append(v2); inds.append([(i, j)])
+                    args1.append(v2); args2.append(v1); inds.append([(j, i)])
+    
+    # Выполняем составленные задачи:
+    rzlts = mpmap(func, args1, args2, num_procs=num_procs, desc=desc)
+    
+    # Записываем результаты в соответствующие ячейки:
+    for ijs, rzlt in zip(inds, rzlts):
+        for i, j in ijs:
+            mat[i, j] = rzlt
+    
+    return mat
+
+
+def reorder_lists(ordered_inds, *args):
+    '''
+    Меняет очерёдность элементов нескольких списков по общему шаблону sorted_inds.
+    '''
+    # Инициализируем итоговый список:
+    sorted_args = []
+    
+    # Перебираем все сортируемые списки:
+    for arg in args:
+        
+        # Сортируем очередной список:
+        sorted_arg = [arg[ordered_ind] for ordered_ind in ordered_inds]
+        
+        # Добавляем отсортированный список в итоговый:
+        sorted_args.append(sorted_arg)
+    
+    return sorted_args
+
+
 def isint(a):
     '''
     Возвращает True, если число или numpy-массив является целочисленным.
     '''
-    return isinstance(a        , int       ) or  \
-           isinstance(a        , np.ndarray) and \
-           isinstance(a.flat[0], np.integer)
+    return isinstance(a, (int, np.integer)) or \
+           isinstance(a, np.dtype) and np.issubdtype(a, np.integer) or \
+           isinstance(a, np.ndarray) and np.issubdtype(a.dtype, np.integer)
 
 
 def isfloat(a):
     '''
     Возвращает True, если число или numpy-массив является вещественным.
     '''
-    return isinstance(a        , float      ) or  \
-           isinstance(a        , np.ndarray ) and \
-           isinstance(a.flat[0], np.floating)
+    return isinstance(a, (float, np.floating)) or \
+           isinstance(a, np.dtype)   and np.issubdtype(a, np.floating) or \
+           isinstance(a, np.ndarray) and np.issubdtype(a.dtype, np.floating)
 
 
 # Работа с изображениями:

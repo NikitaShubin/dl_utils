@@ -1,68 +1,78 @@
 import os
 import cv2
+
+import scipy
 import numpy as np
 from time import time
 from tqdm import tqdm
+
 from matplotlib import pyplot as plt
-#from skimage import io, transform, feature, filters, draw
 
-import torch, torchvision
-
-#from tensorflow import keras
-#from tensorflow.keras import callbacks, models
-#from tensorflow.keras.preprocessing.image import ImageDataGenerator
+from utils import isint, isfloat, text2img, overlap_with_alpha, mpmap
 
 
 ##############################################
 # Работа в конвейере (в т.ч. с видеопотоком) #
 ##############################################
 
+def SkipNone(func):
+    '''
+    Декоратор для __call__-функйий в функторах-фильтрах.
+    Позволяет пропускать None дальше в конвейере без применения
+    самих функций. Такая возможность позволяет имитировать
+    асинхронность даже при синхронной работе конвейера.
+    '''
+    def func_(inp):
+        return None if inp is None else func(inp)
+    
+    return func_
+    
+
 class Pipeline():
     '''
     # Конвейер фильтров обработки изображений
     '''
-    
-    # Конкатенация списка функций
+    # Конкатенация списка функций:
     @staticmethod
     def concat(image_filter_list):
         functions, names = [], []
         
         for image_filter in image_filter_list:
-            if hasattr(image_filter, '__call__'):         # Если функция
+            
+            # Если функция/функтор:
+            if hasattr(image_filter, '__call__'):
                 functions.append(image_filter)
                 if hasattr(image_filter, 'name'):
                     names.append(image_filter.name)
                 else:
                     names.append('NonameFunction')
             
-            elif isinstance(image_filter, (tuple, list)): # Если список/кортеж функций
+            # Если список/кортеж функций:
+            elif isinstance(image_filter, (tuple, list)):
                 functions_, names_ = concat(image_filter)
                 functions.extend(functions_)
                 names    .extend(names_)
             
-            elif isinstance(image_filter, str):           # Если строка
-                # Список синонимов
-                if image_filter.lower() == 'rgb2gray':
-                    functions.append(lambda image: cv2.cvtColor(image, cv2.COLOR_RGB2GRAY))
-                elif image_filter.lower() == 'rgb2yuv':
-                    functions.append(lambda image: cv2.cvtColor(image, cv2.COLOR_RGB2YUV ))
-                elif image_filter.lower() in ['rgb2bgr', 'bgr2rgb']:
-                    functions.append(lambda image: cv2.cvtColor(image, cv2.COLOR_RGB2BGR ))
-                elif image_filter.lower() == 'yuv2rgb':
-                    functions.append(lambda image: cv2.cvtColor(image, cv2.COLOR_YUV2RGB ))
-                elif image_filter.lower() == 'yuv2bgr':
-                    functions.append(lambda image: cv2.cvtColor(image, cv2.COLOR_YUV2BGR ))
-                elif image_filter.lower() == 'yuv2gray':
-                    functions.append(lambda image: image[..., 0])
-                elif image_filter.lower() == 'gray2rgb':
-                    functions.append(lambda image: cv2.cvtColor(image, cv2.COLOR_GRAY2RGB))
-                elif image_filter.lower() == 'gray2bgr':
-                    functions.append(lambda image: cv2.cvtColor(image, cv2.COLOR_GRAY2BGR))
-                else:
-                    raise ValueError('"%s" не входит в список синонимов.' % image_filter) 
+            # Если строка:
+            elif isinstance(image_filter, str):
+                # Список синонимов:
+                if   image_filter.lower() == 'rgb2gray' : functions.append(rgb2gray )
+                elif image_filter.lower() == 'bgr2gray' : functions.append(bgr2gray )
+                elif image_filter.lower() == 'rgb2yuv'  : functions.append(rgb2yuv  )
+                elif image_filter.lower() == 'rgb2bgr'  : functions.append(rgb2bgr  )
+                elif image_filter.lower() == 'bgr2rgb'  : functions.append(bgr2rgb  )
+                elif image_filter.lower() == 'yuv2rgb'  : functions.append(yuv2rgb  )
+                elif image_filter.lower() == 'yuv2bgr'  : functions.append(yuv2bgr  )
+                elif image_filter.lower() == 'yuv2gray' : functions.append(lambda image: image[..., 0])
+                elif image_filter.lower() == 'gray2rgb' : functions.append(gray2rgb )
+                elif image_filter.lower() == 'gray2bgr' : functions.append(gray2bgr )
+                elif image_filter.lower() == 'im2double': functions.append(im2double)
+                elif image_filter.lower() == 'double2im': functions.append(double2im)
+                else: raise ValueError('"%s" не входит в список синонимов.' % image_filter)
                 names.append(image_filter)
             
-            elif isinstance(image_filter, int):           # Если число
+            # Если число:
+            elif isinstance(image_filter, int):
                 thresh = float(image_filter)
                 functions.append(lambda image: cv2.threshold(image, thresh, 255, cv2.THRESH_BINARY)[1])
                 names.append('trheshold_%d' % image_filter)
@@ -76,11 +86,48 @@ class Pipeline():
         self.functions, self.names = self.concat(image_filter_list)
         self.name = name
     
-    def __call__(self, image):
-        for image_filter in self.functions:
+    def __call__(self, image=None):
+        if image is None:
+            image = self.functions[0]()
+        else:
+            image = self.functions[0](image)
+        
+        for image_filter in self.functions[1:]:
             image = image_filter(image)
+        
         return image
+
+    # Применяет конвейер для конвертации файлов:
+    def convert(self, inp_file, out_file, step=1, desc='auto', recompress=True, skip_existed=True):
+        
+        if skip_existed and os.path.isfile(out_file):
+            return
+        
+        # Инициируем чтение и запись видео-файлов
+        vr = ViRead(inp_file)
+        vs = ViSave(out_file)
+        
+        # Перебираем все кадры источника:
+        for frame_ind in tqdm(range(vr.total_frames),
+                              desc=inp_file if desc.lower() == 'auto' else desc,
+                              disable=desc is None):
+            
+            # Получаем очередной кадр:
+            frame = vr()
+            
+            # Если номер кадра соответствует текущему шагу, то обрабатываем и записываем его:
+            if frame_ind % step == 0:
+                vs(self(frame))
+        
+        # Закрываем оба видеофайла:
+        vr.close()
+        vs.close()
+
+        # Если после конвертации файл требуется пересжать (для применения межкадрового сжатия):
+        if recompress:
+            pass
     
+    # Сброс всех использующихся фильтров:
     def reset(self, im_size=None):
         for image_filter in self.functions:
             if hasattr(image_filter, 'reset'):
@@ -105,7 +152,7 @@ class ViRead:
         
         # Определение конечного цветового пространства
         if self.colorspace == 'yuv':
-            self.colorspace_converter = lambda image: cv2.cvtColor(image, cv2.COLOR_BGR2YUV )
+            self.colorspace_converter = bgr2yuv
         elif self.colorspace == 'gray':
             self.colorspace_converter = lambda image: cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
         elif self.colorspace == 'rgb':
@@ -191,7 +238,6 @@ class ViSave:
         if hasattr(self, 'wrt'):
             self.wrt.release()
     
-    
     def __call__(self, frame):
         if not hasattr(self, 'wrt'):
             self.wrt = cv2.VideoWriter(self.path,
@@ -201,33 +247,271 @@ class ViSave:
         self.wrt.write(self.colorspace_converter(frame))
 
 
-class KerasNN:
+# Меняет размер изображения:
+class Resize:
+    '''
+    Изменение размера изображения:
+    '''
+    def __init__(self, im_size=512):
+        
+        # Если задан не кортеж/список/numpy-массив, дублируем его:
+        if not isinstance(im_size, (tuple, list, np.ndarray)):
+            im_size = (im_size, im_size)
+        
+        self.im_size = tuple(im_size)
+    
+    # Перерасчитывает размер оси изображения:
+    @staticmethod
+    def adopt_axis_size(target_size, source_size):
+        if isint(target_size):
+            return target_size
+        
+        elif isfloat(target_size):
+            return int(target_size * source_size)
+        
+        else:
+            raise ValueError('Параметр "im_size" должен быть задан целыми или' +
+                             ' вещественными числами. Получено %s!' % target_size)
+    # Нужно, например, для перехода от относительного размера к абсолютному.
+    
+    def __call__(self, img):
+        # Получаем размер входного изображения:
+        im_size = img.shape[:2]
+        
+        # Перерассчитываем итоговый размер изображения:
+        target_size = [self.adopt_axis_size(self.im_size[i], im_size[i]) for i in range(2)]
+        #target_size = list(map(, zip(self.im_size, im_size)))
+        # Нужно, если размеры указаны вещественными ...
+        # ... числами, т.е. являются коэффициентами.
+        
+        return cv2.resize(img, target_size[::-1], interpolation=cv2.INTER_AREA)
+
+
+class AddCaption:
+    '''
+    Наносит контрастный текст на изображение.
+    '''
+    def __init__(self, text, scale=0.6):
+        self.text = text
+        self.scale = scale
+        self.reset()
+    
+    @staticmethod
+    def new_mask(text, im_size, scale):
+        
+        # Растеризируем текст:
+        mask = text2img(text, im_size[:2], scale)
+        
+        # Строим альфаканал как дилатированную версию текста:
+        mask_alpha = mask.copy()
+        
+        # Размазываем по вертикали через сдвиги:
+        mask_alpha_1 = np.roll(mask_alpha, -1, 0)
+        mask_alpha_2 = np.roll(mask_alpha,  1, 0)
+        mask_alpha = np.dstack([mask_alpha, mask_alpha_1, mask_alpha_2])
+        mask_alpha = mask_alpha.max(-1)
+        
+        # Размазываем по горизонтали через сдвиги:
+        mask_alpha_1 = np.roll(mask_alpha, -1, 1)
+        mask_alpha_2 = np.roll(mask_alpha,  1, 1)
+        mask_alpha = np.dstack([mask_alpha, mask_alpha_1, mask_alpha_2])
+        mask_alpha = mask_alpha.max(-1)
+        
+        # В результате получится белый текст с чёрной обводкой.
+        
+        return np.dstack([mask, mask_alpha])
+    
+    def __call__(self, img):
+        # Если размер изображения изменился, или это первый запуст после сброса:
+        if self.mask is None or self.mask.shape[:2] != img.shape[:2]:
+            
+            # Сбрасываем маску ещё раз:
+            self.reset()
+            
+            # Векторизируем текст (создаём предварительную маску):
+            mask = self.new_mask(self.text, img.shape[:2], self.scale)
+            
+            # Накладываем текст на изображение и фиксируем итоговую маску:
+            img, self.mask = overlap_with_alpha(img, mask, True)
+        
+        # Если маска уже есть, и она адекватна, то сразу используем её:
+        else:
+            img = overlap_with_alpha(img, self.mask)
+        
+        return img
+    
+    def reset(self):
+        self.mask = None
+
+
+class Res:
+    '''
+    Объединяет входное и выходное изображения для заданного вложенного конвейера.
+    '''
+    def __init__(self, InnerPipeline, mode='h'):
+        self.pl = InnerPipeline
+        self.mode = mode.lower()
+    
+    def __call__(self, image):
+        
+        # Получаем входное и выходное изображения:
+        inp = image
+        out = self.pl(image)
+        
+        # Вход и выход должны быть одинакового типа:
+        assert inp.dtype == out.dtype
+        
+        # Определяем способ объединения изображений в зависимости от параметра mode:
+        concat = np.hstack if self.mode=='h' else np.vstack
+        
+        # Возвращаем результат объединения:
+        return concat([inp, out])
+
+
+class Mix:
+    '''
+    Накладывает выходное изображение на входное для заданного вложенного конвейера.
+    '''
+    def __init__(self, InnerPipeLine, alpha=0.5):
+        self.pl = InnerPipeLine
+        self.alpha = alpha
+    
+    def __call__(self, image):
+        # Получаем входное и выходное изображения:
+        inp = image
+        out = self.pl(image)
+        
+        # Вход и выход должны быть одинакового типа и размера
+        assert inp.dtype == out.dtype
+        assert inp.shape == out.shape
+        
+        # Накладываем полупрозрачный выход на вход:
+        mix = inp * (1. - self.alpha) + out * self.alpha
+        
+        # Возвращаем приведённый к нужному типу результат:
+        return mix.astype(inp.dtype)
+
+
+class Concat:
+    '''
+    Объединяет входное и выходное изображения для заданного вложенного конвейера.
+    '''
+    def __init__(self, Pipelines, mode='h'):
+        
+        # Pipelines должен быть списком или кортежем:
+        assert isinstance(Pipelines, (list, tuple))
+        
+        self.pls = Pipelines
+        self.mode = mode.lower()
+    
+    def __call__(self, image):
+        # Применяем все фильтры к исходному изображению:
+        outs = [image if f is None else f(image) for f in self.pls]
+        # Если вместо фильтра в списке стоит None, ...
+        # ... то просто повторяем входное изображение.
+        
+        '''
+        # Вход и выход должны быть одинакового типа:
+        for out in outs[1:]:
+            assert outs[0].dtype == out.dtype
+        '''
+        
+        # Определяем способ объединения изображений в зависимости от параметра mode:
+        concat = np.hstack if self.mode=='h' else np.vstack
+        
+        # Возвращаем результат объединения:
+        return concat(outs)
+
+
+class CompareTwoFilters:
+    '''
+    Выводит демо-коллаж из четырёх изображений в след. виде:
+    <Входное изображение             > <Выходи из Filter1>
+    <diff_func от выходов Filter1 и 2> <Выходи из Filter2>
+
+    Полезно для отладки и сравнения фильтров.
+    '''
+    def __init__(self, filter1, filter2, diff_func=cv2.absdiff, name='Comparator'):
+        self.f1 = filter1
+        self.f2 = filter2
+        self.diff = diff_func
+        self.name = name
+    
+    def __call__(self, img):
+        out1 = self.f1(img)
+        out2 = self.f2(img)
+        diff = self.diff(out1, out2)
+        
+        return np.vstack([np.hstack([img , out1]),
+                          np.hstack([diff, out2])])
+    
+    # Сброс внутренних состояний:
+    def reset(self):
+        for f in [self.f1, self.f2]:
+            if hasattr(f, 'reset'):
+                f.reset()
+
+
+class CompareFiltersWithTarget:
+    '''
+    Выводит демо-коллаж из изображений в след. виде:
+    <Входное изображение  > <Выходи из Filter1                     > ... <Выходи из FilterN                     >
+    <Эталонное изображение> <diff_func от выходов Filter1 и элалона> ... <diff_func от выходов FilterN и элалона>
+
+    На вход должен подаваться коллаж в след. виде:
+    <Входное изображение  >
+    <Эталонное изображение>
+    (изображения должны распологаться одно под
+    другим и иметь одинаковый размер по высоте).
+    
+    Полезно для отладки и сравнения фильтров.
+    '''
+    def __init__(self, filters, diff_func=cv2.absdiff, name='TargetComparator'):
+        self.filters = filters
+        self.diff = diff_func
+        self.name = name
+    
+    def __call__(self, img):
+
+        # Разделяем изображение на входное и эталонное:
+        inp, out = np.vsplit(img, 2)
+
+        # Выполняем фильтрацию:
+        preds = [f(inp) for f in self.filters]
+
+        # Вычисляем отличия от эталона:
+        diffs = [self.diff(out, pred) for pred in preds]
+
+        # Собираем в коллаж и возвращаем:
+        return np.vstack([np.hstack([inp, *preds]),
+                          np.hstack([out, *diffs])])
+    
+    # Сброс внутренних состояний:
+    def reset(self):
+        for f in [self.f1, self.f2]:
+            if hasattr(f, 'reset'):
+                f.reset()
+
+
+class KerasModel:
     '''
     # Использование keras-модели как фильтра.
     '''
-    def __init__(self, model, name='KerasNeuralNetwork'):
+    def __init__(self, model, name='KerasModel'):
         self.model = model
         self.name = name
         self.reset()
         self.stateful = model.stateful
     
     def __call__(self, image):
-        out = self.model.predict(np.expand_dims(image, 0))[0, ...]
-        
-        #out[out < 0] = 0
-        #out[out > 1] = 1
-        
-        out = (out * 255).astype(np.uint8)
-        
-        return out
+        return self.model.predict(np.expand_dims(image, 0), verbose=0)[0, ...]
     
     def reset(self):
         self.model.reset_states()
-        
+    
     def close(self):
         self.model.stateful = self.stateful
         self.reset()
-        
 
 
 class StoreLastFrames:
@@ -330,7 +614,7 @@ class StreamRandomFlip:
         if not np.all(np.equal(self.im_size, im_size)):
             self.reset()
             self.im_size = im_size
-                
+        
         if self._ud:
             image = np.flipud(image)
         if self._lr:
@@ -341,18 +625,34 @@ class StreamRandomFlip:
         return image
 
 
-# RGB/BGR <-> YUV черес cv2
+# RGB/BGR <-> YUV:
 def rgb2yuv(img):
     return cv2.cvtColor(img, cv2.COLOR_RGB2YUV)
 def yuv2rgb(img):
     return cv2.cvtColor(img, cv2.COLOR_YUV2RGB)
 def bgr2yuv(img):
     return cv2.cvtColor(img, cv2.COLOR_BGR2YUV)
-def rgb2yuv(img):
-    return cv2.cvtColor(img, cv2.COLOR_RGB2YUV)
+def yuv2bgr(img):
+    return cv2.cvtColor(img, cv2.COLOR_YUV2BGR)
 def rgb2bgr(img):
     return cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
 bgr2rgb = rgb2bgr
+
+# RGB/BGR <-> Gray:
+def rgb2gray(img):
+    return cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
+def bgr2gray(img):
+    return cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+def gray2rgb(img):
+    return cv2.cvtColor(img, cv2.COLOR_GRAY2RGB)
+def gray2bgr(img):
+    return cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
+
+# uint8 <-> float32:
+def im2double(img):
+    return img.astype(np.float32) / 255.
+def double2im(double):
+    return (double * 255).astype(np.uint8)
 
 
 def color_canny(image):
@@ -376,7 +676,6 @@ def apply2video(im_filter      : 'Фильтр, применяемый к цве
     '''
     Применяет какую-то функцию обработки изображений к видео
     '''
-    
     default_inp_dir = '/home/user/work/shubin/Test/Video'
     default_out_dir = '/home/user/work/shubin/Results/Video'
     
@@ -465,7 +764,7 @@ def apply2video(im_filter      : 'Фильтр, применяемый к цве
     # Сброс состояния детектора границы
     if hasattr(im_filter, 'reset'):
         im_filter.reset()
-
+    
     #while(imp.isOpened()):
     total_frames = int(imp.get(cv2.CAP_PROP_FRAME_COUNT)) // step
     for frame_ind in tqdm(range(total_frames), inp_file, disable=not verbose):
@@ -584,7 +883,7 @@ def apply2image(im_filter      : 'Фильтр, применяемый к цве
             # Сброс состояния детектора границы
             if hasattr(edge_detector, 'reset'):
                 edge_detector.reset()
-
+            
             out = edge_detector(inp)
             break
         except RuntimeError: # Если имеем OOM, то понижаем разрешение изображения в 2 раза по каждой стороне
@@ -598,7 +897,7 @@ def apply2image(im_filter      : 'Фильтр, применяемый к цве
     # Работа с каналами
     if len(out.shape) == 2:               # Если матрица двумерная...
         out = np.stack([out] * 3, -1)     #     ... то дублируем её на 3 канала
-    elif len(out.shape) == 3:             # Если измерений 3 ... 
+    elif len(out.shape) == 3:             # Если измерений 3 ...
         if out.shape[2] == 1:             #     ... но канал 1 ...
             out = np.repeat(out, 3, -1)   #         ... то дублируем его 3 раза
         elif out.shape[2] == 3:           #     ... и каналов 3 ...
@@ -687,3 +986,94 @@ def convert_videos(inp_path, out_path, skip_existed=True):
         else:
             print(file_status_template % 'Пропущен')
     return
+
+
+class OptFlow:
+    '''
+    Обвязка вокруг cv2.calcOpticalFlowFarneback.
+    Позволяет выполнять различные операции на базе оптического потока.
+    '''
+    def __init__(self                                       ,
+                 pyr_scale  = 0.5                           ,
+                 levels     = 1                             ,
+                 winsize    = 40                            ,
+                 poly_n     = 5                             ,
+                 poly_sigma = 1.1                           ,
+                 iterations = 10                            ,
+                 flags      = cv2.OPTFLOW_FARNEBACK_GAUSSIAN):
+        self.pyr_scale  = pyr_scale
+        self.levels     = levels
+        self.winsize    = winsize
+        self.poly_n     = poly_n
+        self.poly_sigma = poly_sigma
+        self.iterations = iterations
+        self.flags      = flags
+    
+    def __call__(self, img1, img2, flow=None):
+        '''
+        Оптический поток для двух изображений.
+        '''
+        # Переводим цветные изображения в оттенки серого, если надо:
+        if img1.ndim > 2 and img1.shape[2] == 3: img1 = cv2.cvtColor(img1, cv2.COLOR_RGB2GRAY)
+        if img2.ndim > 2 and img2.shape[2] == 3: img2 = cv2.cvtColor(img2, cv2.COLOR_RGB2GRAY)
+        
+        # Вычисляем сам опт. поток:
+        return cv2.calcOpticalFlowFarneback(img1                        ,
+                                            img2                        ,
+                                            flow                        ,
+                                            pyr_scale  = self.pyr_scale ,
+                                            levels     = self.levels    ,
+                                            winsize    = self.winsize   ,
+                                            poly_n     = self.poly_n    ,
+                                            poly_sigma = self.poly_sigma,
+                                            iterations = self.iterations,
+                                            flags      = self.flags     )
+    
+    @staticmethod
+    def apply_flow2img(img, flow):
+        '''
+        Восстановление второго изображения по первому и их опт.потоку.
+        '''
+        # Строим координатную сетку:
+        y = np.arange(img.shape[0], dtype=float)
+        x = np.arange(img.shape[1], dtype=float)
+        xv, yv = np.meshgrid(x, y)
+        
+        # Деформируем координатную сетку, согласно опт. потоку:
+        xx = xv - flow[..., 0]
+        yy = yv - flow[..., 1]
+        
+        # Интерполируем каждый канал изображения, согласно деформированной координатной сетке:
+        return np.dstack([scipy.ndimage.map_coordinates(img[..., ch], [yy, xx]) for ch in range(3)])
+    
+    def seq_flows(self, imgs, cum_sum=True, **mpmap_kwargs):
+        '''
+        Вычисляем потоки между соседними кадрами видеопоследовательности.
+        '''
+        # Рассчёт потока между каждой парой соседних кадров:
+        flows = mpmap(self.__call__, imgs[:-1], imgs[1:], **mpmap_kwargs)
+        
+        # Если поток отстраивается от первого изображения:
+        if cum_sum:
+            
+            # Инициируем нулями поток для первого кадра с самим собой:
+            flow = np.zeros_like(flows[0])
+            cum_flows = [flow]
+            
+            # Накапливаем сдвиги для следующих кадров:
+            for dflow in flows:
+                flow = flow + dflow
+                cum_flows.append(flow)
+            
+            # Заменяем исходные потоки, потокам с накоплением:
+            flows = cum_flows
+        
+        return flows
+    
+    def seq_apply_flow2img(self, img, cum_flows, **mpmap_kwargs):
+        '''
+        Восстанавливает последовательность кадров, используя
+        лишь первый кадр и последовательность опт. потоков.
+        '''
+        return mpmap(self.apply_flow2img, [img] * len(cum_flows), cum_flows, **mpmap_kwargs)
+
