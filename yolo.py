@@ -47,80 +47,85 @@ class YOLOLabels:
                  df      : 'Датафрейм, содержащий сегменты для текущего кадра',
                  mode    : 'Режим ("box" или "seg")'                   = 'box',
                  im_size : 'Размер изображения'                        = None ):
-        
-        self.mode    = mode
+
+        self.mode = mode
         self.im_size = im_size
-        
+
         # Объект, содежращий описание разметки в формате YOLO:
         yolo_labels = []
-        
+
         # Расщепляем размер изображения на составляющие:
         height, width = im_size
-        
+
         # Проходим по всем строкам, где контуры не скрыты:
-        for label, type_, points, rotation in df[df['outside'] == False][['label', 'type', 'points', 'rotation']].values:
-            
-            # Точек в контуре должно быть 4 для прямоугольников и эллипсов и не меньше 6 для многоугольников:
+        sub_df = df[df['outside'] == False][['label',
+                                             'type',
+                                             'points',
+                                             'rotation']].values
+        for label, type_, points, rotation in sub_df:
+
+            # Точек в контуре должно быть 4 для прямоугольников и эллипсов и не
+            # меньше 6 для многоугольников:
             if type_ in ['rectangle', 'ellipse']:
                 assert len(points) == 4
             elif type_ == 'polygon':
                 assert len(points) >= 6
-            
+
             # Получаем параметры фигуры вокруг объекта:
             points = CVATPoints(points, type_, rotation)
-            #yolo_points = points.yolobbox(height, width) if type_ == 'rectangle' else points.yoloseg(height, width)
+            # yolo_points = points.yolobbox(height, width) if type_ == 'rectangle' else points.yoloseg(height, width)
             yolo_points = points.yolobbox(height, width) if mode == 'box' else points.yoloseg(height, width)
-            
+
             assert yolo_points is not None
-            
+
             # Добавляем эти параметры в список:
             yolo_labels.append((label, yolo_points))
-        
+
         self.yolo_labels = yolo_labels
-    
+
     # Заменяет метки с помощью функции:
     def apply_label_func(self, label_func):
-        self.yolo_labels = [(label_func(label), yolo_points) for label, yolo_points in self.yolo_labels]
-    
+        self.yolo_labels = [(label_func(label), yolo_points)
+                            for label, yolo_points in self.yolo_labels]
+
     # Пишет разметку в файл датасета:
     def save(self, file):
-        
+
         # Флаг успешности сохранения:
         succeeded = True
-        
+
         with open(file, 'w') as f:
             for label, yolo_points in self.yolo_labels:
-                
+
                 # Если текущий объект вообще размечен, то пишем строчку в файл:
                 if label >=0:
                     points_str = ' '.join(map(str, yolo_points))
                     f.write('%s %s\n' % (label, points_str))
-                
-                # Если текущий объект ИСКЛЮЧЁН, то надо прерываем сохранение ...
-                # ... и снимаем флаг успешности сохранения:
+
+                # Если текущий объект ИСКЛЮЧЁН, то надо прерываем сохранение
+                # и снимаем флаг успешности сохранения:
                 elif label < -1:
                     succeeded = False
                     break
-        
+
         # Если сохранение прервано, то надо удалять файл:
         if not succeeded:
             rmpath(file)
-        
+
         # Возвращаем флаг успеха записи:
         return succeeded
-                    
-    
-    def draw_labels(self, image=None):
+
+    def draw_labels(self, image=None, edge_size=3, alpha=0.5):
         '''
         Наносит метки Yolo-формата на изображение для превью.
         '''
         # Размеры изображения:
         height, width = image.shape[:2]
-        
+
         # Создаём изображение, если не задано:
         if image is None:
             image = np.zeros((height, width, 3), np.uint8)
-        
+
         # Пробегаем по всем объектам в кадре:
         for label, points in self.yolo_labels:
             try:
@@ -128,25 +133,30 @@ class YOLOLabels:
                 points1 = CVATPoints(points, 'polygon' if len(points) > 4 else 'rectangle')    # Оборачиваем точки в CVAT-класс
                 points2 = points1.aspolygon() if self.mode == 'seg' else points1.asrectangle() # Конвертируем тип разметки в нужный формат
                 points3 = points2.yolo2cvat(height, width)                                     # Переводим в YOLO-формат
-                
+
                 # Задаём цвет описанной фигуры:
-                if  label == -1:
-                    color = (255, 0, 0) # Синий   для неиспользуемых объектов
+                if label == -1:
+                    color = (255, 0, 0)  # Синий   для неиспользуемых объектов
                 elif label > -1:
-                    color = (0, 255, 0) # Зелёный для обычных        объектов
+                    color = (0, 255, 0)  # Зелёный для обычных        объектов
                 else:
-                    color = (0, 0, 255) # Красный для исключённых    объектов
-                # Если исключения работают корректно, то красный цвет не должен вообще встречаться в превью!
-                
-                image = points3.draw(image, label, color, 3, False)
-            
+                    color = (0, 0, 255)  # Красный для исключённых    объектов
+                # Если исключения работают корректно, то красный цвет не должен
+                # вообще встречаться в превью!
+
+                # Отрисовываем контуры, если надо:
+                if edge_size:
+                    image = points3.draw(image, label, color, edge_size)
+                if alpha:
+                    image = points3.draw(image, label, color, 0, alpha)
+
             except:
                 print(points, '\n')
                 print(points1.points, '\n')
                 print(points2.points, '\n')
                 print(points3.points, '\n')
                 raise
-        
+
         return image
 
 

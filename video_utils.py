@@ -5,10 +5,47 @@ import scipy
 import numpy as np
 from time import time
 from tqdm import tqdm
+from skimage import feature
 
 from matplotlib import pyplot as plt
 
-from utils import isint, isfloat, text2img, overlap_with_alpha, mpmap
+from utils import (isint, isfloat, text2img, overlap_with_alpha, mpmap,
+                   rmpath, mkdirs, ImReadBuffer, cv2_vid_exts, cv2_img_exts)
+
+
+def recomp2mp4(source_file, target_file, rm_soruce=True, quiet=True):
+    '''
+    Пересжимает исходный файл в mp4. Полезно для достижения большей
+    компактности за счёт использования внутрикадрового сжатия и лучшей
+    аппаратной совместимости с различными устройствами воспроизведения.
+    '''
+    # Формируем команду для пересжатия:
+    cmd = 'ffmpeg -y -hide_banner -loglevel quiet ' + \
+          f'-i "{source_file}" -c:v libx264 -preset slow ' + \
+          f'-crf 20 -tune animation "{target_file}"'
+
+    # Прячем stderr и stdout, если надо:
+    if quiet:
+        cmd += '>/dev/null 2>&1'
+
+    # Выполняем пересжатие:
+    exit_code = os.system(cmd)
+
+    # Если пересжатие прошло с ошибкой:
+    if exit_code:
+        # Удаляем неудачный файл:
+        rmpath(target_file)
+
+        raise OSError(f'Ошибка пересжатия "{source_file}"!')
+
+    # Если целевой файл создан, а исходный надо удалить, то удаляем:
+    elif os.path.isfile(target_file):
+        if rm_soruce:
+            rmpath(source_file)
+
+    else:
+        raise NotImplementedError('Файл не создан, но ошибка не обнаружена!')
+    # Удаляем исходный файл, если надо, и если пересжатие завершено успешно:
 
 
 ##############################################
@@ -24,21 +61,21 @@ def SkipNone(func):
     '''
     def func_(inp):
         return None if inp is None else func(inp)
-    
+
     return func_
-    
+
 
 class Pipeline():
     '''
-    # Конвейер фильтров обработки изображений
+    Конвейер фильтров обработки изображений.
     '''
     # Конкатенация списка функций:
     @staticmethod
     def concat(image_filter_list):
         functions, names = [], []
-        
+
         for image_filter in image_filter_list:
-            
+
             # Если функция/функтор:
             if hasattr(image_filter, '__call__'):
                 functions.append(image_filter)
@@ -46,13 +83,13 @@ class Pipeline():
                     names.append(image_filter.name)
                 else:
                     names.append('NonameFunction')
-            
+
             # Если список/кортеж функций:
             elif isinstance(image_filter, (tuple, list)):
                 functions_, names_ = concat(image_filter)
                 functions.extend(functions_)
                 names    .extend(names_)
-            
+
             # Если строка:
             elif isinstance(image_filter, str):
                 # Список синонимов:
@@ -70,63 +107,85 @@ class Pipeline():
                 elif image_filter.lower() == 'double2im': functions.append(double2im)
                 else: raise ValueError('"%s" не входит в список синонимов.' % image_filter)
                 names.append(image_filter)
-            
+
             # Если число:
             elif isinstance(image_filter, int):
                 thresh = float(image_filter)
                 functions.append(lambda image: cv2.threshold(image, thresh, 255, cv2.THRESH_BINARY)[1])
                 names.append('trheshold_%d' % image_filter)
-            
+
             else:
                 raise ValueError('%s не является подходящим элементом конвеера.' % image_filter)
-        
+
         return functions, names
-    
+
     def __init__(self, image_filter_list, name='Pipeline'):
         self.functions, self.names = self.concat(image_filter_list)
         self.name = name
-    
+
     def __call__(self, image=None):
         if image is None:
             image = self.functions[0]()
         else:
             image = self.functions[0](image)
-        
+
         for image_filter in self.functions[1:]:
             image = image_filter(image)
-        
+
         return image
 
     # Применяет конвейер для конвертации файлов:
-    def convert(self, inp_file, out_file, step=1, desc='auto', recompress=True, skip_existed=True):
-        
+    def convert(self,
+                inp_file,
+                out_file,
+                step=1,
+                desc='auto',
+                recompress=True,
+                skip_existed=True):
+
         if skip_existed and os.path.isfile(out_file):
             return
-        
-        # Инициируем чтение и запись видео-файлов
-        vr = ViRead(inp_file)
-        vs = ViSave(out_file)
-        
-        # Перебираем все кадры источника:
-        for frame_ind in tqdm(range(vr.total_frames),
-                              desc=inp_file if desc.lower() == 'auto' else desc,
-                              disable=desc is None):
-            
-            # Получаем очередной кадр:
-            frame = vr()
-            
-            # Если номер кадра соответствует текущему шагу, то обрабатываем и записываем его:
-            if frame_ind % step == 0:
-                vs(self(frame))
-        
-        # Закрываем оба видеофайла:
-        vr.close()
-        vs.close()
 
-        # Если после конвертации файл требуется пересжать (для применения межкадрового сжатия):
-        if recompress:
-            pass
-    
+        # Если тип конечного файла не поддерживается без пересжатия или
+        # небоходимость пересжатия явно задана:
+        out_file_name, out_file_ext = os.path.splitext(out_file)
+        if recompress or out_file_ext.lower() not in {'.avi'}:
+
+            # Определяем имя временного файла:
+            tmp_file = out_file_name + '_tmp.avi'
+            assert not os.path.exists(tmp_file)
+            # Такой файл к этому моменту ещё не должен существовать!
+
+        # Если пересжатие не требуется, то временный файл и будет
+        # окончательным:
+        else:
+            tmp_file = out_file
+
+        try:
+            # Инициируем чтение и запись видео-файлов
+            with ViRead(inp_file) as vr, ViSave(tmp_file) as vs:
+
+                # Перебираем все кадры источника:
+                for frame_ind in tqdm(range(vr.total_frames),
+                                      desc=inp_file if hasattr(desc, 'lower')
+                                      and desc.lower() == 'auto' else desc,
+                                      disable=desc is None):
+
+                    # Получаем очередной кадр:
+                    frame = vr()
+
+                    # Если номер кадра соответствует текущему шагу, то
+                    # обрабатываем и записываем его:
+                    if frame_ind % step == 0:
+                        vs(self(frame))
+
+        except Exception as e:
+            raise RuntimeError('Обработка файла прервана из-за ошибки!') from e
+
+        # Если файл требуется пересжать:
+        if tmp_file != out_file:
+            recomp2mp4(tmp_file, out_file)
+
     # Сброс всех использующихся фильтров:
     def reset(self, im_size=None):
         for image_filter in self.functions:
@@ -139,17 +198,17 @@ class ViRead:
     Возвращает посделовательность кадров видео из файла.
     Работает и как функция и как генератор.
     '''
-    def __init__(self, path, start_frame=0, colorspace='rgb', on_end='reset'):
+    def __init__(self, path, start_frame=0, colorspace='rgb', on_end='close'):
         self.path = path
         self.start_frame = start_frame
         self.colorspace = colorspace.lower()
         self.on_end = on_end.lower()
         self.reset()
-    
+
     def reset(self):
         if hasattr(self, 'cap'):
             self.close()
-        
+
         # Определение конечного цветового пространства
         if self.colorspace == 'yuv':
             self.colorspace_converter = bgr2yuv
@@ -161,7 +220,7 @@ class ViRead:
             self.colorspace_converter = lambda image: image
         else:
             raise ValueError('"%s" не входит в список доступных цветовых схем.' % self.colorspace) 
-        
+
         # Определение файла-источника
         if isinstance(self.path, str):
             path = self.path
@@ -169,11 +228,11 @@ class ViRead:
             path = np.random.choice(self.path)
         else:
             raise ValueError('"%s" должен быть строкой//списком//множеством строк путей до файла.' % path)
-        
+
         self.cap = cv2.VideoCapture(path)
         if (self.cap.isOpened() == False):
             raise ValueError('Ошибка открытия файла "%s"' % path)
-        
+
         self.total_frames = int(self.cap.get(cv2.CAP_PROP_FRAME_COUNT))
         if isinstance(self.start_frame, int):
             start_frame = self.start_frame if self.start_frame >= 0 else self.total_frames + self.start_frame
@@ -187,12 +246,12 @@ class ViRead:
         if start_frame < 0 or start_frame >= self.total_frames:
             self.close()
             raise ValueError('В "%s" всего %d кадров.' % (path, self.total_frames))
-        
+
         self.cap.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
-    
+
     def close(self):
         self.cap.release()
-    
+
     def __call__(self):
         ret, frame = self.cap.read()
         if ret:
@@ -209,9 +268,15 @@ class ViRead:
                 return self.last_frame
             else:
                 raise ValueError('Параметр "%s" не может быть равен "%s".' % ('on_end', on_end))
-    
+
     def __next__(self):
         return self()
+
+    def __enter__(self):
+        return self 
+
+    def __exit__(self, type, value, traceback):
+        self.close()
 
 
 class ViSave:
@@ -221,7 +286,7 @@ class ViSave:
     def __init__(self, path, colorspace='rgb', fps=30.):
         self.path = path
         self.fps = fps
-        
+
         colorspace = colorspace.lower()
         if colorspace == 'yuv':
             self.colorspace_converter = lambda image: cv2.cvtColor(image, cv2.COLOR_YUV2BGR )
@@ -232,12 +297,17 @@ class ViSave:
         elif colorspace == 'bgr':
             self.colorspace_converter = lambda image: image
         else:
-            raise ValueError('"%s" не входит в список доступных цветовых схем.' % colorspace) 
-    
+            raise ValueError('"%s" не входит в список доступных цветовых схем.' % colorspace)
+
+        # Создаём путь до файла, если надо:
+        path_dir = os.path.dirname(path)
+        if not os.path.isdir(path_dir):
+            mkdirs(path_dir)
+
     def close(self):
         if hasattr(self, 'wrt'):
             self.wrt.release()
-    
+
     def __call__(self, frame):
         if not hasattr(self, 'wrt'):
             self.wrt = cv2.VideoWriter(self.path,
@@ -246,45 +316,94 @@ class ViSave:
                                        (frame.shape[1], frame.shape[0]))
         self.wrt.write(self.colorspace_converter(frame))
 
+    def __enter__(self):
+        return self 
 
-# Меняет размер изображения:
+    def __exit__(self, type, value, traceback):
+        self.close()
+
+
+class AsType:
+    '''
+    Меняет тип тензора.
+    '''
+
+    def __init__(self, dtype):
+        self.dtype = dtype
+
+    def __call__(self, img):
+        return img.astype(self.dtype)
+
+
 class Resize:
     '''
     Изменение размера изображения:
     '''
-    def __init__(self, im_size=512):
-        
+    # Изменяет целевой размер изображения:
+    def reset_im_size(self, im_size):
         # Если задан не кортеж/список/numpy-массив, дублируем его:
         if not isinstance(im_size, (tuple, list, np.ndarray)):
             im_size = (im_size, im_size)
-        
+
         self.im_size = tuple(im_size)
-    
+
+    def __init__(self, im_size=512):
+        self.reset_im_size(im_size)
+
     # Перерасчитывает размер оси изображения:
     @staticmethod
     def adopt_axis_size(target_size, source_size):
         if isint(target_size):
             return target_size
-        
+
         elif isfloat(target_size):
             return int(target_size * source_size)
-        
+
         else:
-            raise ValueError('Параметр "im_size" должен быть задан целыми или' +
-                             ' вещественными числами. Получено %s!' % target_size)
+            raise ValueError('Параметр "im_size" должен быть задан целыми ' + \
+                             'или вещественными числами. Получено ' + \
+                             target_size, '!')
     # Нужно, например, для перехода от относительного размера к абсолютному.
-    
+
     def __call__(self, img):
         # Получаем размер входного изображения:
         im_size = img.shape[:2]
-        
+
         # Перерассчитываем итоговый размер изображения:
-        target_size = [self.adopt_axis_size(self.im_size[i], im_size[i]) for i in range(2)]
-        #target_size = list(map(, zip(self.im_size, im_size)))
+        target_size = [self.adopt_axis_size(self.im_size[i], im_size[i])
+                       for i in range(2)]
+        # target_size = list(map(, zip(self.im_size, im_size)))
         # Нужно, если размеры указаны вещественными ...
         # ... числами, т.е. являются коэффициентами.
-        
+
         return cv2.resize(img, target_size[::-1], interpolation=cv2.INTER_AREA)
+
+
+class ResizeAndRestore:
+    '''
+    Изменение размера входного изображения перед применением заданного
+    обработчика с последующим приведением результата к исходному размеру.
+    '''
+
+    def __init__(self, im_size, processor):
+        self.preprocessor = Resize(im_size)
+        self.processor = processor
+        self.postprocessor = Resize()
+
+    def __call__(self, img):
+        # Обновляем итоговый размер, если входной размер изменился
+        im_size = img.shape[:2]
+        if tuple(im_size) != tuple(self.postprocessor.im_size):
+            self.postprocessor.reset_im_size(im_size)
+
+        # Применяем всю цепь преобразований:
+        out = self.preprocessor(img)
+        out = self.processor(out)
+        return self.postprocessor(out)
+
+    def reset(self):
+        if hasattr(self.processor, 'reset'):
+            self.processor.reset()
 
 
 class AddCaption:
@@ -295,53 +414,104 @@ class AddCaption:
         self.text = text
         self.scale = scale
         self.reset()
-    
+
     @staticmethod
     def new_mask(text, im_size, scale):
-        
+
         # Растеризируем текст:
         mask = text2img(text, im_size[:2], scale)
-        
+
         # Строим альфаканал как дилатированную версию текста:
         mask_alpha = mask.copy()
-        
+
         # Размазываем по вертикали через сдвиги:
         mask_alpha_1 = np.roll(mask_alpha, -1, 0)
         mask_alpha_2 = np.roll(mask_alpha,  1, 0)
         mask_alpha = np.dstack([mask_alpha, mask_alpha_1, mask_alpha_2])
         mask_alpha = mask_alpha.max(-1)
-        
+
         # Размазываем по горизонтали через сдвиги:
         mask_alpha_1 = np.roll(mask_alpha, -1, 1)
         mask_alpha_2 = np.roll(mask_alpha,  1, 1)
         mask_alpha = np.dstack([mask_alpha, mask_alpha_1, mask_alpha_2])
         mask_alpha = mask_alpha.max(-1)
-        
+
         # В результате получится белый текст с чёрной обводкой.
-        
+
         return np.dstack([mask, mask_alpha])
-    
+
     def __call__(self, img):
         # Если размер изображения изменился, или это первый запуст после сброса:
         if self.mask is None or self.mask.shape[:2] != img.shape[:2]:
-            
+
             # Сбрасываем маску ещё раз:
             self.reset()
-            
+
             # Векторизируем текст (создаём предварительную маску):
             mask = self.new_mask(self.text, img.shape[:2], self.scale)
-            
+
             # Накладываем текст на изображение и фиксируем итоговую маску:
             img, self.mask = overlap_with_alpha(img, mask, True)
-        
+
         # Если маска уже есть, и она адекватна, то сразу используем её:
         else:
             img = overlap_with_alpha(img, self.mask)
-        
+
         return img
-    
+
     def reset(self):
         self.mask = None
+
+
+class PutTime:
+    '''
+    Наносит на изображение время, либо (если fps не задан) номер кадра.
+    '''
+
+    def __init__(self, fps=None, *args, **kwargs):
+        self.fps = fps
+        self.args = args
+        self.kwargs = kwargs
+        self.reset()
+
+    # Превращает секунды в строку в человеческом формате времени:
+    @staticmethod
+    def seconds2sexagesimal (seconds):
+        minutes = int(seconds // 60)
+        seconds -= minutes * 60
+        text = f'{seconds:06.3f}'
+        if not minutes:
+            return text
+
+        hours = minutes // 60
+        minutes -= hours * 60
+        text = f'{minutes:02d}:' + text
+        if not hours:
+            return text
+
+        days = hours // 24
+        hours -= days * 24
+        text = f'{hours:02d}:' + text
+        if not days:
+            return text
+        else:
+            return f'{days} {text}'
+
+    def __call__(self, img):
+        self.frame += 1  # Прирост счётчика кадров
+
+        # Определяем содержимое строки вывода:
+        if self.fps:
+            text = self.seconds2sexagesimal(self.frame / self.fps)
+        else:
+            text = str(self.frame)
+
+        # Наносим текст на изображение и возвращаем результат:
+        return text2img(text, img, *self.args, **self.kwargs)
+
+    # Сбрасываем счётчик кадров:
+    def reset(self):
+        self.frame = 0
 
 
 class Res:
@@ -549,6 +719,109 @@ class StoreLastFrames:
         self.frames = []
 
 
+class DrawSemanticSegments:
+    '''
+    Рисует цветные сегменты для семантической сегментации.
+
+    Если сегментаторм задан, то исходное изображение раскрашивается цветами
+    сегментов. Если сегментатор не указан, то входящее изображение принимается
+    за результат сегментации и сегменты отрисовываются без фона.
+
+    Если результат сегментации уже пропущен через argmax, то требуется задать
+    число классов (num_classes). Если число классов не задано, то к результату
+    сегментации будет применён argmax для последнего измерения.
+
+    Если num_classes не задан, а число каналов тензора сегментации = 1, то вся
+    постобработка будет исходить из задачи бинарной классификации с порогом =
+    0.5.
+    '''
+
+    def __init__(self,
+                 num_classes=None,
+                 segmentator=None):
+        self.num_classes = num_classes
+        self.segmentator = segmentator
+
+    def __call__(self, img):
+
+        # Фиксируем размер изображения:
+        im_size = img.shape[:2]
+
+        # Инициируем выходное изображение:
+        target_shape = list(im_size) + [3]
+        out = np.zeros(target_shape, np.uint8)
+
+        # Если входнй тензор является исходным изображением:
+        if self.num_classes:
+
+            # Тип выходного изображения берём по аналогии со входным:
+            dtype = img.dtype
+
+            # Яркость берём из исходного изображения:
+            if img.ndim == 3:
+                if img.shape[2] == 3:
+                    V = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
+                elif img.shape[2] == 1:
+                    V = img[..., 0]
+                else:
+                    raise ValueError(
+                        f'Неожиданный размер входного изображения: {img.shape}'
+                    )
+            elif img.ndim == 2:
+                V = img
+            else:
+                raise ValueError(
+                    f'Неожиданный размер входного изображения: {img.shape}')
+
+        else:
+            dtype = np.uint8  # Тип выходного изображения
+            V = 255           # Используем максимальную яркость
+
+        # Применяем сегментатор или берём готовый результат из входа:
+        segments = img if self.segmentator is None else self.segmentator(img)
+
+        # Применяем к тензору сегментов простобработку, если она нужна:
+        if not self.num_classes:
+
+            # Если используется бинарная сегментация:
+            if segments.ndim == 2 or segments.shape[2] == 1:
+                segments = segments > 0.5             # Пороговая обработка
+                segments = segments.reshape(im_size)  # shape: HW1 -> HW
+                segments = segments.astype(np.int8)   # Bool -> Int
+                num_classes = 2
+
+            # Если классов больше двух:
+            elif segments.ndim == 3 and segments.shape[2] > 2:
+                num_classes = segments.shape[2]
+                segments = np.argmax(segments, axis=-1)
+
+            else:
+                raise ValueError('Неожиданный размер тензора сегментов: ' + \
+                                 segments.shape)
+
+        else:
+            num_classes = self.num_classes
+
+        # Определяем оттенок (H) по результатам сегментации:
+        H = segments / num_classes
+        if dtype == np.uint8:
+            H = (H * 180).astype(np.uint8)
+        else:
+            H = H * 360
+
+        # Для выходного изображения используется цветовое пространство HSV:
+        out[..., 0] = H
+        out[..., 2] = V
+        out[..., 1] = 255 if dtype == np.uint8 else 1.
+
+        # Возвращаем результат, сконвертированный из HSV в RGB:
+        return cv2.cvtColor(out, cv2.COLOR_HSV2RGB)
+
+    def reset(self):
+        if hasattr(self.segmentator, 'reset'):
+            self.segmentator.reset()
+
+
 class StreamRandomCrop:
     '''
     # Вырезает случайный фрагмент из целой видеопоследовательности.
@@ -735,7 +1008,7 @@ def apply2video(im_filter      : 'Фильтр, применяемый к цве
     out_path = os.path.dirname(out_file)
     if not os.path.exists(out_path):
         #print(out_path)
-        os.makedirs(out_path)
+        mkdirs(out_path)
     
     # Файлы чтения и записи
     imp = cv2.VideoCapture(inp_file)
@@ -815,20 +1088,241 @@ def apply2video(im_filter      : 'Фильтр, применяемый к цве
         im_filter.reset()
 
 
+class VideoGenerator:
+    '''
+    Класс, облегчающий чтение кадра из последовательности видео- и/или фото-
+    файлов. Может собирать в одну последовательность разные кадры из разных
+    файлов. Работает как генератор.
+    '''
+    # Определяет число кадров в видео:
+    @staticmethod
+    def get_file_total_frames(file):
+
+        # Если имеется список изображений:
+        if isinstance(file, (list, tuple)):
+            for file_ in file:
+
+                # Все изображения должны иметь поддерживаемый формат:
+                file_ext = os.path.splitext(file_)[-1].lower()
+                if file_ext not in cv2_img_exts:
+                    raise ValueError('Вложенный список файлов должен ' +
+                                     'содержать только изображения. ' +
+                                     'Получен файл неподдерживаемого ' +
+                                     f'расширения: {file_ext}!')
+
+            # Число кадров для изображений равно числу файлов:
+            return len(file)
+
+        # Определяем тип файла:
+        file_ext = os.path.splitext(file)[-1].lower()
+
+        # Если файл является изображением, то в нём может быть всего 1 кадр:
+        if file_ext in cv2_img_exts:
+            return 1
+
+        # Если это видео:
+        elif file_ext in cv2_vid_exts:
+            vcap = cv2.VideoCapture(file)
+            if not vcap.isOpened():
+                raise RuntimeError('Ошибка открытия файла "%s"!' % file)
+            total_frames = int(vcap.get(cv2.CAP_PROP_FRAME_COUNT))
+            vcap.release()
+            return total_frames
+
+        else:
+            raise ValueError('Ожидалось получить путь к видео, фото или ' +
+                             f'списку/кортежу фото. Получен: {file}!')
+
+    def __init__(self, files=[], frame_ranges=[]):
+        # Инициируем внутренние состояния:
+        self.files = []
+        self.frame_ranges = []
+
+        # Абстракция для удобного чтения очередного кадра:
+        self.im_read_buffer = ImReadBuffer()
+
+        # Наполняем списки переданными значениями:
+        self.extend(files, frame_ranges)
+
+    # Добавляет несколько файлов и их диапазоны в общий список:
+    def extend(self, files, frame_ranges=[]):
+        # Если передан список/кортеж, то кортеж превращаем в список, а
+        # список копируем:
+        if isinstance(files, (list, tuple)):
+            files = list(files)
+        # Если передан не список/кортеж, то считаем, что это один файл:
+        else:
+            files = [files]
+            frame_ranges = frame_ranges or [None]
+
+        # Заполняем frame_ranges пустышками, если не задан:
+        frame_ranges = frame_ranges or [None] * len(files)
+
+        # frame_ranges и files должны иметь равную длину:
+        assert len(frame_ranges) == len(files)
+
+        # Поочерёдно вносим каждый файл с его диапазоном в общий список:
+        for file, frame_range in zip(files, frame_ranges):
+            self.append(file, frame_range)
+
+    # Добавляет очередной файл и его диапазон в общий список:
+    def append(self, file, frame_range=None):
+        '''
+        frame_ranges для изображений не используется.
+        Для видео и списка кадров frame_ranges может быть задан несколькими
+        способами:
+            1) Объектом класса range. Тогда он сохраняется без изменений
+            2) Целое число. Оно принимается как аргумент объекта range.
+                Если оно отрицательное, производится предварительный
+                перерасчёт относительно длины последовательности.
+            3) Список или кортеж. Его элементы принимаются как аргументы
+                объекта range, если их 2 или 3, и второй из них является
+                отрицательным (указывает на номер с конца, как в случае
+                с п.2). Если первый элемент неотрицательный, или элементов
+                больше 3х, то сам список/кортеж принимается как перечисление
+                номеров кадров (порядок может быть любым).
+            4) None или пусткой список/кортеж. В этом случае берутся все
+                кадры последовательности.
+        '''
+        # Если передан путь к папке, то подменяем его списком вложенных в неё
+        # изображений:
+        if isinstance(file, str) and os.path.isdir(file):
+            file = sorted([os.path.join(file, _)
+                           for _ in os.listdir(file)
+                           if os.path.splitext(_)[1].lower() in cv2_img_exts])
+
+        # Вносим имя очередного файла в список:
+        self.files.append(file)
+
+        # Если в качестве файла передан список изображений:
+        if isinstance(file, (list, tuple)):
+
+            # Проверяем корректность списка:
+            total_frames = self.get_file_total_frames(file)
+            is_im_seq = True  # Флаг последовательности изображений
+
+        # Если указан всего один файл:
+        else:
+
+            # Определяем тип файла:
+            file_ext = os.path.splitext(file)[-1].lower()
+
+            # Если файл является изображением, то в нём лишь один кадр:
+            if file_ext in cv2_img_exts:
+                self.frame_ranges.append(range(1))
+                return
+
+            is_im_seq = False  # Флаг последовательности изображений
+
+        # Если файл является набором изображений или видеофайлом:
+        if is_im_seq or (file_ext in cv2_vid_exts):
+            # Если frame_range действительно является диапазоном, то вносим
+            # без изменений:
+            if isinstance(frame_range, range):
+                self.frame_ranges.append(frame_range)
+
+            # Если frame_range не указан, берём все кадры исходной
+            # последовательности:
+            elif frame_range is None:
+                total_frames = self.get_file_total_frames(file)
+                self.frame_ranges.append(range(total_frames))
+
+            # Если frame_range является списокм или кортежем:
+            elif isinstance(frame_range, (list, tuple)):
+                # Если frame_range состоит из 2х или 3х элементов, и второй
+                # является отрицательным:
+                if len(frame_range) in {2, 3} and frame_range[1] < 0:
+                    # Собираем диапазон с отсчётом от конца файла:
+                    total_frames = self.get_file_total_frames(file)
+                    frame_range = range(frame_range[0],
+                                        total_frames + frame_range[1],
+                                        *frame_range[2:])
+                    self.frame_ranges.append(frame_range)
+
+                # Если frame_range не состоит из 2х или 3х элементов, или
+                # второй из них не является отрицательным:
+                else:
+                    # Фоспринимаем список/кортеж как набор номеров кадров:
+                    self.frame_ranges.append(frame_range)
+            else:
+                raise ValueError('Неверное значение параметра ' +
+                                 f'"frame_range": {frame_range}!')
+        else:
+            raise TypeError(f'Неподдерживаемый тип файла: {file_ext}!')
+        return
+
+    # Подсчитывает общее число кадров в итоговой последовательности
+    def __len__(self):
+        return sum(map(len, self.frame_ranges))
+
+    def __iter__(self):
+        self.files_ind = 0
+        self.frames_iter = iter(self.frame_ranges[self.files_ind])
+        return self
+
+    def __next__(self):
+        # Определяем номер файла и номер следующего кадра в нём:
+        while True:
+            try:
+                frame = next(self.frames_iter)
+                break
+            except StopIteration:
+                self.files_ind += 1
+
+                # Выходим, если дошли до конца:
+                if self.files_ind == len(self.files):
+                    self.im_read_buffer.close()
+                    raise StopIteration
+
+                self.frames_iter = iter(self.frame_ranges[self.files_ind])
+
+        # Читаем и возвращаем следующий кадр:
+        file = self.files[self.files_ind]
+        return self.im_read_buffer(file, frame)
+
+    # Для чтения произвольного кадра
+    def __getitem__(self, index):
+
+        # Создаём список буферов кадров, если это первый вызов функции:
+        if not hasattr(self, 'im_read_buffers'):
+            self.im_read_buffers = [ImReadBuffer() for _ in self.files]
+
+        # Определяем номер файла, номер его кадра:
+        frame_range_ind = int(index)
+        for file, frame_range, im_read_buffer in zip(self.files,
+                                                     self.frame_ranges,
+                                                     self.im_read_buffers):
+            if frame_range_ind < len(frame_range):
+                break
+            frame_range_ind -= len(frame_range)
+        else:
+            raise IndexError(f'{index} >= {len(self)}')
+
+        # Читаем сам кадр:
+        return im_read_buffer(file, frame_range_ind)
+
+    # Деструктор:
+    def __del__(self):
+        self.im_read_buffer.close()
+        if hasattr(self, 'im_read_buffers'):
+            for im_read_buffer in self.im_read_buffers:
+                im_read_buffer.close()
+
+
 def apply2image(im_filter      : 'Фильтр, применяемый к цветному изображению'                             ,
                 inp_file       : 'Обрабатываемый файл'                                             = None ,
                 out_file       : 'Файл для записи'                                                 = None ,
                 save2subfolder : 'Имя файла для записи = имя обробатываемого файла/имя модели.png' = False,
                 rescale        : 'Масштабировать изображение до HD'                                = True ,
                 skip_existed   : 'Пропуск уже существующих файлов'                                 = True):
-    
+
     default_inp_dir = '/home/user/work/shubin/Test/Image'
     default_out_dir = '/home/user/work/shubin/Results/Image'
-    
+
     # Файл для чтения:
     if not inp_file:
         inp_file = default_inp_dir
-    if os.path.isdir(inp_file): # Если это папка - обрабатываем все файлы в ней
+    if os.path.isdir(inp_file):  # Если это папка - обрабатываем все файлы в ней
         for file in os.listdir(inp_file):
             inp_file_ = os.path.join(inp_file, file)
             if out_file:
@@ -842,7 +1336,7 @@ def apply2image(im_filter      : 'Фильтр, применяемый к цве
                         rescale,
                         skip_existed)
         return
-    
+
     # Файл для записи
     im_filter_name = im_filter.name if hasattr(edge_detector, 'name') else 'NoName Filter'
     if save2subfolder:
@@ -858,13 +1352,13 @@ def apply2image(im_filter      : 'Фильтр, применяемый к цве
                 out_file = out_file + '.png'
         else:
             out_file = default_out_dir + out_file_basename
-    
+
     # Пропуск существующих файлов, если надо
     if skip_existed and os.path.exists(out_file):
         return
-    
+
     inp = io.imread(inp_file)
-    
+
     while True:
         if rescale:
             if isinstance(rescale, int):
@@ -873,27 +1367,27 @@ def apply2image(im_filter      : 'Фильтр, применяемый к цве
             else:
                 target_size = (1280, 720)
             inp = cv2.resize(inp, target_size, interpolation=cv2.INTER_AREA)
-        
+
         if len(inp.shape) == 2:
             inp = np.stack([inp] * 3, -1)
         elif inp.shape[2] != 3:
             inp = np.stack([inp[..., 0]] * 3, -1)
-        
+
         try:
             # Сброс состояния детектора границы
             if hasattr(edge_detector, 'reset'):
                 edge_detector.reset()
-            
+
             out = edge_detector(inp)
             break
-        except RuntimeError: # Если имеем OOM, то понижаем разрешение изображения в 2 раза по каждой стороне
+        except RuntimeError:  # Если имеем OOM, то понижаем разрешение изображения в 2 раза по каждой стороне
             target_size = (round(inp.shape[1] / 2),
                            round(inp.shape[0] / 2))
             inp = cv2.resize(inp, target_size, interpolation=cv2.INTER_AREA)
-    
+
     if out.dtype != np.uint8:
         out = (out * 255).astype(np.uint8)
-    
+
     # Работа с каналами
     if len(out.shape) == 2:               # Если матрица двумерная...
         out = np.stack([out] * 3, -1)     #     ... то дублируем её на 3 канала
@@ -906,18 +1400,19 @@ def apply2image(im_filter      : 'Фильтр, применяемый к цве
             raise ValueError('Формат кадра (%s) не соответствует ожидаемому.' % (out.shape))
     else:
         raise ValueError('Формат кадра (%s) не соответствует ожидаемому.' % (out.shape))
-    
+
     # Создаём необходимые вложенные папки
     out_path = os.path.dirname(out_file)
     if not os.path.exists(out_path):
-        os.makedirs(out_path)
-    
+        mkdirs(out_path)
+
     io.imsave(out_file, out)
 
 
 def get_file_list(path, extentions=[]):
     '''
-    Возвращает список всех файлов, содержащихся по указанному пути (включая поддиректории).
+    Возвращает список всех файлов, содержащихся по указанному пути
+    (включая поддиректории).
     '''
     # Обработка параметра extentions:
     if isinstance(extentions, str):
@@ -928,20 +1423,24 @@ def get_file_list(path, extentions=[]):
     elif isinstance(extentions, (list, tuple, set)):
         for ext in extentions:
             if not isinstance(ext, str):
-                raise ValueError('extentions должен быть строкой, или списком/кортежем/множеством строк. Получен элемент %s' % ext)
+                raise ValueError('extentions должен быть строкой, или ' +
+                                 'списком/кортежем/множеством строк. ' +
+                                 f'Получен элемент {ext}')
     else:
-        raise ValueError('extentions должен быть строкой, или списком/кортежем/множеством строк. Получен %s' % extentions)
-    extentions = [ext.lower() for ext in extentions]    
-    
+        raise ValueError('extentions должен быть строкой, или эсписком/' +
+                         'кортежем/множеством строк. Получен %s' % extentions)
+    extentions = [ext.lower() for ext in extentions]
+
     # Составление списка файлов:
     file_list = []
     for file in os.listdir(path):
         file = os.path.join(path, file)
         if os.path.isdir(file):
             file_list += get_file_list(file, extentions)
-        elif not len(extentions) or os.path.splitext(file)[1][1:].lower() in extentions:
+        elif not len(extentions) or \
+                os.path.splitext(file)[1][1:].lower() in extentions:
             file_list.append(file)
-    
+
     return file_list
 
 
@@ -950,39 +1449,31 @@ def convert_videos(inp_path, out_path, skip_existed=True):
     Пересжатие всех видеофайлов заданной директории в другую директорию.
     Используется для подготовки видеорезультатов к демонстрации.
     '''
-    
+
     file_list = get_file_list(inp_path)
     num_files = len(file_list)
     for ind, inp_file in enumerate(file_list, 1):
         inp_file_path_name, inp_file_ext = os.path.splitext(inp_file)
-        
-        file_status_template = '%03d/%03d)' % (ind, num_files) + ' %15s: ' + inp_file[len(inp_path):]
+
+        file_status_template = '%03d/%03d) ' % (ind, num_files) + \
+            '%15s: ' % inp_file[len(inp_path):]
         if inp_file_ext.lower() in ['.avi', '.mpg', '.mpeg', '.mp4', 'mkv']:
             inp_file_rel_path = inp_file_path_name[len(inp_path):]
             while inp_file_rel_path[0] == '/':
                 inp_file_rel_path = inp_file_rel_path[1:]
             out_file = os.path.join(out_path, inp_file_rel_path + '.mp4')
-            
+
             if skip_existed and os.path.exists(out_file):
                 print(file_status_template % 'Уже существует')
                 continue
-            
+
             out_dir = os.path.dirname(out_file)
             if not os.path.exists(out_dir):
                 os.makedirs(out_dir)
-            
+
             print(file_status_template % 'Обрабатывается', end='\r')
-            if 'gray' in inp_file_path_name:
-                crf = 40
-            else:
-                crf = 20
-            
-            if os.system('/usr/bin/ffmpeg -y -hide_banner -loglevel quiet -i "%s" -c:v libx264 -preset slow -crf %d -tune animation "%s"' % (inp_file, crf, out_file)):
-                if os.path.exists(out_file):
-                    os.remove(out_file)
-                OSError(file_status_template % 'Ошибка обработки')
-            else:
-                print(file_status_template % 'Обработан')
+            recomp2mp4(inp_file, out_file)
+            print(file_status_template % 'Обработан')
         else:
             print(file_status_template % 'Пропущен')
     return
@@ -1008,15 +1499,28 @@ class OptFlow:
         self.poly_sigma = poly_sigma
         self.iterations = iterations
         self.flags      = flags
-    
-    def __call__(self, img1, img2, flow=None):
+
+    def __call__(self, img1, img2, flow=None, flags=None):
         '''
         Оптический поток для двух изображений.
         '''
         # Переводим цветные изображения в оттенки серого, если надо:
-        if img1.ndim > 2 and img1.shape[2] == 3: img1 = cv2.cvtColor(img1, cv2.COLOR_RGB2GRAY)
-        if img2.ndim > 2 and img2.shape[2] == 3: img2 = cv2.cvtColor(img2, cv2.COLOR_RGB2GRAY)
-        
+        if img1.ndim > 2 and img1.shape[2] == 3:
+            img1 = cv2.cvtColor(img1, cv2.COLOR_RGB2GRAY)
+        if img2.ndim > 2 and img2.shape[2] == 3:
+            img2 = cv2.cvtColor(img2, cv2.COLOR_RGB2GRAY)
+
+        # Берём флаги из входного параметра, если он задан:
+        flags = self.flags if flags is None else flags
+
+        # Если на вход передана начальная аппроксимация потока, то
+        # указываем во флагах необходимость её использовать:
+        if flow is not None:
+            flags = flags | cv2.OPTFLOW_USE_INITIAL_FLOW
+
+            # Чтобы не писать разультат во входную переменную:
+            flow = flow.copy()
+
         # Вычисляем сам опт. поток:
         return cv2.calcOpticalFlowFarneback(img1                        ,
                                             img2                        ,
@@ -1027,53 +1531,111 @@ class OptFlow:
                                             poly_n     = self.poly_n    ,
                                             poly_sigma = self.poly_sigma,
                                             iterations = self.iterations,
-                                            flags      = self.flags     )
-    
+                                            flags      = flags          )
+
+    # Строит координатную сетку для деформации изображения:
     @staticmethod
-    def apply_flow2img(img, flow):
-        '''
-        Восстановление второго изображения по первому и их опт.потоку.
-        '''
-        # Строим координатную сетку:
-        y = np.arange(img.shape[0], dtype=float)
-        x = np.arange(img.shape[1], dtype=float)
+    def create_meshgrid(shape):
+        y = np.arange(shape[0], dtype=float)
+        x = np.arange(shape[1], dtype=float)
         xv, yv = np.meshgrid(x, y)
-        
-        # Деформируем координатную сетку, согласно опт. потоку:
-        xx = xv - flow[..., 0]
-        yy = yv - flow[..., 1]
-        
-        # Интерполируем каждый канал изображения, согласно деформированной координатной сетке:
-        return np.dstack([scipy.ndimage.map_coordinates(img[..., ch], [yy, xx]) for ch in range(3)])
-    
+        return np.dstack([xv, yv])
+
+    # Деформирует или создаём координатную сетку по опт. потоку:
+    @classmethod
+    def apply_flow2meshgrid(cls, flow, meshgrid=None):
+
+        # Копируем или создаём исходную сетку:
+        if meshgrid is None:
+            meshgrid = cls.create_meshgrid(flow.shape)
+        assert flow.shape == meshgrid.shape
+
+        # Деформируем сетку:
+        return meshgrid - flow
+
+    # Интерполируем каждый канал изображения, согласно деформированной
+    # координатной сетке (деформируем изображение по координатной сетке):
+    @staticmethod
+    def apply_meshgrid2img(meshgrid, img,
+                           nearest_interpolation=False,
+                           mode='mirror', cval=0.0):
+        # Готовим сетку для использования:
+        if nearest_interpolation:  # Округляем координаты, если требуется
+            meshgrid = np.round(meshgrid)
+        meshgrid = [meshgrid[..., 1],
+                    meshgrid[..., 0]]
+
+        # Если изображенине одноканально:
+        if img.ndim == 2:
+            return scipy.ndimage.map_coordinates(img, meshgrid,
+                                                 mode=mode, cval=cval)
+        # Если изображенине многоканально:
+        elif img.ndim == 3:
+
+            # Уточняем значение cval:
+            if hasattr(cval, '__len__'):
+                if len(cval) == img.shape[2]:
+                    cvals = cval
+                else:
+                    raise ValueError('Параметр "cval" должен быть ' +
+                                     'скаляром, либо списком/кортежем ' +
+                                     'длиной, соответсвующей числу каналов ' +
+                                     f'изображения. Получено: {cval}!')
+            else:
+                cvals = [cval] * img.shape[2]
+                out = []
+                for ch, cval in enumerate(cvals):
+                    out.append(scipy.ndimage.map_coordinates(
+                        img[..., ch], meshgrid, mode=mode, cval=cval))
+            return np.dstack(out)
+        else:
+            raise ValueError('Изображение должно иметь 2 или 3 измерения!')
+
+    @classmethod
+    def apply_flow2img(cls, flow, img,
+                       nearest_interpolation=False,
+                       mode='mirror', cval=0.0):
+        '''
+        "Восстановление" второго изображения по первому и их опт.потоку.
+        '''
+        # Строим деформированную координатную сетку:
+        meshgrid = cls.apply_flow2meshgrid(flow)
+
+        # Деформируем изображение по координатной сетке:
+        return cls.apply_meshgrid2img(meshgrid, img,
+                                      nearest_interpolation,
+                                      mode, cval)
+
     def seq_flows(self, imgs, cum_sum=True, **mpmap_kwargs):
         '''
         Вычисляем потоки между соседними кадрами видеопоследовательности.
         '''
         # Рассчёт потока между каждой парой соседних кадров:
         flows = mpmap(self.__call__, imgs[:-1], imgs[1:], **mpmap_kwargs)
-        
+
         # Если поток отстраивается от первого изображения:
         if cum_sum:
-            
+
             # Инициируем нулями поток для первого кадра с самим собой:
             flow = np.zeros_like(flows[0])
             cum_flows = [flow]
-            
+
             # Накапливаем сдвиги для следующих кадров:
             for dflow in flows:
                 flow = flow + dflow
                 cum_flows.append(flow)
-            
+
             # Заменяем исходные потоки, потокам с накоплением:
             flows = cum_flows
-        
+
         return flows
-    
-    def seq_apply_flow2img(self, img, cum_flows, **mpmap_kwargs):
+
+    def apply_flows2img(self, flows, first_img, desc=None, *args, **kwargs):
         '''
         Восстанавливает последовательность кадров, используя
         лишь первый кадр и последовательность опт. потоков.
         '''
-        return mpmap(self.apply_flow2img, [img] * len(cum_flows), cum_flows, **mpmap_kwargs)
-
+        imgs = [first_img.copy()]
+        for flow in tqdm(flows, desc=desc, disable=not desc):
+            imgs.append(self.apply_flow2img(flow, imgs[-1]))
+        return imgs
