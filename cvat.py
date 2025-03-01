@@ -82,7 +82,7 @@ from scipy.optimize import linear_sum_assignment
 from utils import (mpmap, ImReadBuffer, reorder_lists, mkdirs, CircleInd,
                    apply_on_cartesian_product, extend_list_in_dict_value,
                    DelayedInit, color_float_hsv_to_uint8_rgb,
-                   draw_contrast_text)
+                   draw_contrast_text, put_text_carefully)
 from cv_utils import Mask, build_masks_IoU_matrix
 from video_utils import VideoGenerator, ViSave, recomp2mp4
 
@@ -2050,9 +2050,7 @@ class CVATPoints:
 
         # Надпись в центре, если надо:
         if caption:
-            img = cv2.putText(img, str(caption), (cx, cy),
-                              cv2.FONT_HERSHEY_COMPLEX, 1,
-                              color, 2, cv2.LINE_AA)
+            img = put_text_carefully(str(caption), img, (cy, cx), color=color)
 
         # Если отрисовка с полупрозрачностью, то смешиваем результат с исходным
         # изображением:

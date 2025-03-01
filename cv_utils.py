@@ -20,8 +20,8 @@ from IPython.display import Image
 from PIL.Image import fromarray
 from tqdm import tqdm
 
-from utils import (apply_on_cartesian_product, isfloat, isint, color2img,
-                   overlap_with_alpha)
+from utils import (apply_on_cartesian_product, isfloat, isint,
+                   draw_mask_on_image)
 
 
 def float2uin8(img):
@@ -507,49 +507,7 @@ class Mask:
 
     # Отрисовка маски:
     def draw(self, img=None, color=None, alpha=1.):
-
-        # Если не заданы ни изображение, ни цвет, то
-        # нужна упрощённая отрисовка:
-        if img is None and color is None:
-            if alpha == 1.:
-                return self.array.copy()
-            else:
-                return (self.array * alpha).astype(self.array)
-
-        # Если цвет не задан, то берём маскимально допустимое значение
-        # яркости маски:
-        if color is None:
-            color = 255 if img is None or img.dtype == np.uint8 else 1.
-
-        # Создаём чёрное полотно, если исходное изображение не задано:
-        if img is None:
-            img = color2img(0, self.array.shape)
-
-        # Строим заливку маски:
-        watermark_color = color2img(color, self.array.shape)
-        if isint(watermark_color):
-            watermark_color = watermark_color / 255
-        # Принудительно переводим во float.
-
-        # Строим альфаканал маски:
-        if alpha == 1.:
-            watermark_alpha = self.array.astype(float)
-        else:
-            watermark_alpha = self.array * alpha
-        # Тоже во float.
-
-        # Cобираем водяной знак:
-        watermark = np.dstack([watermark_color, watermark_alpha])
-
-        # Делаем исходное изображение цветным, если оно монохромное, а
-        # водяной знак цветной:
-        if (img.ndim == 2 or img.shape[2] == 1) and watermark.shape[2] == 4:
-            img = np.dstack([img] * 3)
-        # Это нужно т.к. в противном случае overlap_with_alpha выдаст
-        # монохромный результат.
-
-        # Наносим водяной знак на изображение и возвращаем:
-        return overlap_with_alpha(img, watermark)
+        return draw_mask_on_image(self.array, img, color, alpha)
 
     # Отображение маски:
     def show(self, now=True, borders=True, *args, **kwargs):

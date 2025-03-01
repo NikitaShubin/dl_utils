@@ -97,8 +97,8 @@ ARG PYTHONMODULES="                                                      \
     manim                                                                \
                                                                          \
                                                                          \
-    # Для работы с CVAT                                                  \
-    cvat-sdk[masks,pytorch]                                              \
+    # Для работы с CVAT:                                                 \
+    cvat-sdk[masks,pytorch]==2.4.7                                       \
                                                                          \
     # IDE (JupyterLab\Jupyverse и PyCharm):                              \
     jupyterlab voila xeus-python                                         \

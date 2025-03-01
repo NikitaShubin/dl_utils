@@ -383,9 +383,115 @@ def color2img(color, imsize):
         img = np.ones(imsize) * color
         color_val_example = color
 
-    # Если цвет задан целым числом - используем тип uint8^
+    # Если цвет задан целым числом - используем тип uint8:
     if isint(color_val_example):
         img = img.astype(np.uint8)
+
+    return img
+
+
+def draw_mask_on_image(mask, img=None, color=None, alpha=1.):
+    # Если не заданы ни изображение, ни цвет, то
+    # нужна упрощённая отрисовка:
+    if img is None and color is None:
+        if alpha == 1.:
+            return mask.copy()
+        else:
+            return (mask * alpha).astype(mask)
+
+    # Если цвет не задан, то берём маскимально допустимое значение
+    # яркости маски:
+    if color is None:
+        color = 255 if img is None or img.dtype == np.uint8 else 1.
+
+    # Создаём чёрное полотно, если исходное изображение не задано:
+    if img is None:
+        img = color2img(0, mask.shape)
+
+    # Строим заливку маски:
+    watermark_color = color2img(color, mask.shape)
+    if isint(watermark_color):
+        max_dtype_value = np.iinfo(watermark_color.dtype).max
+        watermark_color = watermark_color / max_dtype_value
+    # Принудительно переводим во float.
+
+    # Строим альфаканал маски:
+    watermark_alpha = mask
+    if isint(watermark_alpha):
+        max_dtype_value = np.iinfo(watermark_alpha.dtype).max
+        watermark_alpha = watermark_alpha / max_dtype_value
+    if alpha != 1.:
+        watermark_alpha *= alpha
+    # Тоже во float.
+
+    # Cобираем водяной знак:
+    watermark = np.dstack([watermark_color, watermark_alpha])
+
+    # Делаем исходное изображение цветным, если оно монохромное, а
+    # водяной знак цветной:
+    if (img.ndim == 2 or img.shape[2] == 1) and watermark.shape[2] == 4:
+        img = np.dstack([img] * 3)
+    # Это нужно т.к. в противном случае overlap_with_alpha выдаст
+    # монохромный результат.
+
+    # Наносим водяной знак на изображение и возвращаем:
+    return overlap_with_alpha(img, watermark)
+
+
+def put_text_carefully(text         : 'Растеризируемый текст'                             ,
+                       img_or_imsize: 'Изображение или его размер'                        ,
+                       coordinates  : 'Желаемые координаты центра текста'= (0, 0)         ,
+                       scale        : 'Масштаб шрифта'                   = 0.6            ,
+                       color        : 'Цвет текста'                      = (255, 255, 255),
+                       alpha        : 'Прозрачность текста'              = 1.             ):
+    '''
+    Размещает текст на изображении так, чтобы он не вышел из рамок.
+    '''
+    # Растеризация текста:
+    text_img = text2img(text, scale=scale)
+
+    # Если передано само изображение, ничего не делаем:
+    if isinstance(img_or_imsize, np.ndarray) and img_or_imsize.ndim in {2, 3}:
+        img = img_or_imsize.copy()
+        imsize = img.shape[:2]
+
+    # Создаём изображение по размеру, если он задан:
+    elif hasattr(img_or_imsize, '__len__') and len(img_or_imsize) in {2, 3}:
+        img = np.zeros(img_or_imsize, np.uint8)
+        imsize = img[:2]
+
+    else:
+        raise ValueError('В качестве параметра "img_or_imsize" должно быть' +
+                         ' передано изображение, его размер или значение. ' +
+                         f'Получено {img}!')
+
+    # Размер текстового спрайта:
+    textsize = text_img.shape
+
+    # Уменьшаем размер спрайта, если он не влезает в изображение:
+    resize_scale = 1.
+    for dim in range(2):
+        if textsize[dim] > imsize[dim]:
+            resize_scale = min(resize_scale, imsize[dim] / textsize[dim])
+    if resize_scale < 1.:
+        textsize = (np.fix(resize_scale * textsize[0]).astype(int),
+                    np.fix(resize_scale * textsize[1]).astype(int))
+        text_img = cv2.resize(text_img, (textsize[1], textsize[0]))
+
+    # Определяем координаты левого верхнего угла спрайта:
+    my = coordinates[0] - textsize[0] / 2
+    mx = coordinates[1] - textsize[1] / 2
+
+    # Сдвигаем координаты, если спрайт вышел за границы:
+    my = int(min(max(0, my), imsize[0] - textsize[0]))
+    mx = int(min(max(0, mx), imsize[1] - textsize[1]))
+
+    # Наносим спрайт на нужную часть исходного изображения:
+    img[my: my + textsize[0], mx: mx + textsize[1], ...] = draw_mask_on_image(
+        text_img,
+        img[my: my + textsize[0], mx: mx + textsize[1], ...],
+        alpha=alpha,
+    )
 
     return img
 
@@ -437,7 +543,7 @@ def text2img(text : 'Растеризируемый текст'                 
              color: 'Цвет текста'                = (255, 255, 255)):
     '''
     Простой способ векторизации текста или нанесения надписи на изображение.
-    По умолчанию формируется оптимальный для текста размер полутоновог
+    По умолчанию формируется оптимальный для текста размер полутонового
     изображения.
     '''
     # Разделяем текст на строки:
@@ -851,36 +957,36 @@ def unzip_dir(zipped_files_dir    : 'Путь к папке с *.zip-файла�
     Распаковывает все zip-файлы в папке f"{zipped_files_dir}" (без рекурсии)
     в папку f"{unzipped_files_dir}" в подпапки с именем соответствующих архивов.
     '''
-    
+
     # Список путей к распакованным папкам:
     unzipped_files_dirs = []
-    
+
     # Формируем писок задач (zip-файлов и целевых дирректорий):
     zip_files = []
     unzipped_files_subdirs = []
     for zip_file in os.listdir(zipped_files_dir):
-        
+
         # Получяем имя и расширение файла:
         name, ext = os.path.splitext(zip_file)
-        
+
         # Пропускаем не zip-архивы:
         if ext not in ('.zip',):
             continue
-        
+
         # Полный путь до архива:
         zip_file = os.path.join(zipped_files_dir, zip_file)
-        
+
         # Путь до дирректории для распаковки:
         unzipped_files_subdir = os.path.join(unzipped_files_dir, name)
-        
+
         # Добавляем пути в списки:
         zip_files             .append(     zip_file        )
         unzipped_files_subdirs.append(unzipped_files_subdir)
-    
+
     # Распаковываем во временную папку:
     unzipped_files_dirs = mpmap(unzip_file, zip_files, unzipped_files_subdirs,
                                 num_procs=not use_multiprocessing, desc=desc)
-    
+
     return unzipped_files_dirs
 
 
@@ -891,7 +997,7 @@ def obj2yaml(obj, file='./cfg.yaml', encoding='utf-8', allow_unicode=True):
     '''
     with open(file, 'w', encoding=encoding) as stream:
         yaml.safe_dump(obj, stream, allow_unicode=allow_unicode, sort_keys=False)
-    
+
     return file
 
 
@@ -901,42 +1007,46 @@ def yaml2obj(file='./cfg.yaml', encoding='utf-8'):
     '''
     with open(file, 'r', encoding=encoding) as stream:
         obj = yaml.safe_load(stream)
-    
+
     return obj
 
 
 def get_file_list(path, extentions=[]):
     '''
-    Возвращает список всех файлов, содержащихся по указанному пути (включая поддиректории).
-    '''    
+    Возвращает список всех файлов, содержащихся по указанному пути,
+    включая поддиректории.
+    '''
     # Обработка параметра extentions:
-    
+
     # Если вместо списка/множества/кортежа расширений ...
     # ... указана строка, то делаем из неё множество:
     if isinstance(extentions, str):
         extentions = {extentions}
-    
+
     # Если же это действительно список/множество/кортеж:
     elif isinstance(extentions, (list, tuple, set)):
-        
+
         # Формируем список элементов, не являющихся строками:
         exts = [ext for ext in extentions if not isinstance(ext, str)]
-        
+
         # Если список не пуст, выводим ошибку:
         if exts:
-            raise ValueError(f'Найдены следующие некорректные объекты в списка/множества/кортежа расширений: {exts}')
-    
+            raise ValueError('Найдены следующие некорректные объекты в ' +
+                             f'списка/множества/кортежа расширений: {exts}')
+
     else:
-        raise ValueError('extentions должен быть строкой, или списком/кортежем/множеством строк. Получен %s' % extentions)
+        raise ValueError('extentions должен быть строкой, или ' +
+                         'списком/кортежем/множеством строк. Получен ' +
+                         str(extentions))
 
     # Переводим все элементы списка в нижний регистр:
     extentions = {ext.lower() for ext in extentions}
 
     # Рекурсивное заполнение списка найденных файлов:
-    
+
     # Инициализация списка найденных файлов:
     file_list = []
-    
+
     # Перебор всего содержимого заданной папки:
     for file in os.listdir(path):
 
@@ -950,9 +1060,10 @@ def get_file_list(path, extentions=[]):
 
         # Если тип текущего файла соответствует искомому, либо ...
         # ... типы искомых файлов не заданы, то вносим файл в список:
-        elif not len(extentions) or os.path.splitext(file)[1].lower() in extentions:
+        elif not len(extentions) or \
+                os.path.splitext(file)[1].lower() in extentions:
             file_list.append(file)
-    
+
     return file_list
 
 
@@ -971,16 +1082,20 @@ def istarmap(self, func, iterable, chunksize=1):
     result = pool.IMapIterator(self)
     self._taskqueue.put((self._guarded_task_generation(result._job     ,
                                                        pool.starmapstar,
-                                                       task_batches    ), result._set_length))
+                                                       task_batches    ),
+                         result._set_length))
 
     return (item for chunk in result for item in chunk)
+
 
 # Вносим новый метод в старый класс:
 pool.Pool.istarmap = istarmap
 # Взято с https://stackoverflow.com/a/57364423
 
+
 def batch_mpmap_func(func, *args):
     return [func_(*args_) for func_, *args_ in zip(func, *args)]
+
 
 def batch_mpmap_args(func, args, batch_size=10):
     '''
@@ -1000,7 +1115,6 @@ def batch_mpmap_args(func, args, batch_size=10):
         end_ind = start_ind + batch_size
         if end_ind >= num_tasks:
             end_ind = None
-
 
         for arg_ind in range(num_args):
             agrs_batches[arg_ind + 1].append(args[arg_ind][start_ind:end_ind])
