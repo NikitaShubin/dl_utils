@@ -2450,15 +2450,17 @@ def task_fuse_multipoly(task, smart=True):
     # Перебираем все подзадачи:
     for df, file, true_frames in task:
 
-        # Дублируем текущий датафрейм чтобы не редактировать оригинал:
-        df = df.copy()
+        if df is not None:
 
-        # Формируем маску для выделения только тех объектов, чьи точки реально
-        # являются контурами:
-        mask = df['type'] == 'polygon'
+            # Дублируем текущий датафрейм чтобы не редактировать оригинал:
+            df = df.copy()
 
-        # Применяем преобразование для всех контуров датафрейма:
-        df.loc[mask, 'points'] = df.loc[mask, 'points'].apply(func)
+            # Формируем маску для выделения только тех объектов, чьи точки
+            # реально являются контурами:
+            mask = df['type'] == 'polygon'
+
+            # Применяем преобразование для всех контуров датафрейма:
+            df.loc[mask, 'points'] = df.loc[mask, 'points'].apply(func)
 
         # Вносим обновлённую подзадачу в конечный список:
         task_.append([df, file, true_frames])
@@ -3887,9 +3889,13 @@ def subtask2preview(subtask,
     # включаем принудительно:
     if os.path.splitext(out_file)[-1].lower() != '.avi':
         recompress2mp4 = True
-    
+
     # Разбиваем подзадачу на составляющие:
     df, file, true_frames = subtask
+
+    # Инициируем пустой датафрейм, если передан None:
+    if df is None:
+        df = new_df()
 
     # Создаём словарь цветов, если он не был указан:
     if label2color is None:
