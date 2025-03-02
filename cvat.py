@@ -3941,6 +3941,64 @@ def subtask2preview(subtask,
         recomp2mp4(tmp_file, out_file)
 
 
+def tasks2preview(tasks,
+                  out_file='./preview.mp4',
+                  label2color=None,
+                  alpha=0.5,
+                  fps=3,
+                  postprocessor=None,
+                  recompress2mp4=True,
+                  desc='Формирование общего превью',
+                  **kwargs):
+    '''
+    Формирование одного превью-видеофайла для всего списка задач.
+    '''
+    # Выносим каждую подзадачу в отдельную задачу:
+    sorted_tasks = flat_tasks(tasks)
+    # Нужно для ускорения распараллеливания.
+
+    # Формируем список имён видеопревью для каждой задачи:
+    name, ext = os.path.splitext(out_file)
+    sorted_out_files = [name + f'_{ind:08}' + ext
+                        for ind in range(len(tasks))]
+
+    # Меняем очерёдность списка задач и файлов превью для ускорения обработки:
+    _, tasks, out_files = sort_tasks_by_len(sorted_tasks, sorted_out_files)
+
+    # Формируем список подзадач:
+    subtasks = [task[0] for task in tasks]
+
+    # Создаём превью отдельно для каждой поздадачи:
+    mpmap(subtask2preview,
+          subtasks,
+          out_files,
+          [label2color] * len(subtasks),
+          [alpha] * len(subtasks),
+          [fps] * len(subtasks),
+          [postprocessor] * len(subtasks),
+          [recompress2mp4] * len(subtasks),
+          desc=desc, **kwargs)
+
+    # Создаём файл-список видео для зборки:
+    file_list = f'{out_file}.list'
+    with open(file_list, 'w') as f:
+        for sorted_out_file in sorted_out_files:
+            print(sorted_out_file)
+            f.write(f"file '{sorted_out_file}'\n")
+
+    return sorted_out_files
+
+    # Выполняем сборку без пересжатия:
+    os.system(f'ffmpeg -y -f concat -safe 0  -i "{file_list}" -c copy "{out_file}"')
+
+    # Удаляем файл-список и файлы-фрагменты:
+    os.remove(file_list)
+    for file in sorted_out_files:
+        os.remove(file_list)
+
+    return out_file
+
+
 """
 # Код тестирования поворотов и отражений в CVATPoints:
 for rotation in [0, 15]:
