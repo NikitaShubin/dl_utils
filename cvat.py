@@ -2736,9 +2736,9 @@ def task_auto_annottation(task,
 
         # Формируем объединённый датафремй, содержащий или исключающий исходную
         # разметку:
-        df = pd.concat([df] + frame_dfs
-                       if store_prev_annotation
-                       else frame_dfs)
+        df = concat_dfs([df] + frame_dfs
+                        if store_prev_annotation
+                        else frame_dfs)
 
         # Внесение очередной подзадачи в итоговую задачу:
         task_.append((df, file, true_frames))
@@ -3984,9 +3984,7 @@ def tasks2preview(tasks,
     with open(file_list, 'w') as f:
         for sorted_out_file in sorted_out_files:
             print(sorted_out_file)
-            f.write(f"file '{sorted_out_file}'\n")
-
-    return sorted_out_files
+            f.write(f"file '{os.path.basename(sorted_out_file)}'\n")
 
     # Выполняем сборку без пересжатия:
     os.system(f'ffmpeg -y -f concat -safe 0  -i "{file_list}" -c copy "{out_file}"')
