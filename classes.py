@@ -352,61 +352,62 @@ class LabelsConvertor:
     def __init__(self                                                                                                                                              ,
                  classes_info_file : 'xlsx-файл, содержащий таблицу классов с привязкой к  меткам в CVAT и GG' = 'Cписок_классов_для_разметчиков.xlsx'             ,
             superclasses_info_file : 'xlsx-файл, содержащий таблицу суперклассов с привязкой к классам'        = 'Список_классов_для_поиска_онлайн_08_классов.xlsx'):
-        
+
         # Папка с файлами, содержащими информацию по всем классам объектов:
         defalut_classes_info_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'classes_info')
-        
+
         # Если заданные пути не существуеют - берём файлы из defalut_classes_info_dir:
         if not os.path.isfile(     classes_info_file):      classes_info_file = os.path.join(defalut_classes_info_dir,      classes_info_file)
         if not os.path.isfile(superclasses_info_file): superclasses_info_file = os.path.join(defalut_classes_info_dir, superclasses_info_file)
-        
+
         # Загружаем таблицы:
         self.     classes =      read_classes2df(     classes_info_file) # Загружаем таблицу классов
         self.superclasses = read_superclasses2df(superclasses_info_file) # Загружаем таблицу суперклассов
-        
+
         # Строим дерево классов:
         self.tree = classes2tree(self.classes)
         #self.tree.show()
-        
+
         # Создаём словари перехода от меток к их расшифровкам:
         self.cvat_label2class_meaning, self.gg_uuid2class_meaning = make_label2class_meaning_dicts(self.tree)
-        
+
         # Строим словари номер_суперкласса <-> имя_суперкласса (используется в YOLO):
         self.yolo_label2superclass_meaning = make_yolo_label2superclass_meaning(self.superclasses)
         self.superclass_meaning2yolo_label = {v.lower(): k for k, v in self.yolo_label2superclass_meaning.items()}
-        
+
         assert len(self.yolo_label2superclass_meaning) == len(self.superclass_meaning2yolo_label)
-        
+
         # Словарь номер_класса -> расшифровка_класса (в отличие от yolo_label2superclass_meaning не включает не используемый класс):
         self.yolo_class_ind2superclass_meaning = {k:v for k, v in self.yolo_label2superclass_meaning.items() if k is not None}
-        
+
         # Строим словарь перехода от имён классов к именам суперклассов
         self.class_meaning2superclass_meaning = make_class_meaning2superclass_meaning(self.superclasses)
-        
+
         # Списки расшифровок классов, имеющих свои метки:
         self.cvat_meanings_list = [self.cvat_label2class_meaning[label.lower()] for label in self.classes[cvat_label_column] if pd.notna(label)]
         self.  gg_meanings_list = [self.   gg_uuid2class_meaning[label.lower()] for label in self.classes[uuid_label_column] if pd.notna(label)]
-        
+
         # Общие списки расшифровок классов и суперклассов:
         self.superclass_meaning_list = list(self.yolo_label2superclass_meaning.values())
         self.     class_meaning_list = list(self.cvat_label2class_meaning     .values()) + list(self.gg_uuid2class_meaning.values())
-        
+
         # Отбрасываем повторения в списках:
         self.     cvat_meanings_list = list(dict.fromkeys(self.     cvat_meanings_list))
         self.       gg_meanings_list = list(dict.fromkeys(self.       gg_meanings_list))
         self.superclass_meaning_list = list(dict.fromkeys(self.superclass_meaning_list))
-        
+
         # Создаём счётчики классов каждого датасета и суперклассов:
         self.      cvat_counter = init_df_counter(self.     cvat_meanings_list)
         self.        gg_counter = init_df_counter(self.       gg_meanings_list)
         self.superclass_counter = init_df_counter(self.superclass_meaning_list)
-    
+
     # Возвращает новые счётчики классов:
     def init_df_counter(self, source_type='superclasses', column_name='num'):
-        
-        # На всякий случай принудительно переводим тип датасета в нижний регистр:
+
+        # На всякий случай принудительно переводим тип датасета в нижний
+        # регистр:
         source_type = source_type.lower()
-        
+
         # Берём нужный уже инициированный датафрейм за основу:
         if source_type == 'cvat':
             df = self.cvat_counter
@@ -418,51 +419,52 @@ class LabelsConvertor:
             df = self.superclass_counter
         else:
             raise ValueError(f'Неизвестный тип датасета: "{source_type}".')
-        
+
         # Возвращаем копию датафрейма с заменой имени столбца на заданный:
         return df.rename({'num': column_name}, axis='columns')
-    
+
     # Конвертация метки любого типа в её расшифровку:
     def any_label2meaning(self, label):
-        
+
         # Переводим в нижный регистр:
         lower_label = label.lower()
-        
+
         # Ищем подходящюю расшифровку по словарям:
         if lower_label in self.cvat_label2class_meaning:
             class_meaning = self.cvat_label2class_meaning[lower_label]
-        
+
         elif lower_label in self.gg_uuid2class_meaning:
             class_meaning = self.gg_uuid2class_meaning[lower_label]
-        
+
         else:
             raise KeyError(f'Неизвестная метка "{label}"!')
-        
+
         return class_meaning
-    
+
     # Переводит метку из CVAT или иного датасета в номер суперкласса:
     def __call__(self, label):
-        
+
         # Переводим любую метку в её расшифровку:
         class_meaning = self.any_label2meaning(label)
-        
+
         # Получаем расшифровку суперкласса:
-        superclass_meaning = self.class_meaning2superclass_meaning[class_meaning.lower()]
-        
+        superclass_meaning = \
+            self.class_meaning2superclass_meaning[class_meaning.lower()]
+
         # Возвращаем индекс суперкласса:
         return self.superclass_meaning2yolo_label[superclass_meaning.lower()]
-    
+
     # Заменяет в датафрейме все метки на их номера.
     def apply2df(self, df):
-        
+
         # Делаем копию исходного датафрейма, чтобы не менять оригинал:
         df = df.copy()
-        
+
         # Замета меток на номера суперклассов:
         df['label'] = df['label'].apply(self)
-        
+
         return df
-    
+
 
 def checkout_labels_in_tasks(tasks, labels_convertor):
     '''

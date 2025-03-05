@@ -1,8 +1,36 @@
-from cvat_sdk import make_client
+import os
 from PIL import Image
 import numpy as np
+from cvat_sdk import make_client
 
 from cvat import add_row2df, concat_dfs, ergonomic_draw_df_frame
+from utils import mkdirs, rmpath, mpmap
+
+
+class Client:
+    def __init__(self, host, username, password):
+        self.host = host
+        self.username = username
+        self.password = password
+        self.obj = make_client(host=host,
+                               credentials=(username, password))
+
+    def kwargs4init(self):
+        '''
+        Возвращает словарь аргументов для создания копии экземпляра класса:
+        '''
+        return {'host': self.host,
+                'username': self.username,
+                'password': self.password}
+    # Пример использования:
+    # client = Client(...)
+    # client2 = Client(**client.kwargs4init())
+
+    def __getattr__(self, attr):
+        '''
+        Проброс атрибутов вложенного объекта наружу.
+        '''
+        return getattr(self.obj, attr)
 
 
 def get_name(obj):
@@ -13,7 +41,7 @@ def get_name(obj):
     return obj.name
 
 
-class CVATSRVObj:
+class _CVATSRVObj:
     '''
     Абстрактный класс для проектов, задач, подзадач и прочих сущностей из
     cvat_sdk. Составляет основу древовидной структуру данных:
@@ -23,6 +51,111 @@ class CVATSRVObj:
     подобъектов и самими подобъектами в качестве значений. Т.е. реализованы
     методы: __getitem__, keys, values, items.
     '''
+    # Уровень класса в иерархии:
+    _hier_lvl = None
+    # У каждого потомка будет свой номер.
+
+    def __init__(self, client, obj=None):
+        self.client = client
+        self.obj = obj
+
+        # Иерархия всех потомков данного суперкласса:
+        self._hier_lvl2class = {0: CVATSRV,
+                                1: CVATSRVProject,
+                                2: CVATSRVTask,
+                                3: CVATSRVJob}
+
+        # Классы предков и потомков:
+        self.child_class = self._hier_lvl2class.get(self._hier_lvl + 1, None)
+        self.parent_class = self._hier_lvl2class.get(self._hier_lvl - 1, None)
+
+    @classmethod
+    def from_id(cls, client, id):
+        '''
+        Должен возвращать экземпляр класса объекта по его id.
+        '''
+        raise NotImplementedError('Метод должен быть переопределён!')
+
+    def name2id(self, name):
+        '''
+        Возвращает id объекта-потомка по его имени.
+        '''
+        for key, val in self.items():
+            if key == name:
+                return val.id
+        return None
+
+    @classmethod
+    def _backup(cls, client_kwargs, child_class, child_id, path):
+        '''
+        Создаёт бекап, предварительно пересоздавая клиент.
+        Нужно для использования mpmap, работающей только с сериализуемыми
+        объектами.
+        '''
+        client = Client(**client_kwargs)
+        child = child_class.from_id(client, child_id)
+        return child.backup(path)
+
+    def backup(self,
+               path='./',
+               name=None,
+               mpmap_kwargs={'desc': 'Загрузка бекапов'}):
+        '''
+        Сохраняет бекап текущей сущности, либо набора его подобъектов.
+        '''
+        # Если передан целый список имён подсущностей, которые надо бекапить:
+        if isinstance(name, (tuple, list, set)):
+
+            # Множество принудительно делаем списком:
+            if isinstance(name, set):
+                name = list(name)
+            # Чтобы порядок элементов был фиксирован.
+
+            # Если путь только один - считаем его именем папки:
+            if isinstance(path, str):
+                path = [os.path.join(path, name_ + '.zip') for name_ in name]
+            # Имена файлов по именам подсущностей.
+
+            if len(name) != len(path):
+                raise ValueError('Число имён и файлов должно совпадать!')
+
+            # Бекапим все сущности:
+            client_kwargs = [self.client.kwargs4init()] * len(name)
+            child_classes = [self.child_class] * len(name)
+            child_ids = list(map(self.name2id, name))
+            return mpmap(self._backup, client_kwargs, child_classes,
+                         child_ids, path, **mpmap_kwargs)
+
+        # Если бекапить надо всю текущую сущность:
+        elif name is None:
+
+            # Если текущая сущность вообще бекапится:
+            if hasattr(self.obj, 'download_backup'):
+
+                # Если указан не путь до архива, считаем его папкой:
+                if path.lower()[-4:] != '.zip':
+                    path = os.path.join(path, self.name + '.zip')
+                    # Дополняем путь именем сущности.
+
+                # Создаём папки до файла, если надо:
+                mkdirs(os.path.dirname(path))
+
+                # Удаляем файл, если он уже существует:
+                if os.path.isfile(path):
+                    rmpath(path)
+
+                # Качаем сам бекап:
+                self.obj.download_backup(path)
+
+                # Возвращаем путь до файла:
+                return path
+
+            else:
+                raise Exception('Объект не бекапится!')
+
+        # Если передано имя лишь одной подсущности:
+        else:
+            return self[name].backup(path)
 
     def values(self):
         '''
@@ -39,15 +172,22 @@ class CVATSRVObj:
     def __len__(self):
         return len(self.values())
 
-    def parent(self):
+    def parend_id(self):
         '''
-        Должен возвращать объект-предок.
+        Должен возвращать id объекта-предка.
         '''
         raise NotImplementedError('Метод должен быть переопределён!')
 
-    def __init__(self, client, obj=None):
-        self.client = client
-        self.obj = obj
+    def parent(self):
+        '''
+        Dозвращает объект-предок.
+        '''
+        if self._hier_lvl == 0:
+            raise NotImplementedError('Объект не имеет предков!')
+
+        return self._hier_lvl2class[self._hier_lvl - 1].from_id(
+            self.client, self.parend_id()
+        )
 
     def __getattr__(self, attr):
         '''
@@ -83,19 +223,18 @@ class CVATSRVObj:
         return str(self.name)
 
 
-class CVATSRVJob(CVATSRVObj):
+class CVATSRVJob(_CVATSRVObj):
     '''
     Поздазача CVAT-сервера.
     '''
+    # Уровень класса в иерархии:
+    _hier_lvl = 3
 
     def values(self):
         raise NotImplementedError('У подзадачи нет составляющих!')
 
-    def parent(self):
-        for task in self.client.get_tasks():
-            if task.id == self.obj.task_id:
-                return CVATSRVTask(self.client, task)
-        return None
+    def parend_id(self):
+        return self.obj.task_id
 
     @property
     def name(self):
@@ -158,39 +297,57 @@ class CVATSRVJob(CVATSRVObj):
 
         return previews
 
+    @classmethod
+    def from_id(cls, client, id):
+        return cls(client, client.jobs.retrieve(id))
 
-class CVATSRVTask(CVATSRVObj):
+
+class CVATSRVTask(_CVATSRVObj):
     '''
     Здазача CVAT-сервера.
     '''
+    # Уровень класса в иерархии:
+    _hier_lvl = 2
 
     def values(self):
         return [CVATSRVJob(self.client, job) for job in self.obj.get_jobs()]
 
-    def parent(self):
-        for project in self.client.projects.list():
-            if project.id == self.obj.project_id:
-                return CVATSRVProject(self.client, project)
-        return None
+    def parend_id(self):
+        return self.obj.project_id
+
+    @classmethod
+    def from_id(cls, client, id):
+        return cls(client, client.tasks.retrieve(id))
 
 
-class CVATSRVProject(CVATSRVObj):
+class CVATSRVProject(_CVATSRVObj):
     '''
     Датасет CVAT-сервера.
     '''
+    # Уровень класса в иерархии:
+    _hier_lvl = 1
 
     def values(self):
         return [CVATSRVTask(self.client, task)
                 for task in self.obj.get_tasks()]
 
     def parent(self):
-        return self.client
+        return CVATSRV(**self.client.kwargs4init())
+
+    @classmethod
+    def from_id(cls, client, id):
+        return cls(client, client.projects.retrieve(id))
 
 
-class CVATSRV(CVATSRVObj):
+class CVATSRV(_CVATSRVObj):
     '''
     CVAT-сервер.
     '''
+    # Уровень класса в иерархии:
+    _hier_lvl = 0
+
+    # У сервера нет своего ID:
+    id = None
 
     def values(self):
         return [CVATSRVProject(self.client, project)
@@ -201,6 +358,6 @@ class CVATSRV(CVATSRVObj):
 
     def __init__(self, host, username, password):
         self.name = host
-        client = make_client(host=host,
-                             credentials=(username, password))
+        client = Client(host, username, password)
+
         super().__init__(client)
