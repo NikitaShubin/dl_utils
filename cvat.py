@@ -925,17 +925,44 @@ class CVATPoints:
             xmin, ymin, xmax, ymax = crop_bbox.flatten()
             return intersection.shift((-xmin, -ymin))
 
-    # Возвращает площадь фигуры (величина может быть отрицательной):
-    def area(self):
+    def size(self):
+        '''
+        Возвращает площадь замкнутой фигуры (многоугольник, эллипс,
+        прямоугольник), длину ломаной линии или число точек облака.
+        Величина может быть отрицательной!
+        Пока работает только для прямоугольников:
+        '''
+        # Если это прямоугольник - возвращаем его площадь:
+        if self.type == 'rectangle':
+            xmin, ymin, xmax, ymax = self.flatten()
+            return (xmax - xmin) * (ymax - ymin)
+        # Результат может быть отрицательным!
 
-        # Пока работает только для прямоугольников:
-        if self.type != 'rectangle':
+        # Если это набор точек - возвращаем их число:
+        elif self.type == 'points':
+            return len(self)
+
+        # Если это ломаная линия - возвращаем её длину:
+        elif self.type == 'polyline':
+            accum = 0
+            for (x1, y1), (x2, y2) in zip(self.points[:-1, :],
+                                          self.points[1:, :]):
+                accum += np.sqrt((x1 - x2) ** 2 + (y1 - y2) ** 2)
+            return accum
+
+        # Если это эллипс - возвращаем его площадь:
+        elif self.type == 'ellipse':
+            cx, cy, rx, ry = self.flatten()
+            return rx * ry * np.pi
+        # Результат может быть отрицательным!
+
+        # Если это многоугольник - возвращаем его площадь:
+        elif self.type == 'polygon':
+            return Triangle.poly_area(self.points)
+        # Результат может быть отрицательным!
+
+        else:
             raise ValueError(f'Неподдерживаемый тип: {self.type}!')
-
-        # Получаем границы прямоугольника:
-        xmin, ymin, xmax, ymax = self.flatten()
-
-        return (xmax - xmin) * (ymax - ymin)
 
     # Неоднородное масштабирование:
     def rescale(self, k_height, k_width):
