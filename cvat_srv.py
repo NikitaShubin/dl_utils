@@ -99,10 +99,14 @@ class _CVATSRVObj:
     def backup(self,
                path='./',
                name=None,
-               mpmap_kwargs={'desc': 'Загрузка бекапов'}):
+               desc='Загрузка бекапов',
+               **mpmap_kwargs):
         '''
         Сохраняет бекап текущей сущности, либо набора его подобъектов.
         '''
+        # Присовокупляем описание к остальным параметрам mpmap:
+        mpmap_kwargs = mpmap_kwargs | {'desc': desc}
+
         # Если передан целый список имён подсущностей, которые надо бекапить:
         if isinstance(name, (tuple, list, set)):
 

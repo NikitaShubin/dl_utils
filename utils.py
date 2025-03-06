@@ -1775,8 +1775,6 @@ def extend_list_in_dict_value(d: dict,
         d[key] = list(value)
     return d
 
-#class DictOfLists:
-
 
 class CircleInd:
     """
