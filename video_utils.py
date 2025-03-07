@@ -300,7 +300,7 @@ class ViSave:
             raise ValueError('"%s" не входит в список доступных цветовых схем.' % colorspace)
 
         # Создаём путь до файла, если надо:
-        path_dir = os.path.dirname(path)
+        path_dir = os.path.abspath(os.path.dirname(path))
         if not os.path.isdir(path_dir):
             mkdirs(path_dir)
 
