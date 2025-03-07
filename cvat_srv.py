@@ -2,6 +2,7 @@ import os
 from PIL import Image
 import numpy as np
 from cvat_sdk import make_client
+from getpass import getpass
 
 from cvat import add_row2df, concat_dfs, ergonomic_draw_df_frame
 from utils import mkdirs, rmpath, mpmap
@@ -360,7 +361,11 @@ class CVATSRV(_CVATSRVObj):
     def parent(self):
         raise NotImplementedError('У сервера нет предков!')
 
-    def __init__(self, host, username, password):
+    def __init__(self, host=None, username=None, password=None):
+        host = host or input('Адрес CVAT-сервера:')
+        username = username or input(f'{host} логин:')
+        password = password or getpass(f'{host} пароль:')
+
         self.name = host
         client = Client(host, username, password)
 
