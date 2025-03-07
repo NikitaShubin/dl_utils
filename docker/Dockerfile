@@ -126,10 +126,11 @@ com/PublicPackages/_packaging/onnxruntime-cuda-12/pypi/simple/           \
     # использовании CUDA 12 (https://onnxruntime.ai/docs/install/).      \
                                                                          \
     # Линтеры, стайлчекеры, тестеры и прочие утилиты работы с кодом:     \
-    pytest pycodestyle pycodestyle_magic flake8 nbqa pylint              \
+    cookiecutter-data-science pytest pycodestyle pycodestyle_magic       \
     python-lsp-server[all] jupyterlab-lsp black[jupyter]                 \
     isort[requirements_deprecated_finder,pipfile_deprecated_finder]      \
-    wemake-python-styleguide ondivi                                      \
+    flake8 nbqa pylint wemake-python-styleguide ondivi                   \
+                                                                         \
                                                                          \
     # Python-компилятор                                                  \
     pyinstaller                                                          \
