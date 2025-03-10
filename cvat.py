@@ -2092,32 +2092,32 @@ class CVATPoints:
         plt.axis(False)
 
 
-class CVATLabeles:
+class CVATLabels:
     '''
     Класс, хранящий все типы меток CVAT-проекта (классы)
     '''
-    def __init__(self, cvat_raw_labeles):
+    def __init__(self, cvat_raw_labels):
 
         # Если передано имя текстового файла, читаем его как json:
-        if isinstance(cvat_raw_labeles, str) and \
-                os.path.isfile(cvat_raw_labeles):
-            with open(cvat_raw_labeles, 'r', encoding='utf-8') as f:
-                cvat_raw_labeles = json.load(f)
+        if isinstance(cvat_raw_labels, str) and \
+                os.path.isfile(cvat_raw_labels):
+            with open(cvat_raw_labels, 'r', encoding='utf-8') as f:
+                cvat_raw_labels = json.load(f)
 
         # Если передан список, считаем, что он и содержит словари всех меток:
-        elif isinstance(cvat_raw_labeles, list):
+        elif isinstance(cvat_raw_labels, list):
             pass
 
         # Иных вариантов не предусмотрено:
         else:
-            raise ValueError('Неожиданное значение "cvat_raw_labeles": ' +
-                             f'{cvat_raw_labeles}!')
+            raise ValueError('Неожиданное значение "cvat_raw_labels": ' +
+                             f'{cvat_raw_labels}!')
 
         # Формируем датафрейм:
-        self.df = pd.DataFrame.from_dict(cvat_raw_labeles)
+        self.df = pd.DataFrame.from_dict(cvat_raw_labels)
 
     # Возвращает полный список имён классов:
-    def labeles(self):
+    def labels(self):
         return list(self.df['name'])
 
     # Возвращает цвет (RGB), соответствующий классу:
@@ -2128,12 +2128,12 @@ class CVATLabeles:
 
     # Возвращает аргументы создания радиокнопки списка классов в Jupyter:
     def get_ipy_radio_buttons_kwargs(self, description='Класс:'):
-        return  {'options': self.labeles(), 'description': description}
+        return  {'options': self.labels(), 'description': description}
     # from IPython.display import display
     # from ipywidgets import RadioButtons
     #
-    # cvat_labeles = CVATLabeles(...)
-    # rb = RadioButtons(**cvat_labeles.get_ipy_radio_buttons_kwargs())
+    # cvat_labels = CVATLabels(...)
+    # rb = RadioButtons(**cvat_labels.get_ipy_radio_buttons_kwargs())
     #
     # def on_button_clicked(b):
     #     ...

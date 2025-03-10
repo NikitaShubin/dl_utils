@@ -203,15 +203,15 @@ class Prompts:
         if label is None:
 
             # Получаем список использованных этим объектом меток:
-            labeles = list(self.get_sub_df(obj_ids=obj_id)['label'].unique())
+            labels = list(self.get_sub_df(obj_ids=obj_id)['label'].unique())
 
-            if len(labeles) == 0:
+            if len(labels) == 0:
                 label = 'unlabeled'
-            elif len(labeles) == 1:
-                label = labeles[0]
+            elif len(labels) == 1:
+                label = labels[0]
             else:
                 raise ValueError('Более одного значения метки для obj_id=' +
-                                 f'{obj_id}: {labeles}!')
+                                 f'{obj_id}: {labels}!')
 
         # Определяем глобальные параметры трека:
         start_frame = self.get_start_frame(obj_id)  # Начальный кадр

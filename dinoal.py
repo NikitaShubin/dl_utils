@@ -147,9 +147,9 @@ class Dino:
             )
 
         # Переводим все запросы в соответствующие метки:
-        labeles = list(map(prompt2label.get, phrases))
+        labels = list(map(prompt2label.get, phrases))
 
-        return img, boxes.numpy(), logits.numpy(), labeles
+        return img, boxes.numpy(), logits.numpy(), labels
 
     # Формирование разметки в cvat-формате:
     def img2df(self,
@@ -161,7 +161,7 @@ class Dino:
                source='GroundingDINO',
                **kwargs):
         # Получаем кадр и результаты детекции:
-        img, boxes, logits, labeles = self._predict(img,
+        img, boxes, logits, labels = self._predict(img,
                                                     prompt2label,
                                                     box_threshold,
                                                     text_threshold)
@@ -170,7 +170,7 @@ class Dino:
         imsize = img.shape[:2]
 
         dfs = []
-        for box, logit, label in zip(boxes, logits, labeles):
+        for box, logit, label in zip(boxes, logits, labels):
             points = CVATPoints.from_yolobbox(*box, imsize)
             dfs.append(points.to_dfrow(
                 source='GroundingDINO', label=label,  **kwargs
@@ -191,7 +191,7 @@ class Dino:
              **kwargs):
 
         # Получаем кадр и результаты детекции:
-        img, boxes, logits, labeles = self._predict(img,
+        img, boxes, logits, labels = self._predict(img,
                                                     prompt2label,
                                                     box_threshold,
                                                     text_threshold)
@@ -218,7 +218,7 @@ class Dino:
 
         # Наносим обрамляющие прямоугольники с текстом на исходное
         # изображение:
-        for box, logit, phrase in zip(boxes, logits, labeles):
+        for box, logit, phrase in zip(boxes, logits, labels):
             points = CVATPoints.from_yolobbox(*box, imsize)
             img = points.draw(img,
                               caption=f'{phrase}: conf={logit:.3}',

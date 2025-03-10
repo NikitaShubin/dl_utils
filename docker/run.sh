@@ -51,7 +51,7 @@ RUNPARAMS=(
     -d
 
     # Права внешнего пользователя
-    #-u $(id -u):$(id -g)
+    # -u $(id -u):$(id -g)
 
     # Для работы Keras Tuner по сети:
     --ipc=host
