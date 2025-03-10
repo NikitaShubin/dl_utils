@@ -1,11 +1,11 @@
 import os
 from PIL import Image
 import numpy as np
-from cvat_sdk import make_client
+from cvat_sdk import make_client, core
 from getpass import getpass
 
 from cvat import add_row2df, concat_dfs, ergonomic_draw_df_frame
-from utils import mkdirs, rmpath, mpmap
+from utils import mkdirs, rmpath, mpmap, get_n_colors
 
 
 class Client:
@@ -32,6 +32,108 @@ class Client:
         Проброс атрибутов вложенного объекта наружу.
         '''
         return getattr(self.obj, attr)
+
+    @staticmethod
+    def _adapt_labels(labels):
+        '''
+        Добавляет к списку классов цвета, если надо.
+        '''
+        assert isinstance(labels, (tuple, list, set))
+
+        # Определяем, описаны метки строками или словарями:
+        is_str = False
+        is_dict = False
+        for label in labels:
+            if isinstance(label, dict):
+                is_dict = True
+            elif isinstance(label, str):
+                is_str = True
+            else:
+                raise ValueError(
+                    'Список классов должен содержать строки, словари ' +
+                    'или `cvat_sdk.api_client.model.label.Label`. ' +
+                    f'Получен "{type(label)}!"')
+
+        # Если передан словарь, то оставляем в нём только самое необъодимое:
+        if is_dict and not is_str:
+
+            # Инициируем список новых меток:
+            labels_ = []
+
+            # Перебираем исходные метки:
+            for label in labels:
+
+                # Инициируем новую метку
+                label_ = {}
+                for key, val in label.items():
+                    if key in {'name', 'attributes', 'color'}:
+                        label_[key] = val
+
+                # Пополняем список новых меток:
+                labels_.append(label_)
+
+            # Заменяем старый список новым:
+            labels = labels_
+
+        # Полезно в случае дублирования меток из проекта в задачу,
+        # т.к. не все поля проекта соответствуют полям задач.
+
+        # Дополняем названия цветами, если переданы только строки:
+        elif is_str and not is_dict:
+            colors = get_n_colors(len(labels))
+            labels = [
+                {
+                    'name': label,
+                    'attributes': [],
+                    'color': '#%02x%02x%02x' % color,
+                } for label, color in zip(labels, colors)
+            ]
+
+        else:
+            print(f'is_str = {is_str}; is_dict = {is_dict}')
+            raise ValueError('Параметр labels может быть списком ' +
+                             'либо строк, либо словарей!')
+
+        return labels
+
+    def new_task(self,
+                 name,
+                 file,
+                 labels,
+                 annotation_path=None):
+        '''
+        Создаёт новую задачу без разметки.
+        '''
+        # Добавляет классам цвета, если надо:
+        labels = self._adapt_labels(labels)
+
+        task_spec = {'name': name,
+                     'labels': labels}
+
+        task = self.obj.tasks.create_from_data(
+            spec=task_spec,
+            resource_type=core.proxies.tasks.ResourceType.LOCAL,
+            resources=file,
+            annotation_path=annotation_path
+        )
+
+        # Возвращаем обёрнутый объект
+        return CVATSRVTask(self, task)
+
+    def new_project(self, name, labels):
+        '''
+        Создаёт пустой датасет.
+        '''
+        # Добавляет классам цвета, если надо:
+        labels = self._adapt_labels(labels)
+
+        # Создаём проект:
+        proj_spec = {'name': name,
+                     'labels': labels}
+        project = self.obj.projects.create_from_dataset(proj_spec)
+
+        # Возвращаем обёрнутрый объект:
+        return CVATSRVProject(self, project)
 
 
 def get_name(obj):
@@ -143,7 +245,7 @@ class _CVATSRVObj:
                     # Дополняем путь именем сущности.
 
                 # Создаём папки до файла, если надо:
-                mkdirs(os.path.dirname(path))
+                mkdirs(os.path.abspath(os.path.dirname(path)))
 
                 # Удаляем файл, если он уже существует:
                 if os.path.isfile(path):
@@ -185,14 +287,24 @@ class _CVATSRVObj:
 
     def parent(self):
         '''
-        Dозвращает объект-предок.
+        Возвращает объект-предок.
         '''
         if self._hier_lvl == 0:
             raise NotImplementedError('Объект не имеет предков!')
 
+        # Возвращаем None, если предка нет:
+        if self.parend_id() is None:
+            return
+
         return self._hier_lvl2class[self._hier_lvl - 1].from_id(
             self.client, self.parend_id()
         )
+
+    def new(self):
+        '''
+        Создаёт и возвращает подобъект.
+        '''
+        raise NotImplementedError('Метод должен быть переопределён!')
 
     def __getattr__(self, attr):
         '''
@@ -343,6 +455,27 @@ class CVATSRVProject(_CVATSRVObj):
     def from_id(cls, client, id):
         return cls(client, client.projects.retrieve(id))
 
+    def new(self, name, file, annotation_xml=None):
+        '''
+        Создаёт новую задачу в текущем датасете.
+        '''
+        # Задачи с таким именем ещё не должно существовать:
+        if name in self.keys():
+            raise KeyError(f'Задача "{name}" уже существует ' +
+                           f'в датасете "{self.name}"!')
+
+        # Извлекаем метки из дадасета:
+        labels = [label.to_dict() for label in self.obj.get_labels()]
+
+        # Создаём задачу:
+        task = self.client.new_task(name, file, labels,
+                                    annotation_path=annotation_xml)
+
+        # Привязываем задачу к текущему датасету:
+        task.update({'project_id': self.id})
+
+        return task
+
 
 class CVATSRV(_CVATSRVObj):
     '''
@@ -370,3 +503,14 @@ class CVATSRV(_CVATSRVObj):
         client = Client(host, username, password)
 
         super().__init__(client)
+
+    def new(self, name, labels):
+        '''
+        Создаёт новый датасет на текущем сервере.
+        '''
+        # Датасета с таким именем ещё не должно существовать:
+        if name in self.keys():
+            raise KeyError(f'Датасет "{name}" уже существует!')
+
+        # Создаём датасет:
+        return self.client.new_project(name, labels)
