@@ -299,6 +299,7 @@ class _CVATSRVObj:
     def __len__(self):
         return len(self.values())
 
+    @property
     def parend_id(self):
         '''
         Должен возвращать id объекта-предка.
@@ -313,11 +314,11 @@ class _CVATSRVObj:
             raise NotImplementedError('Объект не имеет предков!')
 
         # Возвращаем None, если предка нет:
-        if self.parend_id() is None:
+        if self.parend_id is None:
             return
 
         return self._hier_lvl2class[self._hier_lvl - 1].from_id(
-            self.client, self.parend_id()
+            self.client, self.parend_id
         )
 
     def new(self):
@@ -358,6 +359,13 @@ class _CVATSRVObj:
         Возвращает име объекта при выводе содержимого объетка в виде текста.
         '''
         return str(self.name)
+
+    @property
+    def url(self):
+        '''
+        Возвращает URL объекта.
+        '''
+        return self.obj.url.replace('/api/', '/')
 
 
 class CVATSRVJob(_CVATSRVObj):
@@ -438,6 +446,14 @@ class CVATSRVJob(_CVATSRVObj):
     def from_id(cls, client, id):
         return cls(client, client.jobs.retrieve(id))
 
+    @property
+    def url(self):
+        '''
+        Возвращает URL подзадачи.
+        '''
+        task_substr = f'/tasks/{self.parend_id()}/jobs/'
+        return super().url.replace('/jobs/', task_substr)
+
 
 class CVATSRVTask(_CVATSRVObj):
     '''
@@ -449,6 +465,7 @@ class CVATSRVTask(_CVATSRVObj):
     def values(self):
         return [CVATSRVJob(self.client, job) for job in self.obj.get_jobs()]
 
+    @property
     def parend_id(self):
         return self.obj.project_id
 
