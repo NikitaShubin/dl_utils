@@ -96,6 +96,24 @@ class Client:
 
         return labels
 
+    @staticmethod
+    def _adapt_file(file):
+        '''
+        Делает путь к файлу списком файлов.
+        '''
+        if isinstance(file, str):
+            file = [file]
+        elif not isinstance(file, list):
+            raise ValueError('Параметр file должен быть строкой или ' +
+                             f'списком строк. Получен {type(file)}!')
+
+        # Проверяем наличие каждого файла из списка:
+        for file_ in file:
+            if not os.path.isfile(file_):
+                raise FileNotFoundError(f'Не найден файл "file_"!')
+
+        return file
+
     def new_task(self,
                  name,
                  file,
@@ -104,8 +122,10 @@ class Client:
         '''
         Создаёт новую задачу без разметки.
         '''
-        # Добавляет классам цвета, если надо:
+
+        # Доводим до ума входные параметры, если надо:
         labels = self._adapt_labels(labels)
+        file = self._adapt_file(file)
 
         task_spec = {'name': name,
                      'labels': labels}
