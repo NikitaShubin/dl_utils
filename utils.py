@@ -537,6 +537,15 @@ def color_float_hsv_to_uint8_rgb(h: float,
         return (v, v, v) if a is None else (v, v, v, a)
 
 
+def get_n_colors(n):
+    '''
+    Генерирует список цветов максимальной различимости по тону.
+    Полезен во всяких визуализациях.
+    '''
+    h = np.linspace(0, 1, n, endpoint=False)
+    return list(map(color_float_hsv_to_uint8_rgb, h))
+
+
 def text2img(text : 'Растеризируемый текст'                       ,
              img  : 'Изображение или его размер' = 'auto'         ,
              scale: 'Масштаб шрифта'             = 0.6            ,
