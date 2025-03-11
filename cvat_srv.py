@@ -3,6 +3,7 @@ from PIL import Image
 import numpy as np
 from cvat_sdk import make_client, core
 from getpass import getpass
+from zipfile import ZipFile
 
 from cvat import add_row2df, concat_dfs, ergonomic_draw_df_frame
 from utils import mkdirs, rmpath, mpmap, get_n_colors
@@ -366,6 +367,81 @@ class _CVATSRVObj:
         Возвращает URL объекта.
         '''
         return self.obj.url.replace('/api/', '/')
+
+    def set_annotations(self,
+                        file='annotations.xml',
+                        format_name='CVAT XML 1.1',
+                        *args, **kwargs):
+        '''
+        Заменяет имеющуюся разметку объекта новой.
+        '''
+        return self.obj.import_annotations(format_name, file, *args, **kwargs)
+
+    def get_annotations(self,
+                        file='annotations.xml',
+                        format_name='CVAT for video 1.1',
+                        *args, **kwargs):
+        '''
+        Сохраняет имеющуюся разметку объекта в локальный файл.
+        '''
+        if os.path.isfile(file):
+            raise FileExistsError(f'Файл "{file}" уже существует!')
+
+        # Создаём целевую папку, если надо:
+        dirname = os.path.dirname(file)
+        if not os.path.isdir(dirname):
+            mkdirs(dirname)
+
+        # Если требуется скачать именно архив:
+        if os.path.splitext(file)[1].lower() == '.zip':
+
+            # Качаем:
+            self.obj.export_dataset(format_name,
+                                    file,
+                                    include_images=False,
+                                    *args, **kwargs)
+
+        # Если требуется распаковка файла:
+        else:
+
+            # Определяем имя архива для закачки:
+            zip_file = file + '.zip'
+            if os.path.isfile(zip_file):
+                raise FileExistsError(f'Файл "{zip_file}" уже существует!')
+
+            # Качаем архив:
+            self.obj.export_dataset(format_name,
+                                    zip_file,
+                                    include_images=False,
+                                    *args, **kwargs)
+
+            # Имя конечного файла без пути к нему:
+            basename_file = os.path.basename(file)
+
+            # Открываем архив:
+            with ZipFile(zip_file, 'r') as archive:
+
+                # Перебираем все файлы в нём:
+                for zipped_file in archive.namelist():
+
+                    # Находим файл разметки:
+                    if zipped_file.startswith('annotations.'):
+
+                        # Распаковываем его под новым именем:
+                        archive.getinfo(zipped_file).filename = basename_file
+                        archive.extract(zipped_file, os.path.dirname(file))
+
+                        # Выходим из цикла:
+                        break
+
+                # Если файл не найден:
+                else:
+                    raise FileNotFoundError('В ахриве не найден файл, ' +
+                                            'начинающийся с "annotations."!')
+            # Удаляем архив:
+            rmpath(zip_file)
+
+        return file
 
 
 class CVATSRVJob(_CVATSRVObj):
