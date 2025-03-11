@@ -135,10 +135,11 @@ class Client:
             spec=task_spec,
             resource_type=core.proxies.tasks.ResourceType.LOCAL,
             resources=file,
-            annotation_path=annotation_path
+            annotation_path=annotation_path,
+            annotation_format='CVAT 1.1',
         )
 
-        # Возвращаем обёрнутый объект
+        # Возвращаем обёрнутый объект:
         return CVATSRVTask(self, task)
 
     def new_project(self, name, labels):
@@ -370,7 +371,7 @@ class _CVATSRVObj:
 
     def set_annotations(self,
                         file='annotations.xml',
-                        format_name='CVAT XML 1.1',
+                        format_name='CVAT 1.1',
                         *args, **kwargs):
         '''
         Заменяет имеющуюся разметку объекта новой.
