@@ -585,8 +585,8 @@ class SAM2:
         # Заполняем врЕменную подпапку JPEG-кадрами из видео:
         reader = ViRead(self.video_file, on_end == 'close')
         while (frame := reader()) is not None:
-        for ind, img in enumerate(tqdm(VideoGenerator(self.video_file),
-                                       desc='Пересжатие видео')):
+            #for ind, img in enumerate(tqdm(VideoGenerator(self.video_file),
+            #                               desc='Пересжатие видео')):
 
             # Если появился первый пропущенный кадр, прерываем конвертацию:
             if img is None:
