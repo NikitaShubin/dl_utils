@@ -81,8 +81,8 @@ ARG PYTHONMODULES="                                                      \
     # Keras и прочее:                                                    \
     keras keras-tuner pydot tf_keras                                     \
                                                                          \
-    # Для работы с датасетами (используется в classes.py):               \
-    treelib openpyxl                                                     \
+    # Мелкие полезные утилиты:                                           \
+    treelib openpyxl easydict                                            \
                                                                          \
     # Aугментация и прочая обработка изображений + доп. утилиты:         \
     albumentations scikit-learn scikit-image                             \
@@ -104,7 +104,7 @@ ARG PYTHONMODULES="                                                      \
     jupyterlab voila xeus-python                                         \
     jupyterlab_nvdashboard jupyter-resource-usage                        \
     jupyterlab-latex jupyterlab-git                                      \
-    ipympl mpl_point_clicker mpl_interactions[jupyter] matplotlib==3.9.4 \
+    ipympl mpl_point_clicker mpl_interactions[jupyter] matplotlib        \
     jupyter-collaboration jupyterlab_autoscrollcelloutput                \
     # pydevd-pycharm jupyverse[jupyterlab,auth]                          \
     # ipympl, mpl_point_clicker и mpl_interactions для интерактивного    \
