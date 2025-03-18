@@ -610,8 +610,8 @@ class CVATSRV(_CVATSRVObj):
 
     def __init__(self, host=None, username=None, password=None):
         host = host or input('Адрес CVAT-сервера:')
-        username = username or input(f'{host} логин:')
-        password = password or getpass(f'{host} пароль:')
+        username = username or input(f'{host} логин: ')
+        password = password or getpass(f'{host} пароль: ')
 
         self.name = host
         client = Client(host, username, password)

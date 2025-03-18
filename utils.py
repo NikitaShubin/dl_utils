@@ -1503,9 +1503,9 @@ class AnnotateIt():
                     'Обработка выполнена.'    ) as a:
         np.random.rand(1000000000)
     '''
-    def __init__(self                                          ,
-                 start_annotation : 'Предворяющий текст' = '',
-                 end_annotation   : 'Завершающий  текст' = ''):
+    def __init__(self                                       ,
+                 start_annotation: 'Предворяющий текст' = '',
+                 end_annotation  : 'Завершающий  текст' = ''):
 
         self.start_annotation = start_annotation  # Предворяющий текст
         self.  end_annotation =   end_annotation  # Завершающий  текст
@@ -1517,7 +1517,6 @@ class AnnotateIt():
 
     def __enter__(self):
         print(self.start_annotation, end='')
-        return
 
     def __exit__(self, type, value, traceback):
         print('\r' + self.end_annotation)
