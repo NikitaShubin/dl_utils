@@ -3008,7 +3008,7 @@ def hide_skipped_objects_in_df(df, true_frames):
             df_row['true_frame'] = true_frames[frame + 1]
             hidden_dfs.append(df_row)
 
-    # Добавляем замыкающие объекты к основному датафрейму и сортеруем по
+    # Добавляем замыкающие объекты к основному датафрейму и сортируем по
     # номеру кадра:
     df = concat_dfs([df] + hidden_dfs)
     return df.sort_values('frame')
