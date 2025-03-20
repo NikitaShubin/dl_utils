@@ -6,7 +6,7 @@ DOCKERFILE_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pw
 
 # Задаём имя контейнера или берём его из входных параметров:
 if [ $# -eq 0 ]; then
-    DOCKER_NAME='video_pre_annotation'
+    DOCKER_NAME='maxdev_video_pre_annotation'
 else
     DOCKER_NAME="$1"
     shift
@@ -70,6 +70,7 @@ RUNPARAMS=(
 
     # Монтируем папку проекта в докер:
     -v "${DOCKERFILE_DIR}/project/":/workspace/project
+    -v "${DOCKERFILE_DIR}/../":/workspace/src
 
     # Включаем доступ к GPU, если возможно:
     $nvidia_args
@@ -105,6 +106,6 @@ MAXIM_RUNPARAMS=(
 
 # Запускаем образ:
 #clear && 
-docker run  "${LIZA_RUNPARAMS[@]}" "${RUNPARAMS[@]}"
-# docker run "${MAXIM_RUNPARAMS[@]}" "${RUNPARAMS[@]}"
+# docker run  "${LIZA_RUNPARAMS[@]}" "${RUNPARAMS[@]}"
+docker run "${MAXIM_RUNPARAMS[@]}" "${RUNPARAMS[@]}"
 #docker exec -u root -it $DOCKER_NAME bash

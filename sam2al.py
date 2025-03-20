@@ -12,7 +12,7 @@ import warnings
 from contextlib import contextmanager
 
 from pt_utils import AutoDevice
-from video_utils import VideoGenerator, ViRead
+from video_utils import VideoGenerator
 from cvat import (df_save, df_load, new_df, add_row2df, CVATPoints,
                   concat_dfs, ergonomic_draw_df_frame, subtask2preview,
                   hide_skipped_objects_in_df, subtask2xml, df_list2tuple,
@@ -583,10 +583,8 @@ class SAM2:
         mkdirs(self.imgs_dir)
 
         # Заполняем врЕменную подпапку JPEG-кадрами из видео:
-        reader = ViRead(self.video_file, on_end == 'close')
-        while (frame := reader()) is not None:
-            #for ind, img in enumerate(tqdm(VideoGenerator(self.video_file),
-            #                               desc='Пересжатие видео')):
+        for ind, img in enumerate(tqdm(VideoGenerator(self.video_file),
+                                       desc='Пересжатие видео')):
 
             # Если появился первый пропущенный кадр, прерываем конвертацию:
             if img is None:
