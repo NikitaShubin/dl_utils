@@ -417,7 +417,9 @@ def draw_mask_on_image(mask, img=None, color=None, alpha=1.):
 
     # Строим альфаканал маски:
     watermark_alpha = mask
-    if isint(watermark_alpha):
+    if watermark_alpha.dtype == bool:
+        watermark_alpha = watermark_alpha.astype(float)
+    elif isint(watermark_alpha):
         max_dtype_value = np.iinfo(watermark_alpha.dtype).max
         watermark_alpha = watermark_alpha / max_dtype_value
     if alpha != 1.:
