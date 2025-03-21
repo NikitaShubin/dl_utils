@@ -569,7 +569,7 @@ class CVATSRVProject(_CVATSRVObj):
     def from_id(cls, client, id):
         return cls(client, client.projects.retrieve(id))
 
-    def new(self, name, file, annotation_xml=None):
+    def new(self, name, file, annotation_file=None):
         '''
         Создаёт новую задачу в текущем датасете.
         '''
@@ -583,7 +583,7 @@ class CVATSRVProject(_CVATSRVObj):
 
         # Создаём задачу:
         task = self.client.new_task(name, file, labels,
-                                    annotation_path=annotation_xml)
+                                    annotation_path=annotation_file)
 
         # Привязываем задачу к текущему датасету:
         task.update({'project_id': self.id})

@@ -36,7 +36,7 @@ ARG PIPPARAMS="--no-cache-dir"
 ARG PIP="python -m pip"
 ARG PYTHONMODULES="                                                      \
     # Фиксируем версию PyTorch:                                          \
-    torch==2.5.1                                                         \
+    # torch==2.5.1                                                       \
                                                                          \
     # IDE:                                                               \
     jupyterlab voila                                                     \
@@ -52,14 +52,15 @@ ARG PYTHONMODULES="                                                      \
     git+https://github.com/SysCV/sam-hq.git timm                         \
                                                                          \
     # Segment Anything Model 2.1 (для сегментации видео):                \
-    git+https://github.com/facebookresearch/sam2.git decord              \
+    #git+https://github.com/facebookresearch/sam2.git decord              \
+    sam2 decord\
                                                                          \
     # Grounding DINO:                                                    \
     #git+https://github.com/IDEA-Research/GroundingDINO.git              \
 "
 # "jupyverse[jupyterlab,noauth]"
 RUN ${PIP} install $PIPPARAMS --upgrade pip && \
-    ${PIP} install $PIPPARAMS $PYTHONMODULES --upgrade -vvv
+    ${PIP} install $PIPPARAMS $PYTHONMODULES
 
 
 # Исправляем баг SAM2 с недоступностью конфигурационных файлов:
@@ -90,9 +91,9 @@ RUN chmod 777 ./
 # Вносим нужные файлы в рабочую папку образа:
 ADD --chmod=777 https://dl.fbaipublicfiles.com/segment_anything_2/092824/sam2.1_hiera_large.pt ./models/
 # Самая большая модель SAM2.
-# COPY --chown="${USERNAME}:${USERNAME}" *.py ./src/
+COPY --chown="${USERNAME}:${USERNAME}" *.py ./src/
 # Модули.
-# COPY --chown="${USERNAME}:${USERNAME}" dockerPreAnnotation/PreAnnotation.ipynb ./
+COPY --chown="${USERNAME}:${USERNAME}" dockerPreAnnotation/PreAnnotation.ipynb ./
 # Интерфейсный юпитер-ноутбук.
 
 
