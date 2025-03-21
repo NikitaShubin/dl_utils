@@ -606,9 +606,12 @@ class SAM2:
         with self.inference_context():
             self.state = self.predictor.init_state(self.imgs_dir, **kwargs)
 
-        # Инициируем хеш подсказок объектов и кеш датафреймов их треков:
+        # Инициируем хеш подсказок объектов, кеш датафреймов их треков
+        # и общий кеш всей предразметки:
         self.obj_id2obj_promtps_hash = {}
         self.obj_id2obj_df_cache = {}
+        self.last_df_hash = None
+        self.last_df= None
         # Хеш позволяет проверять были ли изменены подсказки со времён
         # сохранения последнего трекинга.
 
@@ -726,13 +729,23 @@ class SAM2:
         file = self.video_file
         true_frames = {frame: frame for frame in range(len(self.imgs))}
 
+        # Достаём разметку с подгоном контуров из кеша, если подсказки не
+        # менялись:
+        if fit_segments:
+            prompts_hash = self.prompts.hash()
+            if (self.last_df_hash == prompts_hash):
+                return self.last_df, file, true_frames
+
         # Инициируем список датафреймов:
         dfs = []
 
         # Перебираем все треки и объединяем результаты в один датафрейм:
-        for obj_id in self.prompts.get_all_obj_ids():
+        all_obj_ids = self.prompts.get_all_obj_ids()
+        for obj_id in all_obj_ids:
             label = self.prompts.get_label(obj_id)
-            print(f'Трассировка объекта №{obj_id} ({label}):')
+            print(f'Трассировка объекта №{obj_id}',
+                  f'(из {max(all_obj_ids)}):',
+                  label)
             dfs.append(self.build_obj_df(obj_id))
         df = concat_dfs(dfs)
         if df is None:
@@ -748,6 +761,11 @@ class SAM2:
 
         # Скрываем объекты в местах пропусков (отрубаем хвосты):
         df = hide_skipped_objects_in_df(df, true_frames)
+
+        # Обновляем кеш и хеш датафрейма с подгонкой контуров:
+        if fit_segments:
+            self.last_df = df
+            self.last_df_hash = prompts_hash
 
         return df, file, true_frames
 
@@ -833,7 +851,7 @@ class SAM2:
 
         return [mask]
 
-    def GenPreview(self, fit_segments=False):
+    def gen_preview(self, fit_segments=False):
         df, _, _ = self.build_subtask(fit_segments)
 
         obj_ids = sorted(list(df['track_id'].unique()))
@@ -848,14 +866,22 @@ class SAM2:
 
             yield img
 
-    def RenderPreview(self, suffix='Preview_', label2color=None,
-                      fit_segments=False):
+    def render_preview(self, target_file=None, label2color=None,
+                      fit_segments=False, return_subtask=False):
+
+        # Доопределяем имя файла, если не задан:
+        if target_file is None:
+            target_file = 'Clean' if fit_segments else 'Druft'
+            target_file = target_file + '_Preview.mp4'
+            target_file = os.path.join(self.tmp_dir.name, target_file)
+
         # Формируем CVAT-подзадачу с разметкой:
         df, file, true_frames = self.build_subtask(fit_segments)
 
         # Подменяем метки, чтобы разные объекты отрисовывались разными цветами:
+        mod_df = df.copy()
         if not fit_segments:
-            df['label'] = df['track_id'].apply(str)
+            mod_df['label'] = mod_df['track_id'].apply(str)
 
         # Если в качестве файла передан список изображений, то берём имя
         # папки:
@@ -866,13 +892,18 @@ class SAM2:
         else:
             name = os.path.splitext(os.path.basename(file))[0]
 
-        # Имя конечного файла:
-        target_file = suffix + name + '.mp4'
-
         # Генерируем само превью:
-        subtask2preview((df, file, true_frames), target_file, label2color)
+        subtask2preview((mod_df, file, true_frames),
+                        target_file, label2color,
+                        desc='Отрисовка превью')
 
-        return target_file
+        # Возвращачем имя файла-превью и, опционально, всю подзадачу с
+        # разметкой:
+        if return_subtask:
+            subtask = (df, file, true_frames)
+            return target_file, subtask
+        else:
+            return target_file
 
     # Созадёт словарь входных параметров для инициализации
     # IPYInteractiveSegmentation из ipy_utils:
@@ -892,11 +923,48 @@ class SAM2:
 
     # Создаёт файл CVAT-разметки:
     def save2cvat_xml(self,
-                      xml_file='annotation.xml',
+                      xml_file=None,
                       fit_segments=True):
+
+        # Размещаем xml во временной папке, если путь не указан явно:
+        if xml_file is None:
+            xml_file = os.path.join(self.tmp_dir.name, 'annotation.xml')
 
         # Формируем подзадачу:
         df, file, true_frames = self.build_subtask(fit_segments)
 
         # Сохраняем в xml-файл:
         return subtask2xml((df, file, true_frames), xml_file)
+
+    # Возвращает параметры создания/обновления задачи в CVAT:
+    def cvat_new_task_kwargs(self, proj_name=None, fit_segments=True):
+
+        # Определяем имя задачи:
+        task_name = os.path.splitext(os.path.basename(self.video_file))[0]
+        if proj_name:
+            task_name = f'{proj_name}_{task_name}'
+
+        # Генерируем XML-файл с разметкой:
+        xml_file = self.save2cvat_xml(fit_segments=fit_segments)
+
+        return {'name': task_name,
+                'file': self.video_file,
+                'annotation_file': xml_file}
+
+    # Создаёт в заданном CVAT-датасете новую задачу, или обновляет разметку в
+    # уже имеющейся:
+    def export2cvat(self, cvat_proj, fit_segments=True):
+
+        # Формируем словарь аргументов:
+        kwargs = self.cvat_new_task_kwargs(cvat_proj.name,
+                                           fit_segments=fit_segments)
+
+        # Создаём или обновляем задачу в CVAT:
+        if kwargs['name'] in cvat_proj.keys():
+            task = cvat_proj[kwargs['name']]
+            task.set_annotations(kwargs['annotation_file'])
+        else:
+            task = cvat_proj.new(**kwargs)
+            task.update({'subset': 'Train'})
+
+        return task.values()[0].url

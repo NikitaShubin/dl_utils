@@ -38,6 +38,9 @@ ARG PYTHONMODULES="                                                      \
     # Фиксируем версию PyTorch:                                          \
     torch==2.5.1                                                         \
                                                                          \
+    # Для работы с CVAT:                                                 \
+    cvat-sdk==2.4.7                                                      \
+                                                                         \
     # IDE:                                                               \
     jupyterlab voila                                                     \
     jupyterlab_nvdashboard jupyter-collaboration                         \

@@ -3908,7 +3908,8 @@ def subtask2preview(subtask,
                     alpha=0.5,
                     fps=3,
                     postprocessor=None,
-                    recompress2mp4=True):
+                    recompress2mp4=True,
+                    desc=None):
     '''
     Создать видеофайл-превью подзадачи.
     '''
@@ -3948,7 +3949,9 @@ def subtask2preview(subtask,
 
     # Пишем временный файл:
     with ViSave(tmp_file, fps=fps) as v:
-        for true_frame in true_frames.values():
+        for true_frame in tqdm(true_frames.values(),
+                               desc=desc,
+                               disable=desc is None):
 
             # Наносим разметку на исходное изображение:
             frame_df = df[df['true_frame'] == true_frame]
