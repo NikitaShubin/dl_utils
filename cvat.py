@@ -82,7 +82,8 @@ from scipy.optimize import linear_sum_assignment
 from utils import (mpmap, ImReadBuffer, reorder_lists, mkdirs, CircleInd,
                    apply_on_cartesian_product, extend_list_in_dict_value,
                    DelayedInit, color_float_hsv_to_uint8_rgb,
-                   draw_contrast_text, put_text_carefully)
+                   draw_contrast_text, put_text_carefully, cv2_vid_exts,
+                   cv2_img_exts)
 from cv_utils import Mask, build_masks_IoU_matrix
 from video_utils import VideoGenerator, ViSave, recomp2mp4
 
