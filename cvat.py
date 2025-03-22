@@ -2713,6 +2713,98 @@ def subtask2xml(subtask, xml_file='./annotation.xml'):
     return xml_file
 
 
+def file2unlabeled_subtask(file, check_frames=False):
+    '''
+    Создаёт задачу без разметки, опираясь на имя файла/файлов.
+    '''
+    # Если уже передан список, ничего не делаем:
+    if isinstance(file, (list, tuple)):
+        pass
+
+    # Если передан путь к дирректории, то берём все файлы из неё:
+    elif os.path.isdir(file):
+        file = [os.path.join(file, _) for _ in sorted(os.listdir(file))]
+
+    # Если передан путь к файлу, до делаем из него список:
+    elif os.path.isfile(file):
+        file = [file]
+
+    else:
+        raise FileNotFoundError(f'Файл "{file}" не найден!')
+
+    # Оставляем в списке только существующие файлы:
+    file = list(filter(os.path.isfile, file))
+
+    # Оставляем только подходящие по типу файлы:
+    cvat_data_exts = cv2_vid_exts | cv2_img_exts
+    file = [_ for _ in file
+            if os.path.splitext(_)[-1].lower() in cvat_data_exts]
+
+    # Берём первый элемент списка, если он единственный:
+    if len(file) == 1:
+        file = file[0]
+
+    # Генератор, облегчающий процесс подсчёта числа кадров:
+    vg = VideoGenerator(file)
+
+    # Буквалльно читаем все данные, чтобы точно знать общее число кадров:
+    if check_frames:
+        total_frames = 0
+        for frame in vg:
+            if frame is None:
+                break
+            total_frames += 1
+
+    # Оцениваем совокупное число кадров по косвенным данным:
+    else:
+        total_frames = len(vg)
+
+    # Составляем словарь кадров без прореживания:
+    true_frames = {_: _ for _ in range(total_frames)}
+
+    return None, file, true_frames
+
+
+def dir2unlabeled_tasks(path, check_frames=False):
+    '''
+    Перебирае все фото и видео из заданной папки и её подпапок,
+    создавая из них список неразмеченных задач.
+    Используется для авторазметки неупорядоченных данных.
+
+    Каждый видеофайл размещается в отдельной задаче.
+    Все изображения, находящиеся в одной дирректории размещаются в задаче,
+    соответствующей этой дирректории.
+    '''
+
+    # Инициируем список задач файлами из корневой дирректории:
+    tasks = []
+    img_files = []  # Список изображений текущей дирректории
+    for file in sorted(os.listdir(path)):
+
+        ext = os.path.splitext(file)[1].lower()  # Расширение файла
+        file = os.path.join(path, file)          # Полный путь до файла
+
+        # Каждое найденное видео сразу заносится в отдельную задачу:
+        if ext in cv2_vid_exts:
+            subtask = file2unlabeled_subtask(file, check_frames)
+            tasks.append([subtask])
+
+        # Каждое найденное изображение заносится в список:
+        elif ext in cv2_img_exts:
+            img_files.append(file)
+
+        # Если это папка - делаем рекурсию:
+        elif os.path.isdir(file):
+            tasks += dir2unlabeled_tasks(file, check_frames)
+
+    # Все найденные изобржаения текущей папки собираем в одну подзадачу:
+    if img_files:
+        subtask = file2unlabeled_subtask(img_files, check_frames)
+        tasks.append([subtask])
+
+    return tasks
+
+
 def task_auto_annottation(task,
                           img2df,
                           label=None,
