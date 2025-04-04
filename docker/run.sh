@@ -45,6 +45,9 @@ fi
 # Включаем доступ к Nvidia, если установлен nvidia-smi:
 nvidia-smi && nvidia_args='--runtime=nvidia --gpus all' || nvidia_args=''
 
+# Путь до домашней папки:
+home=`realpath ~`
+
 # Параметры запуска контейнера:
 RUNPARAMS=(
     # Фоновый режим:
@@ -74,7 +77,8 @@ RUNPARAMS=(
     -v "${DOCKERFILE_DIR}/../../../":/workspace
 
     # Путь до датасета подменяем локальной его копией:
-    -v "/home/nshubin/projects/AP2.0/local_files/ds/":"/workspace/data/processed"
+    # -v "$home/projects/AP2.0/local_files/ds/":"/workspace/data/processed"
+    -v "$home/projects/IQF/local_files/ds/":"/workspace/data/processed"
 
     # Имя контейнера:
     --name "${DOCKER_NAME}"
