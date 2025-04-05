@@ -265,7 +265,7 @@ class Prompts:
         msk_points = df[df['type'] == 'polygon']['points']
         box_points = df[df['type'] == 'polyline']['points']
         points_mask = df['type'] == 'points'
-        pos_points = df[points_mask & (df['outside'] == False)]['points']
+        pos_points = df[points_mask & (df['outside'] == False)]['points']  # noqa: E712
         neg_points = df[points_mask & df['outside']]['points']
 
         assert len(msk_points) <= 1
