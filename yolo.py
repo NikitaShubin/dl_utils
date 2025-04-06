@@ -32,7 +32,8 @@ from cvat import (CVATPoints, split_image_and_labels2tiles, flat_tasks,
 from copybal import (init_task_object_file_graphs, update_object_file_graphs,
     drop_unused_track_ids_in_graphs, make_copy_bal)
 from utils import (mkdirs, ImReadBuffer, mpmap, cv2_vid_exts, cv2_img_exts,
-    draw_contrast_text, train_val_test_split, obj2yaml, df2img,rmpath)
+    draw_contrast_text, obj2yaml, df2img,rmpath)
+from ml_utils import train_val_test_split
 
 
 # Полный список видеофайлов, поддерживаемых YOLO для обработки:

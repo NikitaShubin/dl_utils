@@ -1,6 +1,8 @@
 import numpy as np
 from sklearn.model_selection import train_test_split
 
+from utils import isint, isfloat, flatten_list
+
 
 def ohe(tensor, num_classes):
     '''
@@ -8,10 +10,11 @@ def ohe(tensor, num_classes):
     '''
     return np.eye(num_classes, dtype=np.float32)[tensor]
 
+
 def nchw2nhwc(tensor): return tensor.transpose((0, 2, 3, 1))
 def nhwc2nchw(tensor): return tensor.transpose((0, 3, 1, 2))
-def  chw2hwc (tensor): return tensor.transpose(  (1, 2, 0) )
-def  hwc2chw (tensor): return tensor.transpose(  (2, 0, 1) )
+def chw2hwc(tensor): return tensor.transpose((1, 2, 0))
+def hwc2chw(tensor): return tensor.transpose((2, 0, 1))
 
 
 def is_channel_first(shape):
@@ -26,7 +29,7 @@ def is_channel_first(shape):
 
     # Множество возможного числа каналов изображения:
     num_channels = {1, 2, 3, 4}
-    
+
     # Если тензор четырёхмерный, то отбрасываем первое измерение (батч):
     if len(shape) == 4:
         shape = shape[1:]
@@ -62,13 +65,13 @@ def soft_train_test_split(*args, test_size, random_state=0):
         else:               # Если выборка нулевой длины, то
             test_size_ = 1  # избегаем деления на ноль.
 
-        # Если тестовая выборка должна быть больше проверочной - отдаём всё ей:
-        if test_size_ > 0.5:
-            return flatten_list(zip([type(arg)() for arg in args], args))
+        # Создаём список пустых объектов того же типа, что были в args:
+        emptys = [type(arg)() for arg in args]
 
-        # Иначе всё обучающей:
-        else:
-            return flatten_list(zip(args, [type(arg)() for arg in args]))
+        # Если тестовая выборка должна быть больше проверочной - отдаём
+        # всё ей, иначе всё отходит обучающей:
+        pairs = zip(emptys, args) if test_size_ > 0.5 else zip(args, emptys)
+        return flatten_list([list(pair) for pair in pairs], depth=1)
 
 
 def train_val_test_split(*args, val_size=0.2, test_size=0.1, random_state=0):
@@ -83,14 +86,17 @@ def train_val_test_split(*args, val_size=0.2, test_size=0.1, random_state=0):
     # выборки:
     if isint(val_size) and isint(test_size):
         assert val_size + test_size <= len(args[0])
-    if isfloat(val_size) and isfloat(test_size):
+    elif isfloat(val_size) and isfloat(test_size):
         assert val_size + test_size <= 1.
+    else:
+        raise ValueError('Параетры `val_size` и `test_size` должны быть ' +
+                         f'одного типа. Получены: {val_size} и {test_size}!')
 
     # Получаем тестовую выборку:
     trainval_test = soft_train_test_split(*args, test_size=test_size,
                                           random_state=random_state)
-    train_val = trainval_test[ ::2]
-    test      = trainval_test[1::2]
+    train_val = trainval_test[::2]
+    test = trainval_test[1::2]
 
     # Если val_size задан целым числом, то используем его как есть:
     if isint(val_size):
@@ -116,7 +122,9 @@ def train_val_test_split(*args, val_size=0.2, test_size=0.1, random_state=0):
 
     train_val = soft_train_test_split(*train_val, test_size=val_size_,
                                       random_state=random_state)
-    train     = train_val[ ::2]
-    val       = train_val[1::2]
+    train = train_val[::2]
+    val = train_val[1::2]
 
-    return flatten_list(zip(train, val, test))
+    triples = zip(train, val, test)
+    
+    return flatten_list([list(triple) for triple in triples], depth=1)
