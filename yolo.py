@@ -439,6 +439,10 @@ def gen_yaml(file_name   : 'Имя сохраняемого файла'         
                'test' : os.path.relpath(im_tst_dir, yolo_ds_dir),  # Путь до изображений с тестовой    выборки относительно пути к датасету
                'names': names                                   }  # Словарь номер_класса -> расшифровка_класса
 
+    # Если указан лищь путь до файла, имя добавляем сами:
+    if os.path.isdir(file_name):
+        file_name = os.path.join(file_name, 'data.yaml')
+
     # Сохраняем словарь в yaml-файл:
     return obj2yaml(ds_yaml, file_name)
 
