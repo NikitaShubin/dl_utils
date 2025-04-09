@@ -50,6 +50,9 @@ ARG APPLICATIONS="                                    \
                                                       \
     # Дополнительные консольные утилиты:              \
     bsdmainutils pv net-tools psmisc iputils-ping     \
+                                                      \
+    # Для PyCUDA:                                     \
+    nvidia-cuda-toolkit                               \
 "
 # graphviz     - для работы keras.utils.plot_model
 # pandoc       - для работы экспорта ipynb в HTML
@@ -135,9 +138,6 @@ com/PublicPackages/_packaging/onnxruntime-cuda-12/pypi/simple/           \
     # Python-компилятор                                                  \
     pyinstaller                                                          \
                                                                          \
-    # Для мониторинга использования GPU:                                 \
-    gom                                                                  \
-                                                                         \
     # Ускорение Python-кода:                                             \
     numba                                                                \
                                                                          \
@@ -161,6 +161,10 @@ com/PublicPackages/_packaging/onnxruntime-cuda-12/pypi/simple/           \
                                                                          \
     # Гигантская библиотека предобученных моделей:                       \
     git+https://github.com/huggingface/transformers.git                  \
+                                                                         \
+    #                            Прочее:                                 \
+                                                                         \
+    pycuda                                                               \
 "
 RUN ${PIP} install $PIPPARAMS --upgrade pip && \
     export TFVER=`${PIP} show tensorflow | grep Vers | awk '{print $2}'` && \
