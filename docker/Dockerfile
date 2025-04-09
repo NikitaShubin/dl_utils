@@ -266,7 +266,8 @@ WORKDIR "${WORKSPACE}"
 # Вносим рабочую дирректорию в список доверенных для Git:
 RUN git config --global --add safe.directory "$WORKSPACE" && \
     git config --global --add safe.directory "$WORKSPACE"/3rdparty/dl_utils && \
-    git config --global --add safe.directory "$WORKSPACE"/thirdparty/dl_utils
+    git config --global --add safe.directory "$WORKSPACE"/thirdparty/dl_utils && \
+    git config core.fileMode false
 #    git config --global user.email shubin.kit@ya.ru && \
 #    git config --global user.name "Никита Шубин"
 
