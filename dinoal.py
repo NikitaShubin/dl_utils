@@ -4,10 +4,12 @@ import groundingdino
 import cv2
 import os
 import warnings
+import argparse
+from urllib.request import urlretrieve
 
 from pt_utils import AutoDevice
 from cvat import CVATPoints, concat_dfs
-from utils import color_float_hsv_to_uint8_rgb
+from utils import color_float_hsv_to_uint8_rgb, mkdirs, AnnotateIt
 
 
 class Dino:
@@ -44,7 +46,6 @@ class Dino:
                 raise ValueError('Точка используется как ' +
                                  'разделитель запросов и ' +
                                  'не должна быть внутри одного класса!')
-
         return prompt2label
 
     # Фиксирует новый словарь запросов -> меток:
@@ -57,22 +58,50 @@ class Dino:
         return '.'.join(prompt2label.keys())
 
     def __init__(self                                                 ,
-                 model_path     = '../groundingdino_swinb_cogcoor.pth',
+                 model_path     = './groundingdino_swinb_cogcoor.pth',
                  box_threshold  = 0.35                                ,
                  text_threshold = 0.25                                ,
                  device         = 'auto'                              ,
                  prompt2label   = {}                                  ):
 
+        # Если в пути не указано имя ни одной модели, то считаем это
+        # именем папки, а моделью выберем groundingdino_swinb_cogcoor.pth:
+        model_basename = os.path.basename(model_path).lower()
+        if model_basename not in {'groundingdino_swint_ogc.pth',
+                                  'groundingdino_swinb_cogcoor.pth'}:
+            model_basename = 'groundingdino_swinb_cogcoor.pth'
+            model_path = os.path.join(model_path, model_basename)
+
+        # Качаем модель, если её не оказалось в указанном месте:
+        if not os.path.isfile(model_path):
+
+            # Определяем имя папки для файла-модели:
+            model_dir = os.path.abspath(os.path.dirname(model_path))
+
+            # Создаём папку, если её не было:
+            mkdirs(model_dir)
+
+            # Путь до модели в вебе:
+            if model_basename == 'groundingdino_swinb_cogcoor.pth':
+                url = 'https://github.com/IDEA-Research/GroundingDINO/' + \
+                      'releases/download/v0.1.0-alpha2/' + \
+                      'groundingdino_swinb_cogcoor.pth'
+            else:
+                url = 'https://github.com/IDEA-Research/GroundingDINO/' + \
+                      'releases/download/v0.1.0-alpha/' + \
+                      'groundingdino_swint_ogc.pth'
+
+            # Загрузка:
+            prefix = f'Загрузка модели {url} в "{model_dir}" '
+            with AnnotateIt(prefix + '...', prefix + 'завершена!'):
+                urlretrieve(url, model_path)
+
         # Определяем имя конфигурационного файла, соответствующую
         # заданной модели:
-        model_name = os.path.basename(model_path).lower()
-        if 'swinb' in model_name and 'swint' not in model_name:
+        if model_basename == 'groundingdino_swinb_cogcoor.pth':
             config_name = 'GroundingDINO_SwinB_cfg.py'
-        elif 'swinb' not in model_name and 'swint' in model_name:
-            config_name = 'GroundingDINO_SwinT_OGC.py'
         else:
-            raise ValueError('Невозможно определить конфигурационный файл ' +
-                             'по имени модели!')
+            config_name = 'GroundingDINO_SwinT_OGC.py'
 
         # Собираем полный путь до конфигурационного файла:
         dino_dir = os.path.dirname(os.path.abspath(groundingdino.__file__))
@@ -161,10 +190,9 @@ class Dino:
                source='GroundingDINO',
                **kwargs):
         # Получаем кадр и результаты детекции:
-        img, boxes, logits, labels = self._predict(img,
-                                                    prompt2label,
-                                                    box_threshold,
-                                                    text_threshold)
+        img, boxes, logits, labels = self._predict(
+            img, prompt2label, box_threshold, text_threshold
+        )
 
         # Определяем размер исходного изображения:
         imsize = img.shape[:2]
