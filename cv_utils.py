@@ -506,7 +506,7 @@ class Mask:
     Jaccard              = IoU
 
     # Отрисовка маски:
-    def draw(self, img=None, color=None, alpha=1.):
+    def draw(self, img=None, color=255, alpha=1.):
         return draw_mask_on_image(self.array, img, color, alpha)
 
     # Отображение маски:
@@ -530,7 +530,7 @@ class Mask:
     '''
 
 
-def build_masks_IoU_matrix(masks1, masks2=None, desc=None, num_procs=0):
+def build_masks_IoU_matrix(masks1, masks2=None, diag_val=1., desc=None, num_procs=0):
     '''
     Построение матрицы, в ячейках которой хранятся
     значения IoU для двух масок, которым соответствуют
@@ -541,19 +541,23 @@ def build_masks_IoU_matrix(masks1, masks2=None, desc=None, num_procs=0):
     return apply_on_cartesian_product(Mask.Jaccard,
                                       masks1, masks2,
                                       symmetric=True,
-                                      diag_val=1.,
+                                      diag_val=diag_val,
                                       desc=desc,
                                       num_procs=num_procs).astype(float)
 
 
 def build_masks_JaccardDiceOverlap_matrixs(masks1,
                                            masks2=None,
+                                           diag_val=(1., 1., 1.),
                                            **mpmap_kwargs):
     '''
     Строит сразу 3 матрицы связностей для одного или двух списков масок.
     '''
-    JDO = apply_on_cartesian_product(Mask.JaccardDiceOverlap, masks1, masks2,
-                                     symmetric=True, diag_val=(1., 1., 1.),
+    JDO = apply_on_cartesian_product(Mask.JaccardDiceOverlap,
+                                     masks1,
+                                     masks2,
+                                     symmetric=True,
+                                     diag_val=diag_val,
                                      **mpmap_kwargs)
 
     # Расфасовываем результаты в отдельные матрицы:
