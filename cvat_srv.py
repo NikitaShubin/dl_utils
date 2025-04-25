@@ -5,8 +5,9 @@ from cvat_sdk import make_client, core
 from getpass import getpass
 from zipfile import ZipFile
 
-from cvat import add_row2df, concat_dfs, ergonomic_draw_df_frame
-from utils import mkdirs, rmpath, mpmap, get_n_colors
+from cvat import (add_row2df, concat_dfs, ergonomic_draw_df_frame,
+    cvat_backups2raw_tasks)
+from utils import mkdirs, rmpath, mpmap, get_n_colors, unzip_dir
 
 
 class Client:
@@ -628,3 +629,80 @@ class CVATSRV(_CVATSRVObj):
 
         # Создаём датасет:
         return self.client.new_project(name, labels)
+
+
+class ReadTasks:
+    '''
+    Контекст, чтения данных из CVAT. По завершении контектста все данные,
+    закаченные из CVAT удаляются, но при использовании как функтера удаления
+    не происходит. Полезно для формирования актуального датасета и прочих
+    операций, требующих создания временных копий актуальных данных из CVAT.
+
+    backup_path и extract_path удаляются целиком!
+    '''
+
+    def __init__(self,
+                 backup_path,
+                 extract_path,
+                 cvat_obj,
+                 cvat_subobj_names=None,
+                 desc=None):
+        self.backup_path = backup_path
+        self.extract_path = extract_path
+        self.cvat_obj = cvat_obj
+        self.cvat_subobj_names = cvat_subobj_names
+        self.desc = desc
+
+    def __call__(self):
+
+        # Очистка дирректорий для временных файлов:
+        self.rmdirs()
+        mkdirs(self.backup_path)
+        mkdirs(self.extract_path)
+
+        # Доопределяем текстовые описания грядущих процессов:
+        if self.desc:
+            backup_desc = f'{self.desc}: Загрузка бекапа(ов)'
+            extract_desc = f'{self.desc}: Распаковка бекапа(ов)'
+            parse_desc = f'{self.desc}: Парсинг бекапа(ов)'
+        else:
+            backup_desc = extract_desc = parse_desc = ''
+
+        # Закачиваем бекапы:
+        self.cvat_obj.backup(self.backup_path,
+                             self.cvat_subobj_names,
+                             backup_desc)
+
+        # Распаковываем бекапы:
+        unzip_dir(self.backup_path, self.extract_path, extract_desc)
+
+        # Парсим бекапы:
+        return cvat_backups2raw_tasks(self.extract_path, parse_desc)
+
+    # Очистка всех временных папок
+    def rmdirs(self):
+
+        # Определяем, существуют ли папки, что должны быть удалены:
+        backup_path_exists = os.path.isdir(self.backup_path)
+        extract_path_exists = os.path.isdir(self.extract_path)
+
+        # Ничего не делаем, если папки не существуют:
+        if not (backup_path_exists or extract_path_exists):
+            return
+
+        # Формируем строку описания процесса:
+        if self.desc:
+            desc = f'{self.desc}: Удаление папок с бекапами и ' + \
+                'их распакованными версиями'
+        else:
+            desc = ''
+
+        # Выполняем удаление:
+        rmpath((self.backup_path, self.extract_path), desc)
+
+    def __enter__(self):
+        return self()
+
+    def __exit__(self, type, value, traceback):
+        self.rmdirs()
+        return
