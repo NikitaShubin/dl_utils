@@ -64,13 +64,14 @@ ARG APPLICATIONS="                                    \
 # net-tools    - для работы команды ifconfig
 # bsdmainutils - для работы команды col
 # iputils-ping - для работы команды ping
-RUN echo $APPLICATIONS
 RUN apt-get update                                           && \
+    apt-get purge -y python3-blinker                         && \
     apt-get install -y --no-install-recommends $APPLICATIONS && \
     apt-get upgrade -y --fix-missing                         && \
-    apt-get purge --autoremove                               && \
+    apt-get purge -y --autoremove                            && \
     apt-get autoclean                                        && \
     rm -rf /var/lib/apt/lists/*
+# Удаление python3-blinker необходимо для нормальной установки open3d
 
 # See http://bugs.python.org/issue19846
 ENV LANG C.UTF-8
@@ -89,6 +90,9 @@ ARG PYTHONMODULES="                                                      \
                                                                          \
     # Aугментация и прочая обработка изображений + доп. утилиты:         \
     albumentations scikit-learn scikit-image                             \
+                                                                         \
+    # Работа с облаком точек и картой глубины:                           \
+    open3d                                                               \
                                                                          \
     # YOLO и трекинг в ней + Roboflow:                                   \
     ultralytics lapx supervision                                         \
