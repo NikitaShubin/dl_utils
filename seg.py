@@ -234,11 +234,19 @@ def make_seg_subset_colored_preview(subset_path, num_classes,
     out_path = os.path.join(subset_path, 'out')
     prv_path = os.path.join(subset_path, 'prv')
 
+    # Пропускаем обработку, если какой-то из папок не существует:
+    inp_path_exists = os.path.isdir(inp_path)
+    out_path_exists = os.path.isdir(out_path)
+    prv_path_exists = os.path.isdir(prv_path)
+    if not (inp_path_exists and out_path_exists and prv_path_exists):
+        return
+
     '''
     # Очищаем папку с превью:
     rmpath(prv_path)
     mkdirs(prv_path)
     '''
+
     # Составляем списки входных и выходных файлов:
     inp_files = sorted([os.path.join(inp_path, file)
                         for file in os.listdir(inp_path)])
@@ -249,6 +257,10 @@ def make_seg_subset_colored_preview(subset_path, num_classes,
     prv_files = [os.path.splitext(prv_file)[0] + '.jpg'
                  for prv_file in prv_files]
     # Превью должны храниться в JPG.
+
+    # Если папка inp или out пуста, то ничего не делаем:
+    if min(map(len, [inp_files, out_files])) == 0:
+        return
 
     mpmap(draw_seg_prev,
           inp_files,
@@ -280,13 +292,13 @@ def make_seg_subset_colored_preview(subset_path, num_classes,
 
 
 def make_seg_dataset_colored_preview(path, num_classes,
-                                     make_video=False, desc='Превью'):
+                                     make_video=False, desc='Сборка превью'):
     '''
     Создаёт/перезаписывает превью для уже созданного датасета сегментации.
     Пишет видео, если надо.
     '''
     for subset in ['train', 'val', 'test']:
-        make_seg_subset_colored_preview(os.path.join(path,subset),
+        make_seg_subset_colored_preview(os.path.join(path, subset),
                                         num_classes, make_video,
                                         desc=f'{desc} ({subset})')
 
