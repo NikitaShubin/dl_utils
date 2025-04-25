@@ -100,36 +100,40 @@ def save_task2segmentation_dataset(task,
                             # ... существовать соответвствующие входное ...
                             # ... и выходное изображения!
 
-                            # Сама отрисовка контура:
+                            # Сама отрисовка фигуры:
                             prv = points.draw(prv, label, color, 3)
                             prv = points.draw(prv, label, color, -1, 0.5)
 
-                            # Наносим доп.иформацию:
-                            text = f'Project: {proj_name}'
-                            text += f'\nTask: {task_name}'
-                            text += f'\nFrame: {true_frame}'
-                            prv = draw_contrast_text(prv, text)
-                            # prv = cv2.putText(prv, str(true_frame),
-                            #                   (100, 100),
-                            #                   cv2.FONT_HERSHEY_COMPLEX,
-                            #                   1, 0, 2, cv2.LINE_AA)
-
-                            '''
-                            try:
-                            except:
-                                import json
-                                print(frame)
-                                print(file[frame])
-                                err_file = os.path.join(os.path.dirname(
-                                    os.path.dirname(file[frame])), 'task.json')
-                                with open(err_file, 'r', encoding='utf-8') as f:
-                                    print(json.load(f)['name'])
-                                raise
-                            '''
                         # Если кадр не исключён и класс - не игнорируемый, ...
                         # ... то делаем выходные данные (ground truth):
                         if label >= 0 and not frame2drop:
                             out = points.draw(out, None, int(label) + 1, -1)
+
+                # Наносим текст на превью:
+                if prv_file:
+
+                    # Наносим доп.иформацию:
+                    text = f'Project: {proj_name}'
+                    text += f'\nTask: {task_name}'
+                    text += f'\nFrame: {true_frame}'
+                    prv = draw_contrast_text(prv, text)
+                    # prv = cv2.putText(prv, str(true_frame),
+                    #                   (100, 100),
+                    #                   cv2.FONT_HERSHEY_COMPLEX,
+                    #                   1, 0, 2, cv2.LINE_AA)
+
+                    '''
+                    try:
+                    except:
+                        import json
+                        print(frame)
+                        print(file[frame])
+                        err_file = os.path.join(os.path.dirname(
+                            os.path.dirname(file[frame])), 'task.json')
+                        with open(err_file, 'r', encoding='utf-8') as f:
+                            print(json.load(f)['name'])
+                        raise
+                    '''
 
                 # Сохраняем все положенные изображения:
                 if prv_file      : cv2.imwrite(prv_file, prv)
