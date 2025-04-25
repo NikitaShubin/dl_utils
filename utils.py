@@ -676,10 +676,16 @@ def img_dir2video(img_dir,
     сохраняя соотношение сторон за счёт паддинга.
     Используется для превью.
     '''
+    # Получаем сортированный по имени список изображений:
+    images = sorted(get_file_list(img_dir, extentions=cv2_img_exts))
+
+    # Если папка не содержит изображений - возвращаем None:
+    if len(images) == 0:
+        return
+
     # Если конечный размер не задан, берём его из первого кадра:
     if imsize is None:
-        first_file = os.path.join(img_dir, os.listdir(img_dir)[0])
-        imsize = cv2.imread(first_file).shape[:2]
+        imsize = cv2.imread(images[0]).shape[:2]
 
     # Принудительный перевод размера кадра в кортеж:
     imsize = tuple(imsize)
@@ -687,9 +693,6 @@ def img_dir2video(img_dir,
     if tmp_file is None:
         video_file_name, video_file_ext = os.path.splitext(video_file)
         tmp_file = video_file_name + '_tmp' + video_file_ext
-
-    # Сортированный по имени список изображений:
-    images = sorted(get_file_list(img_dir, extentions=cv2_img_exts))
 
     # Если изображений нет, то выходим:
     if len(images) == 0:
@@ -740,9 +743,12 @@ def img_dir2video(img_dir,
         cmd_line = f'ffmpeg -i "{tmp_file}" -y -hide_banner ' + \
                    f'-c:v libx264 -crf 32 -preset slow "{video_file}"'
 
+        '''
         # Отключаем вывод, если нужно:
         if desc is None:
             cmd_line += '>/dev/null 2>&1'
+        '''
+        cmd_line += '>/dev/null 2>&1'
 
         # Пересжимаем файл и удаляем непересжатую версию:
         os.system(cmd_line)
@@ -887,39 +893,34 @@ def mkdirs(path):
     return False
 
 
-def rmpath(path, ask=False):
+def rmpath(paths, desc=None):
     '''
-    Удаляет файл или папку вместе с её содержимым.
+    Удаляет файл(ы) или папку(и) вместе с её(их) содержимым.
     Возвращает False, если путь не существовал.
     '''
+
+    # Если передан целый список/кортеж/множество путей, удаляем каждый:
+    if isinstance(paths, (list, tuple, set)):
+        return mpmap(rmpath, paths, desc=desc, num_procs=1)
+
+    # Если путь всего один, работаем с ним:
+    path = paths
+
     # Ничего не делаем, если файла просто нет:
     if not os.path.exists(path):
-        return True
+        return False
 
     try:
         # Если это папка:
         if os.path.isdir(path):
-
-            # Уточняем у пользователя, если надо:
-            if ask:
-                ans = input(f'Удалить папку "{path}" со всем содержимым?\n' + \
-                            '("д", "y" / "н", "n", "")').strip().lower()
-                if ans not in {'д', 'y'}:
-                    return False
-
-            rmtree(path)
+            with AnnotateIt(desc):
+                rmtree(path)
             return True
 
         # Если это Файл:
         elif os.path.isfile(path):
-            # Уточняем у пользователя, если надо:
-            if ask:
-                ans = input(f'Удалить файл "{path}" со всем содержимым?\n' + \
-                            '("д", "y" / "н", "n", "")').strip().lower()
-                if ans not in {'д', 'y'}:
-                    return False
-
-            os.remove(path)
+            with AnnotateIt(desc):
+                os.remove(path)
             return True
 
         else:
@@ -1417,23 +1418,39 @@ class AnnotateIt():
                     'Обработка выполнена.'    ) as a:
         np.random.rand(1000000000)
     '''
-    def __init__(self                                       ,
+
+    def __init__(self,
                  start_annotation: 'Предворяющий текст' = '',
-                 end_annotation  : 'Завершающий  текст' = ''):
+                 end_annotation: 'Завершающий  текст' = None):
 
-        self.start_annotation = start_annotation  # Предворяющий текст
-        self.  end_annotation =   end_annotation  # Завершающий  текст
+        # Если оба текста не указаны, то выводиться ничего не будет:
+        self.enable = start_annotation or end_annotation
 
-        # Если заверщающий текст короче предворяющего,
-        # то дополняем длину пробелами, чтобы затереть:
-        self.end_annotation += ' ' * max(0, len(start_annotation) -
-                                         len(end_annotation))
+        if self.enable:
+            # Фиксируем оба текста, если они заданы явно:
+            if end_annotation:
+                self.start_annotation = start_annotation
+                self.end_annotation = end_annotation
+
+                # Если заверщающий текст короче предворяющего,
+                # то дополняем длину пробелами, чтобы затереть:
+                self.end_annotation += ' ' * max(
+                    0,
+                    len(start_annotation) - len(end_annotation)
+                )
+
+            # Дополняем символами из юникода если дан лишь базовый текст:
+            else:
+                self.start_annotation = start_annotation + ' ⏳'
+                self.end_annotation = start_annotation + ' ✅'
 
     def __enter__(self):
-        print(self.start_annotation, end='')
+        if self.enable:
+            print(self.start_annotation, end='')
 
     def __exit__(self, type, value, traceback):
-        print('\r' + self.end_annotation)
+        if self.enable:
+            print('\r' + self.end_annotation)
 
 
 class DelayedInit:

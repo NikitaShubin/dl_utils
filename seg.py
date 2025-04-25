@@ -280,7 +280,7 @@ def make_seg_subset_colored_preview(subset_path, num_classes,
 
 
 def make_seg_dataset_colored_preview(path, num_classes,
-                                     make_video=False, desc='Сборка превью'):
+                                     make_video=False, desc='Превью'):
     '''
     Создаёт/перезаписывает превью для уже созданного датасета сегментации.
     Пишет видео, если надо.
