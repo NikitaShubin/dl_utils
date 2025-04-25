@@ -23,7 +23,7 @@ class RandomDust(A.RandomFog):
                           'haze_list': None}
         params = default_params | params
 
-        # Определяем размеры и число каналов исходного изображений:
+        # Определяем размеры и число каналов исходного изображения:
         height, width, channels = img.shape
 
         # Инициируем маску пыли с альфа-каналом:
