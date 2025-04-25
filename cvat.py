@@ -333,7 +333,7 @@ def cvat_backup_task_dir2task(task_dir):
 
 def cvat_backups2raw_tasks(unzipped_cvat_backups_dir, desc=None):
     '''
-    Формирует список из распарсенных задач из папки с распакованными версиями
+    Формирует список из распаршенных задач из папки с распакованными версиями
     CVAT-бекапов. Постаброботка вроде интерполяции контуров и разбиения на
     сцены не включена, т.е. задачи сырые.
     '''
@@ -381,7 +381,7 @@ def cvat_backup_task_dir2info(task_dir):
     '''
     # Если передан список файлов, то берём первый:
     if isinstance(task_dir, (list, tuple)):
-        task_dir = os.path.abspath(task_dir[0])
+        task_dir = task_dir[0]
     task_dir = os.path.abspath(task_dir)
 
     # Если передан файл, то берём путь до его дирректории:
@@ -409,9 +409,13 @@ def cvat_backup_task_dir2info(task_dir):
               'r', encoding='utf-8') as f:
         task_desc = json.load(f)
     task_name = task_desc['name']
+    task_subset = task_desc['subset']
+    task_status = task_desc['status']
 
     return {'proj_name': proj_name,
-            'task_name': task_name}
+            'task_name': task_name,
+            'task_subset': task_subset,
+            'task_status': task_status}
 
 
 # Меняет список на кортеж, если возможно:
