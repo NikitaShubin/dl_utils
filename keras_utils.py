@@ -614,7 +614,8 @@ def backbone_with_preprop(model_constructor: 'Конструктор модел�
                           name             : 'Имя модели'                               = None                         ,
                           training         : 'Режим обучения (или же тестирования)'     = False                        ,
                           trainable        : 'Разморозка весов'                         = False                        ,
-                          as_submodel      : 'Нужно ли вернуть отдельную модель'        = True                         ):
+                          as_submodel      : 'Нужно ли вернуть отдельную модель'        = True                         ,
+                          **model_kwargs):
     '''
     Создаёт предобученную базовую модель без головы из заданного конструктора
     из keras.applications, добавляя ей предобработку для диапазона [0, 1].
@@ -626,7 +627,8 @@ def backbone_with_preprop(model_constructor: 'Конструктор модел�
     try:
         backbone = model_constructor(include_top=False,
                                      weights='imagenet',
-                                     include_preprocessing=False)
+                                     include_preprocessing=False,
+                                     **model_kwargs)
     except:
         backbone = model_constructor(include_top=False,
                                      weights='imagenet')
@@ -932,7 +934,7 @@ class MaxFscore(keras.metrics.AUC):
     def __init__(self,
                  mode: 'Определяет, нужна ли только maxF (="F"), только optTH ' + 
                        '(="TH") или оба параметра в виде комплексного числа(="F+TH")',
-                 beta: 'Параметр Бетта, приоретизирующий точность и полноту'          = 1    ,
+                 beta: 'Параметр Бетта, приоретизирующий точность и полноту' = 1,
                  **kwargs):
 
         # Парсим параметр "mode":
@@ -1024,6 +1026,22 @@ class MaxFscore(keras.metrics.AUC):
         # Если нужно только максимальное значение F-меры: 
         else:
             return keras.ops.max(maskedF)
+
+
+class FBetaScore(keras.metrics.FBetaScore):
+    '''
+    Аналогичен keras.metrics.FBetaScore, но работает тензорах любых
+    размерностей.
+    '''
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.flatten = keras.layers.Flatten()
+
+    def update_state(self, y_true, y_pred, *args, **kwargs):
+        y_true = self.flatten(y_true)
+        y_pred = self.flatten(y_pred)
+        return super().update_state(y_true, y_pred, *args, **kwargs)
 
 
 class TrainingMode:
