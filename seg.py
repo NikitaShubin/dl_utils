@@ -314,16 +314,29 @@ def drop_homogeneous_labeled_frames(dataset_path):
     и тому же классу.
     '''
     for subset in ['train', 'val', 'test']:
-        # Составляем списки входных и выходных файлов:
+
+        # Определяем пути до подвыборок:
         path = os.path.join(dataset_path, subset)
         inp_path = os.path.join(path, 'inp')
         out_path = os.path.join(path, 'out')
         prv_path = os.path.join(path, 'prv')
-        inp_files = sorted(os.listdir(inp_path))
-        out_files = sorted(os.listdir(out_path))
-        prv_files = sorted(os.listdir(prv_path))
-        prv_files = [os.path.splitext(prv_file)[0] + '.jpg'
-                     for prv_file in prv_files]
+
+        # Составляем списки файлов:
+        if os.path.isdir(inp_path):
+            inp_files = sorted(os.listdir(inp_path))
+        else:
+            inp_files = []
+        if os.path.isdir(out_path):
+            out_files = sorted(os.listdir(out_path))
+        else:
+            out_files = []
+        if os.path.isdir(prv_path):
+            prv_files = sorted(os.listdir(prv_path))
+            prv_files = [os.path.splitext(prv_file)[0] + '.jpg'
+                         for prv_file in prv_files]
+        else:
+            prv_files = []
+
         # Превью должны храниться в JPG.
 
         acc = 0
