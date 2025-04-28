@@ -83,7 +83,7 @@ from utils import (mpmap, ImReadBuffer, reorder_lists, mkdirs, CircleInd,
                    apply_on_cartesian_product, extend_list_in_dict_value,
                    DelayedInit, color_float_hsv_to_uint8_rgb,
                    draw_contrast_text, put_text_carefully, cv2_vid_exts,
-                   cv2_img_exts)
+                   cv2_img_exts, split_dir_name_ext)
 from cv_utils import Mask, build_masks_IoU_matrix
 from video_utils import VideoGenerator, ViSave, recomp2mp4
 
@@ -373,6 +373,46 @@ def cvat_backups2raw_tasks(unzipped_cvat_backups_dir, desc=None):
     tasks = [task for task in tasks if task]
 
     return tasks
+
+
+def file2related_images_dict(file):
+    '''
+    Формирует словарь перехода 
+    имя_файла_изображения -> кортеж_имён_связанных_файлов.
+
+    В CVAT можно создавать задачи, где каждому изображению ставится в
+    соответствие один и более файлов (не только изображений).
+    Подробнее об этих возможностях здесь:
+    https://docs.cvat.ai/docs/manual/advanced/contextual-images/
+    '''
+
+    # Инициализация словаря:
+    related_images_dict = {}
+
+    # Если файл лишь один, всё равно делаем из него список:
+    files = [file] if isinstance(file, str) else file
+
+    # Перебираем все файлы списка:
+    for file in files:
+
+        # Разделяем путь до файла на составляющие:
+        dir, name, ext = split_dir_name_ext(file)
+
+        # Определяем путь до папки, содержащей файлы, соответствующие
+        # текущему:
+        related_dir = name + ext.replace('.', '_')
+        related_dir = os.path.join(dir, 'related_images', related_dir)
+
+        # Составляем список связанных файлов:
+        releated_files = []
+        for related_file_name in sorted(os.listdir(related_dir)):
+            releated_files.append(os.path.join(related_dir, related_file_name))
+
+        # Вносим файлы в словарь, если они есть:
+        if releated_files:
+            related_images_dict[file] = releated_files
+
+    return related_images_dict
 
 
 def cvat_backup_task_dir2info(task_dir):
