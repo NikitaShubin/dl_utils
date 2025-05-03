@@ -22,13 +22,13 @@ from matplotlib import pyplot as plt
 from utils import a2hw
 
 layers       = keras.layers
+losses       = keras.losses
 models       = keras.models
 applications = keras.applications
 backend      = keras.backend
 optimizers   = keras.optimizers
 callbacks    = keras.callbacks
-
-K = keras.ops if hasattr(keras, 'ops') else keras.backend
+K            = keras.backend
 
 
 class BackboneShapes:
@@ -320,12 +320,31 @@ def get_keras_application_model_constructor_list(obj=keras.applications):
     return models
 
 
+def get_all_layers(model, except_types=(layers.InputLayer,)):
+    '''
+    Получает список всех слоёв в модели, включая подмодели.
+    '''
+    except_types = tuple(except_types)
+
+    all_layers = []
+    for layer in model.layers:
+        if isinstance(layer, models.Model):
+            all_layers += get_all_layers(layer, except_types)
+        elif isinstance(layer, layers.Layer):
+            if not isinstance(layer, except_types):
+                all_layers.append(layer)
+    return all_layers
+
+
 def backbone2encoder(backbone, return_outputs=False):
     '''
     Сборка модели извлечения многомасштабных признаков на основе базовой модели
     (backbone). Полезно при формировании U-Net-подобных архитектур, кодирующая часть
     которых является свёрточной частью какой-то предобученной модели (backbone).
     '''
+    # Создаём модель, если передан конструктор:
+    backbone = model_constructor2model(backbone)
+
     # Инициируем список признаков обязательным последним выходом
     outputs = [backbone.layers[-1].output]
 
@@ -345,14 +364,17 @@ def backbone2encoder(backbone, return_outputs=False):
 
         # Создаём сам этот тензор, заполненный нулями:
         # '''
-        input_tensor = K.zeros(inp_shape)
+
+        #input_tensor = K.zeros(inp_shape) if hasattr(K, 'zeros') else keras.ops.zeros(inp_shape)
+        input_tensor = np.zeros(inp_shape)
         # '''
         #input_tensor = np.zeros(inp_shape)
 
         # Собираем новую модель с телом базовой модели, имеющей выход на каждом
         # слое:
-        model = keras.models.Model(backbone.inputs,
-                                   [layer.output for layer in backbone.layers])
+
+        backbone_layers = get_all_layers(backbone)  # Список всех слоёв модели, кроме входных
+        model = keras.models.Model(backbone.inputs, [layer.output for layer in backbone_layers])
 
         # Прогоняем нулевой тензор через модель и снимаем тензоры со всех
         # слоёв:
@@ -475,6 +497,7 @@ def fractal_unet_node(skip_connection = None,
                       use_out_skip       = True ,
                       is_out_layer       = False,
                       dropout_rate       = 0.1  ,
+                      spatial_dropout    = False,
                       name               = None ):
     '''
     Блок-функция, реализующая узел в Fractal-U-Net.
@@ -498,8 +521,10 @@ def fractal_unet_node(skip_connection = None,
 
     # Применяем Dropout ко всем входам, если надо:
     if dropout_rate:
-        #x0 = layers.       Dropout  (dropout_rate)(x0)
-        x0 = layers.SpatialDropout2D(dropout_rate)(x0)
+        if spatial_dropout:
+            x0 = layers.SpatialDropout2D(dropout_rate)(x0)
+        else:
+            x0 = layers.Dropout(dropout_rate)(x0)
 
     x = layers.Conv2D(latent_filters, 1, use_bias=False)(x0)
     x = layers.BatchNormalization()(x)
@@ -610,19 +635,18 @@ def InputModel(input_tensor, input_shape, input_batch_size=None):
     return tensor, inputs
 
 
-def backbone_with_preprop(model_constructor: 'Конструктор модели из keras.applications' = applications.MobileNetV3Large,
-                          name             : 'Имя модели'                               = None                         ,
-                          training         : 'Режим обучения (или же тестирования)'     = False                        ,
-                          trainable        : 'Разморозка весов'                         = False                        ,
-                          as_submodel      : 'Нужно ли вернуть отдельную модель'        = True                         ,
-                          **model_kwargs):
+def model_constructor2model(model_constructor, **model_kwargs):
     '''
-    Создаёт предобученную базовую модель без головы из заданного конструктора
-    из keras.applications, добавляя ей предобработку для диапазона [0, 1].
+    Создаёт модель по её конструктору
+    '''
+    # Если передана сама модель, то ничего не делаем:
+    if isinstance(model_constructor, models.Model):
+        return model_constructor
 
-    Для предобученных моделей режим обучения лучше выключить,
-    чтобы избежать хаотизации в слоях пакетной нормализации!
-    '''
+    # Если указано лишь имя конструктора, ищем его в kera.applications:
+    if isinstance(model_constructor, str):
+        model_constructor = getattr(applications, model_constructor)
+
     # Формируем базовую модель с подходящей предобработкой.
     try:
         backbone = model_constructor(include_top=False,
@@ -632,13 +656,35 @@ def backbone_with_preprop(model_constructor: 'Конструктор модел�
     except:
         backbone = model_constructor(include_top=False,
                                      weights='imagenet')
+    return backbone
+
+
+def backbone_with_preprop(model_constructor: 'Конструктор модели из keras.applications' = applications.MobileNetV3Large,
+                          name             : 'Имя модели'                               = None                         ,
+                          training         : 'Режим обучения (или же тестирования)'     = False                        ,
+                          trainable        : 'Разморозка весов'                         = False                        ,
+                          as_submodel      : 'Нужно ли вернуть отдельную модель'        = True                         ,
+                          as_encoder       : 'Выводить ли не только последний слой, но и промежуточные' = False        ,
+                          **model_kwargs):
+    '''
+    Создаёт предобученную базовую модель без головы из заданного конструктора
+    из keras.applications, добавляя ей предобработку для диапазона [0, 1].
+
+    Для предобученных моделей режим обучения лучше выключить,
+    чтобы избежать хаотизации в слоях пакетной нормализации!
+    '''
+    backbone = model_constructor2model(model_constructor, **model_kwargs)
 
     # Берём исходное имя модели, если не задано другое:
     name = name or backbone.name
 
     # Собираем модель с предобработкой и выключаем режим обучения:
-    inp = layers.Input((None, None, 3))
+    inp = layers.Input(model_kwargs.get('input_shape', (None, None, 3)))
     out = layers.Rescaling(2, -1)(inp)
+
+    # Делаем из базовой модели кодировщих с несколькими выходами, если надо:
+    if as_encoder:
+        backbone = backbone2encoder(backbone)
 
     # Если нужно создать отдельную модель со всей инкапсуляцией слоёв:
     if as_submodel:
@@ -651,11 +697,11 @@ def backbone_with_preprop(model_constructor: 'Конструктор модел�
         out = backbone.call(out, training=training)
     # Полезно для обучения с учётом квантизации (tfmot).
 
-    backbone = models.Model(inp, out, name=name)
+    backbone = models.Model(inputs=inp, outputs=out, name=name)
 
     # Задаём обучаемость:
     backbone.trainable = trainable
-    print(1, backbone)
+
     return backbone
 
 
@@ -667,6 +713,7 @@ def UNet(backbone        : 'Базовая модель для извлечен�
          activation      : 'Тип ф-ии активации на выходе'                          = 'auto'       ,
          pool_mode       : 'Тип глобалпулинга: {"avg", "max", "both"}'             = 'both'       ,
          dropout_rate    : 'Доля отбрасываемых признаков для Dropout'              = 0.1          ,
+         spatial_dropout : 'Использовать канальный Dropout вместо обычного'        = False        ,
          out_filters     : 'Число нейронов на выходе (число классов)'              = 1            ,
          feat_filters    : 'Число нейронов перед каждым даунсемплингом'            = 8            ,
          pool_filters    : 'Число нейронов после глобалпулинга'                    = 256          ,
@@ -684,29 +731,29 @@ def UNet(backbone        : 'Базовая модель для извлечен�
     # Используется для универсализации способа задавать вход.
 
     # Применяем базовую модель для извлечения признаков:
-    encoder = backbone2encoder(backbone)
+    encoder = backbone_with_preprop(backbone, as_encoder=True)
     features_list = encoder(img_input) if use_submodels \
         else encoder.call(img_input)
 
-    # Берём самую последнюю карту признаков:
-    out = features_list[-1]
+    # Добавляем входной тензор к списку признаков:
+    features_list.insert(0, img_input)
 
+    # Берём последнюю карту признаков:
+    x = features_list.pop()
+
+    # Добавляем глобалпулинг в последнюю карту признаков:
     if pool_filters:
+
         # Получаем глобализованную карту признаков:
-        global_poolings = global_pool_conv2D(out,
-                                             pool_mode, pool_filters)
+        global_poolings = global_pool_conv2D(x, pool_mode, pool_filters)
         # Если pool_filters == 0, то global_poolings == None!
 
         # Объединяем последнюю карту признаков с глобализированной картой
         # признаков:
-        x = layers.Concatenate()([out, global_poolings])
-
-        # Добавляем в самую последнюю карту признаков глобал_пулинг-признаки:
-        # features_list[-1] = x
-        # В данном случае это - лишняя операция.
+        x = layers.Concatenate()([x, global_poolings])
 
     # Перебираем все карты признаков, кроме последней, в обратном порядке:
-    for features in reversed(features_list[:-1]):
+    for features in reversed(features_list):
 
         # Повышаем размер предыдущей карты признаков в 2 раза:
         x = layers.UpSampling2D(2)(x)
@@ -716,17 +763,20 @@ def UNet(backbone        : 'Базовая модель для извлечен�
 
         # Conv2D + BN + ReLU:
         x = layers.Conv2D(feat_filters, 3,
-                            padding='same',
-                            use_bias=False)(x)
+                          padding='same',
+                          use_bias=False)(x)
         x = layers.BatchNormalization()(x)
         x = layers.ReLU()(x)
 
     # Dropout-слой, если нужно:
     if dropout_rate:
-        x = layers.Dropout(dropout_rate)(x)
+        if spatial_dropout:
+            x = layers.SpatialDropout2D(dropout_rate)(x)
+        else:
+            x = layers.Dropout(dropout_rate)(x)
 
     # Выходные слои:
-    outputs = layers.Conv2D(out_filters, 1)(out)  # Последняя свёртка
+    outputs = layers.Conv2D(out_filters, 1)(x)  # Последняя свёртка
 
     # Добавляем ф-ию активации или argmax, если надо:
     if activation in {'softmax', 'sigmoid'}:  # Ф-ия активации, если нужна:
@@ -754,6 +804,7 @@ def Deeplabv3Plus(backbone        : 'Базовая модель для извл
                   activation      : 'Тип ф-ии активации на выходе'                          = 'auto'         ,
                   pool_mode       : 'Тип глобалпулинга: {"avg", "max", "both"}'             = 'both'         ,
                   dropout_rate    : 'Доля отбрасываемых признаков для Dropout'              = 0.1            ,
+                  spatial_dropout : 'Использовать канальный Dropout вместо обычного'        = False          ,
                   out_filters     : 'Число нейронов на выходе (число классов)'              = 1              ,
                   feat_filters    : 'Число нейронов в параллельной с пулингом свёртке'      = 256            ,
                   pool_filters    : 'Число нейронов после глобалпулинга'                    = 256            ,
@@ -810,7 +861,10 @@ def Deeplabv3Plus(backbone        : 'Базовая модель для извл
 
     # Dropout-слой, если нужно:
     if dropout_rate:
-        x = layers.Dropout(dropout_rate)(x)
+        if spatial_dropout:
+            x = layers.SpatialDropout2D(dropout_rate)(x)
+        else:
+            x = layers.Dropout(dropout_rate)(x)
 
     # Выходные слои:
     outputs = layers.Conv2D(out_filters, 1)(x)  # Последняя свёртка
@@ -979,7 +1033,7 @@ class MaxFscore(keras.metrics.AUC):
 
             # Пороги хранятся не в keras.float, а в np.ndarray и их надо
             # сконвертировать:
-            th = K.convert_to_tensor(th, tp.dtype)
+            th = keras.ops.convert_to_tensor(th, tp.dtype)
 
         p = tp / (tp + fp)  # Точность при всех порогах
         r = tp / (tp + fn)  # Полнота  при всех порогах
@@ -1015,7 +1069,7 @@ class MaxFscore(keras.metrics.AUC):
 
                 # Возвращаем две величины в виде комплексного числа, т.к. иначе
                 # они усреднятся Keras-ом:
-                return K.convert_to_tensor(maxF.numpy() + optTH.numpy() * 1j)
+                return keras.ops.convert_to_tensor(maxF.numpy() + optTH.numpy() * 1j)
                 # Приходится костылить через перевод в numpy, т.к пока конструктор ...
                 # ... комплексных чисел в keras не выведен в интерфейсную часть.
 
