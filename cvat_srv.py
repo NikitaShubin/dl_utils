@@ -158,6 +158,24 @@ class Client:
         # Возвращаем обёрнутрый объект:
         return CVATSRVProject(self, project)
 
+    def restore_task(self, backup_file):
+        '''
+        Восстанавливает задачу из бекапа.
+        '''
+        task = self.obj.api_client.tasks_api.create_backup(
+            filename=backup_file
+        )
+        return CVATSRVTask(self, task)
+
+    def restore_project(self, backup_file):
+        '''
+        Восстанавливает проект из бекапа.
+        '''
+        project = self.obj.api_client.projects_api.create_backup(
+            filename=backup_file
+        )
+        return CVATSRVProject(self, project)
+
 
 def get_name(obj):
     '''
@@ -286,6 +304,28 @@ class _CVATSRVObj:
         # Если передано имя лишь одной подсущности:
         else:
             return self[name].backup(path)
+
+    def restore(self, backup_file):
+        '''
+        Восстанавливает задачу или проект по его бекапу.
+        '''
+        # Если сейчас мы на уровне сервера, то восстанавливаем проект:
+        if self._hier_lvl == 0:
+            return self.client.restore_project(backup_file)
+
+        # Если сейчас мы на уровне проекта, то восстанавливаем задачу:
+        if self._hier_lvl == 1:
+            task = self.client.restore_task(backup_file)
+
+            # Привязываем задачу к текущему датасету:
+            task.update({'project_id': self.id})
+
+            return task
+
+        else:
+            raise NotImplementedError(
+                'Восстанавливать можно лишь проекты и задачи!'
+            )
 
     def values(self):
         '''
@@ -570,7 +610,14 @@ class CVATSRVProject(_CVATSRVObj):
     def from_id(cls, client, id):
         return cls(client, client.projects.retrieve(id))
 
-    def new(self, name, file, annotation_file=None):
+    def labels(self):
+        '''
+        Возвращает список словарей, описывающих каждую используемую метку
+        датасета:
+        '''
+        return [label.to_dict() for label in self.obj.get_labels()]
+
+    def new(self, name, file, annotation_file=None, tmp_name='unfinished'):
         '''
         Создаёт новую задачу в текущем датасете.
         '''
@@ -580,16 +627,32 @@ class CVATSRVProject(_CVATSRVObj):
                            f'в датасете "{self.name}"!')
 
         # Извлекаем метки из дадасета:
-        labels = [label.to_dict() for label in self.obj.get_labels()]
+        labels = self.labels()
 
-        # Создаём задачу:
-        task = self.client.new_task(name, file, labels,
+        # Создаём задачу под временным именем:
+        task = self.client.new_task(tmp_name, file, labels,
                                     annotation_path=annotation_file)
 
         # Привязываем задачу к текущему датасету:
         task.update({'project_id': self.id})
 
+        # Даём задаче законченное имя:
+        task.update({'name': name})
+        # В случае прерывания процесса создания задачи её можно будет легко
+        # найти по временному имени, чтобы удалить.
+
         return task
+
+    def project_json(self):
+        '''
+        Возвращает словарь, описывающий весь датасет.
+        Бекапы проектов содержат файл project.json с подобным описанием.
+        '''
+        return {'name': self.name,
+                'bug_tracker': self.bug_tracker,
+                'status': self.status,
+                'labels': self.labels(),
+                'version': '1.0'}
 
 
 class CVATSRV(_CVATSRVObj):
