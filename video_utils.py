@@ -545,15 +545,17 @@ class Mix:
     def __init__(self, InnerPipeLine, alpha=0.5):
         self.pl = InnerPipeLine
         self.alpha = alpha
-    
+
     def __call__(self, image):
         # Получаем входное и выходное изображения:
         inp = image
         out = self.pl(image)
-        
+
         # Вход и выход должны быть одинакового типа и размера
-        assert inp.dtype == out.dtype
-        assert inp.shape == out.shape
+        if inp.dtype != out.dtype:
+            raise TypeError(f'{inp.dtype} != {out.dtype}')
+        if inp.shape != out.shape:
+            raise ValueError(f'{inp.shape} != {out.shape}')
         
         # Накладываем полупрозрачный выход на вход:
         mix = inp * (1. - self.alpha) + out * self.alpha
