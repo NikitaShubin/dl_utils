@@ -1078,6 +1078,20 @@ def get_file_list(path, extentions=[]):
     return file_list
 
 
+def split_dir_name_ext(file):
+    '''
+    Разделяет путь до файла на:
+    dir - путь до папки,
+    name - имя файла,
+    ext - расширение файла.
+
+    Т.е. функция комбинирует os.path.split и os.path.splitext.
+    '''
+    dir, name_ext = os.path.split(file)
+    name, ext = os.path.splitext(name_ext)
+    return dir, name, ext
+
+
 ########################
 # Работа с процессами: #
 ########################
