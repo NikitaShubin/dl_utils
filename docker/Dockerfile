@@ -83,7 +83,7 @@ ARG PIPPARAMS="--no-cache-dir"
 ARG PIP="python -m pip"
 ARG PYTHONMODULES="                                                      \
     # Keras и прочее:                                                    \
-    keras keras-tuner pydot tf_keras                                     \
+    keras keras-tuner pydot tf_keras keras_hub                           \
                                                                          \
     # Мелкие полезные утилиты:                                           \
     treelib openpyxl easydict                                            \

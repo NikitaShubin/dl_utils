@@ -11,6 +11,7 @@ elif keras_module == 'tf_keras': import tf_keras as keras
 elif keras_module == 'tf.keras': from tensorflow import keras
 elif keras_module == 'tfmot'   : from tensorflow_model_optimization.python.core.keras.compat import keras
 else: raise ValueError(f'Неожиданное значение переменной окружения "KERAS_MODULE": "{keras_module}"!')
+#print(keras.__version__)
 
 import signal
 import contextlib
@@ -19,7 +20,7 @@ import pandas as pd
 import tensorboard as tb
 from matplotlib import pyplot as plt
 
-from utils import a2hw
+from utils import a2hw, obj2yaml
 
 layers       = keras.layers
 losses       = keras.losses
@@ -334,6 +335,24 @@ def get_all_layers(model, except_types=(layers.InputLayer,)):
             if not isinstance(layer, except_types):
                 all_layers.append(layer)
     return all_layers
+
+
+def get_hashed_trainable_weights(layer):
+    '''
+    Строит кортеж тренируемых параметров слоя.
+    Используется для проверки изменилось ли хоть что-то в слое после его разморозки.
+    '''
+    return tuple([tuple(w.numpy().flatten()) for w in layer.trainable_weights])
+
+
+def try_to_unfreeze_layer(layer):
+    '''
+    Размораживает слой и возвращает True, если это изменило список обучаемых
+    параметров. Используется при последовательной разморозке всех слоёв.
+    '''
+    trainable_weights = get_hashed_trainable_weights(layer)
+    layer.trainable = True
+    return trainable_weights != get_hashed_trainable_weights(layer)
 
 
 def backbone2encoder(backbone, return_outputs=False):
@@ -838,14 +857,12 @@ def Deeplabv3Plus(backbone        : 'Базовая модель для извл
         x = layers.Conv2D(feat_filters, 1, use_bias=False)(x)
         x = layers.BatchNormalization()(x)
         x = layers.Activation('relu')(x)
-    # Это предпредпоследняя свёртка в сети.
 
-    # Сокращаем число признаков в параллельной с пулингом ветке, если надо:
-    if feat_filters:
+        #'''
         x = layers.Conv2D(feat_filters, 1, use_bias=False)(x)
         x = layers.BatchNormalization()(x)
         x = layers.Activation('relu')(x)
-    # Это предпредпоследняя свёртка в сети.
+        #'''
 
     # Формируем из Res-блок на базе global_pool_conv2D, если надо:
     if global_poolings is not None:
@@ -1103,6 +1120,8 @@ class TrainingMode:
     Контекст, меняющий параметр training для всех слоёв внутри, 
     при применении которых параметр training не был задан явно.
     Используется backend.learning_phase и backend.set_learning_phase.
+
+    Не работает с Keras3.
     '''
     def __init__(self, training_mode=False):
 
@@ -1130,6 +1149,7 @@ class KerasHistory:
     Объект, содержащий историю обучения Keras-модели.
     Позволяет сохранять, загружать и отрисовывать графики.
     '''
+
     def __init__(self, hist):
 
         # Если подан весь объект History (возвращается от model.fit), ...
@@ -1147,7 +1167,7 @@ class KerasHistory:
         df = pd.read_csv(file).set_index('epoch')
 
         # Получаем из дадафрейма обычный словарь истории изменения всех метрик:
-        hist = {column:list(df[column]) for column in df.columns if column != 'epoch'}
+        hist = {column: list(df[column]) for column in df.columns if column != 'epoch'}
 
         # Возвращаем экземпляр класса:
         return cls(hist)
@@ -1186,6 +1206,31 @@ class KerasHistory:
                 # Записываем значения метрики на обуч. выборке в начало списка:
                 metrics[name] = metrics.get(name, {}) | {'train': self.hist[name]}
 
+        # Сшиваем learning_rate и lr в одну метрику, если в записях
+        # присутствуют обе:
+        if 'learning_rate' in metrics:
+            if 'lr' in metrics:
+                lr1 = metrics['learning_rate']
+                lr2 = metrics['lr']
+
+                for key in set(lr1.keys()) | set(lr2.keys()):
+                    if key not in lr1:
+                        lr = lr2[key]
+                    elif key not in lr2:
+                        lr = lr1[key]
+                    else:
+                        lr = [lr1_ or lr2_ for lr1_, lr2_ in zip(lr1[key], lr2[key])]
+
+                    metrics['lr'][key] = lr
+
+                del metrics['learning_rate']
+
+            else:
+                metrics['lr'] = metrics['learning_rate']
+                del metrics['learning_rate']
+        # Всё это надо будет удалить когда исправится проблема с дублированием
+        # метрик!
+
         return metrics
 
     # Отрисовка графиков истории обучения:
@@ -1204,30 +1249,29 @@ class KerasHistory:
             # Если скорость обучения вообще менялась:
             if len(np.unique(lr)) > 1:
 
-                # Нормалилазция диапазона скоростей обучения в логарифмическом масштабе:
+                # Нормалилазция диапазона скоростей обучения в логарифмическом
+                # масштабе:
                 bg = np.log(lr)
                 bg -= bg.min()
                 bg /= bg.max()
-        # Предпологается, что область одинакового lr окрашивает фон отдельным цветом.
+        # Предпологается, что область одинакового lr окрашивает фон отдельным
+        # цветом.
 
         # Отрисовка графиков:
         plt.figure(figsize=(24, 6))
         for subplot_ind, (name, plots) in enumerate(metrics.items(), 1):
+
+            # Сами графики:
             plt.subplot(1, len(metrics), subplot_ind)
             plt.title(name)
             plt.grid()
 
-            # Если найден всего один график с таким именем, то отображаем его без наворотов:
-            if len(plots) == 1:
-                plt.plot(plots['train'])
+            for key, value in plots.items():
+                plt.plot(value, label=key)
+            plt.legend()
 
-            # Если графиков два и более, то добавляем легенду:
-            else:
-                for key, value in plots.items():
-                    plt.plot(value, label=key)
-                plt.legend()
-
-            # Для функции потерь и скорости обучения применяем логарифмический масштаб:
+            # Для функции потерь и скорости обучения применяем логарифмический
+            # масштаб:
             if name in ['lr', 'loss']:
                 plt.gca().set_yscale('log')
 
@@ -1278,19 +1322,22 @@ class Warmup(callbacks.Callback):
     def on_train_batch_begin(self, batch, logs=None):
         # Если это первый запуск, то запоминаем текущий LR как целевой:
         if self.target_lr is None:
-            self.target_lr = backend.get_value(self.model.optimizer.lr)
+            #self.target_lr = backend.get_value(self.model.optimizer.lr)
+            self.target_lr = self.model.optimizer.learning_rate.numpy()
 
         # Прирост счётчика шагов:
         self.step += 1
 
         if self.step <= self.steps:
-            backend.set_value(self.model.optimizer.lr, self.target_lr * self.step / self.steps)
+            #backend.set_value(self.model.optimizer.lr, self.target_lr * self.step / self.steps)
+            self.model.optimizer.learning_rate = self.target_lr * self.step / self.steps
 
     def on_epoch_end(self, epoch, logs=None):
         # Ведём лог пока прогрев не завершится:
         if self.step <= self.steps:
             logs = logs or {}
-            logs["lr"] = backend.get_value(self.model.optimizer.lr)
+            #logs["lr"] = backend.get_value(self.model.optimizer.lr)
+            logs["lr"] = self.model.optimizer.learning_rate.numpy()
 
     on_train_batch_end = on_epoch_end
 
@@ -1473,12 +1520,33 @@ class AutoFinetune(callbacks.EarlyStopping):
                     backend.set_value(self.model.optimizer.lr, self.lr_on_finetune)
 
 
+class EndToEndEarlyStopping(callbacks.EarlyStopping):
+    '''
+    Обычный EarlyStopping, но хранящий лучшие значения весов и метрик даже
+    после перезапуска обучения.
+    '''
+
+    def on_train_begin(self, logs=None):
+
+        # Фиксируем лучшие значения метрики и весов:
+        best = self.best if hasattr(self, 'best') else None
+        best_weights = self.best_weights if hasattr(self, 'best_weights') else None
+
+        # Выполняем оригинальный метод:
+        super().on_train_begin(logs)
+
+        # Восстанавливаем зафиксированные лучшие значения метрики и весов:
+        self.best = best
+        self.best_weights = best_weights
+
+
 # Мягкий выход из программы (без вывода ошибок):
 def soft_exit(*args, **kwargs):
     print('Получен сигнал завершения работы программы.')
     print('Обучение завершается .')
     sys.exit(0)
 # Используется в DoOnKill.
+
 
 class DoOnKill(callbacks.Callback):
     '''
