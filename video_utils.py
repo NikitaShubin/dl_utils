@@ -521,19 +521,19 @@ class Res:
     def __init__(self, InnerPipeline, mode='h'):
         self.pl = InnerPipeline
         self.mode = mode.lower()
-    
+
     def __call__(self, image):
-        
+
         # Получаем входное и выходное изображения:
         inp = image
         out = self.pl(image)
-        
+
         # Вход и выход должны быть одинакового типа:
         assert inp.dtype == out.dtype
-        
+
         # Определяем способ объединения изображений в зависимости от параметра mode:
         concat = np.hstack if self.mode=='h' else np.vstack
-        
+
         # Возвращаем результат объединения:
         return concat([inp, out])
 
@@ -542,6 +542,7 @@ class Mix:
     '''
     Накладывает выходное изображение на входное для заданного вложенного конвейера.
     '''
+
     def __init__(self, InnerPipeLine, alpha=0.5):
         self.pl = InnerPipeLine
         self.alpha = alpha
@@ -556,10 +557,10 @@ class Mix:
             raise TypeError(f'{inp.dtype} != {out.dtype}')
         if inp.shape != out.shape:
             raise ValueError(f'{inp.shape} != {out.shape}')
-        
+
         # Накладываем полупрозрачный выход на вход:
         mix = inp * (1. - self.alpha) + out * self.alpha
-        
+
         # Возвращаем приведённый к нужному типу результат:
         return mix.astype(inp.dtype)
 
@@ -568,29 +569,30 @@ class Concat:
     '''
     Объединяет входное и выходное изображения для заданного вложенного конвейера.
     '''
+
     def __init__(self, Pipelines, mode='h'):
-        
+
         # Pipelines должен быть списком или кортежем:
         assert isinstance(Pipelines, (list, tuple))
-        
+
         self.pls = Pipelines
         self.mode = mode.lower()
-    
+
     def __call__(self, image):
         # Применяем все фильтры к исходному изображению:
         outs = [image if f is None else f(image) for f in self.pls]
         # Если вместо фильтра в списке стоит None, ...
         # ... то просто повторяем входное изображение.
-        
+
         '''
         # Вход и выход должны быть одинакового типа:
         for out in outs[1:]:
             assert outs[0].dtype == out.dtype
         '''
-        
+
         # Определяем способ объединения изображений в зависимости от параметра mode:
         concat = np.hstack if self.mode=='h' else np.vstack
-        
+
         # Возвращаем результат объединения:
         return concat(outs)
 
@@ -603,20 +605,21 @@ class CompareTwoFilters:
 
     Полезно для отладки и сравнения фильтров.
     '''
+
     def __init__(self, filter1, filter2, diff_func=cv2.absdiff, name='Comparator'):
         self.f1 = filter1
         self.f2 = filter2
         self.diff = diff_func
         self.name = name
-    
+
     def __call__(self, img):
         out1 = self.f1(img)
         out2 = self.f2(img)
         diff = self.diff(out1, out2)
-        
+
         return np.vstack([np.hstack([img , out1]),
                           np.hstack([diff, out2])])
-    
+
     # Сброс внутренних состояний:
     def reset(self):
         for f in [self.f1, self.f2]:
@@ -635,14 +638,15 @@ class CompareFiltersWithTarget:
     <Эталонное изображение>
     (изображения должны распологаться одно под
     другим и иметь одинаковый размер по высоте).
-    
+
     Полезно для отладки и сравнения фильтров.
     '''
+
     def __init__(self, filters, diff_func=cv2.absdiff, name='TargetComparator'):
         self.filters = filters
         self.diff = diff_func
         self.name = name
-    
+
     def __call__(self, img):
 
         # Разделяем изображение на входное и эталонное:
@@ -657,7 +661,7 @@ class CompareFiltersWithTarget:
         # Собираем в коллаж и возвращаем:
         return np.vstack([np.hstack([inp, *preds]),
                           np.hstack([out, *diffs])])
-    
+
     # Сброс внутренних состояний:
     def reset(self):
         for f in [self.f1, self.f2]:
@@ -669,20 +673,25 @@ class KerasModel:
     '''
     # Использование keras-модели как фильтра.
     '''
+
     def __init__(self, model, name='KerasModel'):
         self.model = model
         self.name = name
         self.reset()
-        self.stateful = model.stateful
-    
+        self.stateful = model.stateful if hasattr(model, 'stateful') else None
+
     def __call__(self, image):
         return self.model.predict(np.expand_dims(image, 0), verbose=0)[0, ...]
-    
+
     def reset(self):
-        self.model.reset_states()
-    
+        if hasattr(self.model, 'reset_states'):
+            self.model.reset_states()
+        # В Keras3 нет reset_states для моделей
+        # https://github.com/keras-team/keras/issues/18467#issuecomment-2096448735
+
     def close(self):
-        self.model.stateful = self.stateful
+        if hasattr(self.model, 'stateful'):
+            self.model.stateful = self.stateful
         self.reset()
 
 
@@ -695,15 +704,15 @@ class StoreLastFrames:
                  fill_empty_frames : 'Заполнять нулями отсутствующие кадры'=None,
                  name              : 'Имя фильтра'=None):
         self.n = n
-        
+
         if fill_empty_frames and not fill_empty_frames.lower() == 'none':
             self.fill_empty_frames = fill_empty_frames.lower()
         else:
             self.fill_empty_frames = None
-        
+
         self.name = name if name else 'StoreLast%sFrames' % n
         self.reset()
-    
+
     def __call__(self, image):
         self.frames.insert(0, image)
         if len(self.frames) == 1 and self.n > 1 and self.fill_empty_frames:
@@ -711,12 +720,12 @@ class StoreLastFrames:
                 self.frames += [np.zeros_like(image)] * (self.n - 1)
             elif self.fill_empty_frames == 'copy':
                 self.frames += [image] * (self.n - 1)
-        
+
         while len(self.frames) > self.n:
             self.frames.pop()
-        
+
         return self.frames
-    
+
     def reset(self):
         self.frames = []
 
