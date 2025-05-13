@@ -13,7 +13,7 @@ else
 fi
 
 # Определяем имя образа:
-IMAGE_NAME=max147doc/$DOCKER_NAME
+IMAGE_NAME=kitbrain/$DOCKER_NAME
 
 # Определяем имя хоста внутри докера:
 DOCKER_HOSTNAME="${DOCKER_NAME}_`hostname`"
@@ -62,7 +62,7 @@ RUNPARAMS=(
     # Удаляем контейнер после завершения:
     --rm
     # Не совместим с --restart unless-stopped.
-    
+
     # Автоматический перезапуск вместе с демоном, если
     # к моменту перезапуска контейнер не был остановлен вручную:
     # --restart unless-stopped
@@ -104,7 +104,7 @@ MAXIM_RUNPARAMS=(
 )
 
 # Запускаем образ:
-#clear && 
+#clear &&
 docker run  "${LIZA_RUNPARAMS[@]}" "${RUNPARAMS[@]}"
 # docker run "${MAXIM_RUNPARAMS[@]}" "${RUNPARAMS[@]}"
 #docker exec -u root -it $DOCKER_NAME bash

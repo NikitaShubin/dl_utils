@@ -87,15 +87,15 @@ VOLUME  "${WORKSPACE}"
 # Рабочая папка:
 WORKDIR "${WORKSPACE}"
 # Снимаем с рабочей папки защиту от записи:
-RUN chmod 777 ./
+RUN chmod -R 777 .
 
 
 # Вносим нужные файлы в рабочую папку образа:
 ADD --chmod=777 https://dl.fbaipublicfiles.com/segment_anything_2/092824/sam2.1_hiera_large.pt ./models/
 # Самая большая модель SAM2.
-COPY --chown="${USERNAME}:${USERNAME}" *.py ./src/
+COPY --chown="${USERNAME}:${USERNAME}" --chmod=777 *.py ./src/
 # Модули.
-COPY --chown="${USERNAME}:${USERNAME}" dockerPreAnnotation/PreAnnotation.ipynb ./
+COPY --chown="${USERNAME}:${USERNAME}" --chmod=777 dockerPreAnnotation/PreAnnotation.ipynb ./
 # Интерфейсный юпитер-ноутбук.
 
 
