@@ -37,7 +37,7 @@ ARG APPLICATIONS="                                    \
     ffmpeg yt-dlp imagemagick                         \
                                                       \
     # Базовые пользовательские приложения в консоли:  \
-    sudo nano mc git ssh p7zip-full                   \
+    sudo nano mc git ssh p7zip-full zip unzip         \
                                                       \
     # Консольные утилиты для загрузки файлов из сети: \
     curl wget                                         \
