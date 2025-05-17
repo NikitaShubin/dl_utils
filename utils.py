@@ -937,7 +937,6 @@ def emptydir(path):
     '''
     rmpath(path)
     mkdirs(path)
-    return
 
 
 def first_existed_path(paths):

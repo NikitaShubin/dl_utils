@@ -4204,4 +4204,200 @@ for rotation in [0, 15]:
 """
 
 
+############################################################################
+# Объекты, инкапсулирующие большую часть вышеобъявленной функциональности: #
+############################################################################
+
+
+class ParsedJob:
+    '''
+    Объект, хранящий данные подзадачи (subtask) во временной памяти.
+    '''
+
+    def __init__(self, df, file, true_frames, issues=None):
+        self.df = df
+        self.file = file
+        self.true_frames = true_frames
+        self.issues = issues
+
+    # Число элементов = числу кадров в прореженной последовательности:
+    def __len__(self):
+        return len(self.true_frames)
+
+    # Применяет функцию, меняющую подзадачу:
+    def apply(self, func):
+        self.df, self.file, self.true_frames = \
+            func(self.df, self.file, self.true_frames)
+
+    # Применяет функцию покадровой авторазметки:
+    def im2df(self,
+              im2df,
+              label=None,
+              store_prev_annotation=True,
+              desc=None):
+
+        # Собираем задачу из текущей подзадачи:
+        old_task = [(self.df, self.file, self.true_frames)]
+
+        # Применяем авторазметку:
+        new_task = task_auto_annottation(old_task, im2df, label,
+                                         store_prev_annotation, desc)
+
+        # Извлекаем обновлённый датафрейм:
+        self.df = new_task[0][0]
+
+
+'''
+# Применяет метод ко всем подобъектам:
+def _call_method2all_data(data: list,
+                          method: str,
+                          *args,
+                          desc=None,
+                          num_procs: int = 1) -> list:
+
+    # Список методов для каждой функции:
+    functions = [getattr(sub_data, method) for sub_data in data]
+
+    # Список аргументов:
+    len_ = len(data)
+    args_ = [[arg] * len_ for arg in args]
+
+    # Выполняем функции:
+    return mpmap(exec_function, functions, *args_, )
+'''
+
+
+class ParsedTask:
+    '''
+    Объект, хранящий данные задачи (task) во временной памяти.
+    '''
+
+    def __init__(self, data=[], info=None):
+        self.data = data
+        self.info = info
+
+    @staticmethod
+    def from_cvat_task(cvat_task):
+        pass
+
+    @staticmethod
+    def from_zipped_backup(backup_file, tmp_dir=None):
+        '''
+        Создаёт задачу из архивированного бекапа.
+        '''
+        pass
+
+    @classmethod
+    def from_unzipped_backup(cls, unzipped_backup_dir, desc=None):
+        '''
+        Парсит уже распакованный бекап задачи.
+        '''
+        # Парсим задачу:
+        task = cvat_backup_task_dir2task(unzipped_backup_dir)
+
+        # Собираем из задачи список распаршенных подзадач:
+        data = []
+        for df, file, true_frames in task:
+            data.append(ParsedJob(df, file, true_frames))
+
+        # Парсим описание проекта:
+        info_file = os.path.join(unzipped_backup_dir, 'task.json')
+        with open(info_file, 'r', encoding='utf-8') as f:
+            info = json.load(f)
+
+        return cls(data, info)
+
+    # Число элементов = числу подзадач:
+    def __len__(self):
+        return len(self.data)
+
+    # Итерируем по списку подзадач:
+    def __iter__(self):
+        return iter(self.data)
+
+    # Применяет функцию покадровой авторазметки:
+    def im2df(self,
+              im2df,
+              label=None,
+              store_prev_annotation=True,
+              desc=None,
+              num_procs=0):
+
+        # Применяем авторазметку к каждой подзадаче отдельно:
+        return mpmap()
+        for element in self.data:
+            element.im2df(im2df,
+                          label=None,
+                          store_prev_annotation=True,
+                          desc=None)
+
+
+class ParsedProject:
+    '''
+    Объект, хранящий данные проекта (tasks) во временной памяти.
+    '''
+
+    def __init__(self, data=[], info=None):
+        self.data = data
+        self.info = info
+
+    @staticmethod
+    def from_cvat_project(cvat_proj):
+        '''
+        Берёт проект из объекта.
+        '''
+        pass
+
+    @staticmethod
+    def from_backup(backup_file, tmp_dir=None):
+        '''
+        Создаёт проект из бекапа.
+        '''
+        pass
+
+        #self.tmp_dir = TemporaryDirectory(dir=tmp_dir)
+
+    @classmethod
+    def from_unzipped_backup(cls, unzipped_backup_dir, desc=None):
+        '''
+        Парсит уже распакованный бекап проекта.
+        '''
+        # Составляем список содержимого папки:
+        dir_files = list([os.path.join(unzipped_backup_dir, subdir)
+                          for subdir in os.listdir(unzipped_backup_dir)])
+        # В него должны входить поддирректории с задачами и project.json.
+
+        # Разделяем список на файлы и подпапки:
+        subdirs = []
+        files = []
+        for dir_file in dir_files:
+            if os.path.isdir(dir_file):
+                subdirs.append(dir_file)
+            else:
+                files.append(dir_file)
+
+        # Файл в папке должен быть только один - project.json:
+        assert len(files) == 1
+        project_info_file = files[0]
+        assert os.path.basename(project_info_file) == 'project.json'
+
+        # Парсим описание проекта:
+        with open(project_info_file, 'r', encoding='utf-8') as f:
+            info = json.load(f)
+
+        # Парсим сами файлы:
+        data = mpmap(ParsedTask.from_unzipped_backup, subdirs, desc=desc)
+
+        # Собираем из распаршенных данных новый экземпляр класса:
+        return cls(data, info)
+
+    # Число элементов = числу задач:
+    def __len__(self):
+        return len(self.data)
+
+    # Итерируем по списку задач:
+    def __iter__(self):
+        return iter(self.data)
+
+
 #__all__ = 'CVATPoints', 'cvat_backups2tasks', 'drop_bbox_labled_cvat_tasks', 'sort_tasks'
