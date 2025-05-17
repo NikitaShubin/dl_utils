@@ -2677,7 +2677,7 @@ def get_single_val_in_df(df, column):
     return values[0]
 
 
-def subtask2xml(subtask, xml_file='./annotation.xml'):
+def subtask2xml(subtask, xml_file=None):
     '''
     Сохраняет cvat-подзадачу в XML-файл с аннотациями, принимаемыми интерфейсом
     CVAT в качестве разметки.
@@ -2748,7 +2748,9 @@ def subtask2xml(subtask, xml_file='./annotation.xml'):
                           group_id = str(int(dfrow['group'   ])),
                           *args, **kwargs)
 
-            raise ValueError(' '.join(str(int(val)), val, type(str(int(val))), type(val)))
+    # Возвращаем XML-структуру, если файл для записи не указан:
+    if xml_file is None:
+        return annotations
 
     # Пишем XML-структуру в файл:
     ET.ElementTree(annotations).write(xml_file,
