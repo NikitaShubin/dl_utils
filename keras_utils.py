@@ -357,9 +357,10 @@ def try_to_unfreeze_layer(layer):
 
 def backbone2encoder(backbone, return_outputs=False):
     '''
-    Сборка модели извлечения многомасштабных признаков на основе базовой модели
-    (backbone). Полезно при формировании U-Net-подобных архитектур, кодирующая часть
-    которых является свёрточной частью какой-то предобученной модели (backbone).
+    Сборка модели извлечения многомасштабных признаков на основе базовой
+    модели (backbone). Полезно при формировании U-Net-подобных архитектур,
+    кодирующая часть которых является свёрточной частью какой-то предобученной
+    модели (backbone).
     '''
     # Создаём модель, если передан конструктор:
     backbone = model_constructor2model(backbone)
@@ -415,24 +416,34 @@ def backbone2encoder(backbone, return_outputs=False):
                 # ... и в два раза увеличиваем размер следующего искомого
                 # тензора:
                 cur_size *= 2
+
+        inp_shape = tuple(inp_shape[1:])
+
     else:
         # Если размер входного тензора базовой модели полностью определён
         # (None-ов нет), то и размеры всех промежуточных слоёв тоже определены:
 
         # Размер следующего искомого тензора (в 2 раза больше предыдущего):
-        cur_size = backbone.layers[-1].output_shape[-2] * 2
+        cur_size = backbone.layers[-1].output.shape[-2] * 2
 
         # Перебор всех слоёв, начиная с предпоследнего и к началу:
         for layer in reversed(backbone.layers[:-1]):
             # Если размер текущего тензора действительно соответствует
             # искомому, то ...
-            if len(layer.output_shape) > 2 and layer.output_shape[-2] == cur_size:
+            if len(layer.output.shape) > 2 and layer.output.shape[-2] == cur_size:
                 # ... добавляем выход соответствующего слоя в список...
                 outputs.append(layer.output)
 
                 # ... и в два раза увеличиваем размер следующего искомого
                 # тензора:
                 cur_size *= 2
+
+        inp_shape = backbone.input_shape
+
+    # Если самый первый слой меняет размер тензора, то его вход тоже добавляем
+    # в список признаков:
+    if inp_shape[:-1] != layer.output.shape[:-1]:
+        outputs.append(backbone.input)
 
     # Восстанавливаем последовательность выходов (отменяем реверсию):
     outputs = outputs[::-1]
@@ -505,6 +516,61 @@ def global_pool_2D_with_bottleneck(inp            : 'Входной тензор
 def res_block(inp, net, name='ResBlock'):
     with keras.backend.name_scope(name):
         return layers.Add()([inp, net(inp)])
+
+
+def spatial_pyramid_pooling(x,
+                            dilation_rates=[6, 12, 18],
+                            num_channels=256,
+                            activation='relu',
+                            dropout=0.0):
+    '''
+    Строит пиромидальный пулинг, использующийся, например в DeepLabV3+
+    '''
+    # Свёртка с размером 1х1:
+    x0 = layers.Conv2D(num_channels, 1, use_bias=False)(x)
+
+    # Свёртки 3x3 с расширяющимся прореживанием ядра:
+    kwargs = {
+        'filters': num_channels,
+        'kernel_size': 3,
+        'padding': 'same',
+        'use_bias': False,
+    }
+    xf = [layers.Conv2D(**kwargs, dilation_rate=dilation_rate)(x)
+          for dilation_rate in dilation_rates]
+
+    # Объединение выходов предыдущих слоёв в один тензор:
+    xf.append(x0)
+    xf = layers.Concatenate()(xf)
+
+    # Добавляем к предыдущим свёрткам BN и активацию:
+    xf = layers.BatchNormalization()(xf)
+    xf = layers.Activation(activation)(xf)
+
+    # Вектор признаков из GlobalAveragePooling:
+    gp = layers.GlobalAveragePooling2D(keepdims=True)(x)
+    gp = layers.Conv2D(num_channels, 1, use_bias=False)(gp)
+    gp = layers.BatchNormalization()(gp)
+    gp = layers.Activation(activation)(gp)
+
+    # Объединяем признаки пирамидальной свёртки и глобалпулинга уже
+    # после свёртки, чтобы не растягивать вектор пулинга до размера других
+    # карт признаков:
+    xf = layers.Conv2D(num_channels, 1, use_bias=False)(xf)
+    gp = layers.Conv2D(num_channels, 1, use_bias=False)(gp)
+    out = xf + gp
+    # Можно было бы растянуть вектор пулинга до размера других карт признаков
+    # и конкатенировать с ними, но тогда последующая свёртка выполняла бы
+    # много одинаковых операций. Это выглядело бы понятнее, но было бы менее
+    # вычислительно эффективно.
+
+    out = layers.BatchNormalization()(out)
+    out = layers.Activation(activation)(out)
+
+    if dropout:
+        out = layers.Dropout(dropout)(out)
+
+    return out
 
 
 def fractal_unet_node(skip_connection = None,
@@ -815,27 +881,25 @@ def UNet(backbone        : 'Базовая модель для извлечен�
     return keras.models.Model(inputs, outputs, name=name)
 
 
-def Deeplabv3Plus(backbone        : 'Базовая модель для извлечения признаков'                                ,
-                  input_tensor    : 'Входной тензор'                                        = None           ,
-                  input_shape     : 'Размер входа (если input_tensor не задан)'             = (256, 256, 3)  ,
-                  use_submodels   : 'Инкапсулировать базовую модель и голову как подмодели' = False          ,
-                  input_batch_size: 'Размер батча (если input_tensor не задан)'             = None           ,
-                  activation      : 'Тип ф-ии активации на выходе'                          = 'auto'         ,
-                  pool_mode       : 'Тип глобалпулинга: {"avg", "max", "both"}'             = 'both'         ,
-                  dropout_rate    : 'Доля отбрасываемых признаков для Dropout'              = 0.1            ,
-                  spatial_dropout : 'Использовать канальный Dropout вместо обычного'        = False          ,
-                  out_filters     : 'Число нейронов на выходе (число классов)'              = 1              ,
-                  feat_filters    : 'Число нейронов в параллельной с пулингом свёртке'      = 256            ,
-                  pool_filters    : 'Число нейронов после глобалпулинга'                    = 256            ,
-                  head_filters    : 'Число нейронов в предпоследней свёртке'                = 256            ,
-                  resize_output   : 'Растягивать выход до размера входа'                    = True           ,
-                  name            : 'Имя модели'                                            = 'deeplabv3plus'):
+def Deeplabv3Plus(backbone        : 'Базовая модель для извлечения признаков'                                          ,
+                  input_tensor    : 'Входной тензор'                                                  = None           ,
+                  input_shape     : 'Размер входа (если input_tensor не задан)'                       = (256, 256, 3)  ,
+                  use_submodels   : 'Инкапсулировать базовую модель и голову как подмодели'           = False          ,
+                  input_batch_size: 'Размер батча (если input_tensor не задан)'                       = None           ,
+                  activation      : 'Тип ф-ии активации на выходе'                                    = 'auto'         ,
+                  out_filters     : 'Число нейронов на выходе (число классов)'                        = 1              ,
+                  out_dropout_rate: 'Доля отбрасываемых признаков для выходного Dropout'              = 0.1            ,
+                  spatial_dropout : 'Использовать на выходе канальный Dropout вместо обычного'        = False          ,
+                  pre_out_filters : 'Число нейронов на gпредпоследней свёртке'                        = 128            ,
+                  en_lvl_4_dec    : 'Уровень карты признаков, использующейся в обход SPP (от 0 до 2)' = 2              ,
+                  dec_filters     : 'Число нейронов в свёртке для низкоуровневой карты признаков'     = 48             ,
+                  spp_filters     : 'Число нейронов в пирамидальных свёртках'                         = 256            ,
+                  spp_dilations   : 'Размеры прореживаний в пирамидальных свёртках'                   = [6, 12, 18]    ,
+                  spp_dropout     : 'Дропаут в пирамидальных свёртках'                                = 0.             ,
+                  name            : 'Имя модели'                                                      = 'deeplabv3plus'):
     '''
     Собирает модель сегментации Deeplabv3+.
     '''
-    # Доопределяем тип выходной активации, если надо:
-    if activation and activation.lower() == 'auto':
-        activation = 'softmax' if out_filters > 2 else 'sigmoid'
 
     # Получаем входной тензор и вход для собираемой модели:
     img_input, inputs = InputModel(input_tensor, input_shape,
@@ -843,56 +907,61 @@ def Deeplabv3Plus(backbone        : 'Базовая модель для извл
     # Используется для универсализации способа задавать вход.
 
     # Применяем базовую модель для извлечения признаков:
-    if use_submodels:
-        x = backbone(img_input)
-    else:
-        x = backbone.call(img_input)
+    encoder = backbone_with_preprop(backbone,
+                                    as_encoder=True,
+                                    as_submodel=False)
+    features_list = encoder(img_input) if use_submodels \
+        else encoder.call(img_input)
 
-    # Получаем глобализованную карту признаков:
-    global_poolings = global_pool_conv2D(x, pool_mode, pool_filters)
-    # Если pool_filters == 0, то global_poolings == None!
+    # Уточняем уровень обходной карты признаков:
+    if en_lvl_4_dec < 0:
+        en_lvl_4_dec = en_lvl_4_dec + len(features_list)
 
-    # Сокращаем число признаков в параллельной с пулингом ветке, если надо:
-    if feat_filters:
-        x = layers.Conv2D(feat_filters, 1, use_bias=False)(x)
-        x = layers.BatchNormalization()(x)
-        x = layers.Activation('relu')(x)
+    spp = spatial_pyramid_pooling(features_list[-1],
+                                  dilation_rates=spp_dilations,
+                                  num_channels=spp_filters,
+                                  activation='relu',
+                                  dropout=spp_dropout)
 
-        #'''
-        x = layers.Conv2D(feat_filters, 1, use_bias=False)(x)
-        x = layers.BatchNormalization()(x)
-        x = layers.Activation('relu')(x)
-        #'''
+    # Повышаем разрешение до размера обходной карты признаков:
+    up_rate = 2 ** ((len(features_list) - 1) - en_lvl_4_dec)
+    if up_rate > 1:
+        spp = layers.UpSampling2D(up_rate, interpolation='bilinear')(spp)
 
-    # Формируем из Res-блок на базе global_pool_conv2D, если надо:
-    if global_poolings is not None:
-        res = layers.Concatenate()([x, global_poolings])
-    else:
-        res = x
+    # Берём карту признаков нижнего уровня:
+    dec_inp = features_list[en_lvl_4_dec]
 
-    # Предпоследняя свёртка:
-    if head_filters:
-        x = layers.Conv2D(head_filters, 1, use_bias=False)(res)
-        x = layers.BatchNormalization()(x)
-        x = layers.Activation('relu')(x)
+    # Conv + BN + Activation в обход SPP:
+    dec = layers.Conv2D(dec_filters, 1, use_bias=False)(dec_inp)
+    dec = layers.BatchNormalization()(dec)
+    dec = layers.Activation('relu')(dec)
 
-    # Dropout-слой, если нужно:
-    if dropout_rate:
-        if spatial_dropout:
-            x = layers.SpatialDropout2D(dropout_rate)(x)
-        else:
-            x = layers.Dropout(dropout_rate)(x)
+    # Объединяем SPP с картой более низкоуровневых признаков:
+    out = layers.Concatenate()([spp, dec])
 
-    # Выходные слои:
-    outputs = layers.Conv2D(out_filters, 1)(x)  # Последняя свёртка
-    if resize_output:
+    # Предфинальное трио Conv + BN + Activation:
+    out = layers.Conv2D(pre_out_filters, 1, use_bias=False)(out)
+    out = layers.BatchNormalization()(out)
+    out = layers.Activation('relu')(out)
 
-        # Приведение к исходному размеру, если надо:
-        outputs = Resizing2DLike(img_input, interpolation='bilinear')(outputs)
+    # Повышаем разрешение до размера входного изображения:
+    up_rate = 2 ** (en_lvl_4_dec)
+    if up_rate > 1:
+        out = layers.UpSampling2D(up_rate, interpolation='bilinear')(out)
+
+    # Последние Dropout и свёртка:
+    if out_dropout_rate:
+        dol = layers.SpatialDropout2D if spatial_dropout else layers.Dropout
+        out = dol(out_dropout_rate)(out)
+    out = layers.Conv2D(out_filters, 1)(out)
+
+    # Доопределяем тип выходной активации, если надо:
+    if activation and activation.lower() == 'auto':
+        activation = 'softmax' if out_filters > 2 else 'sigmoid'
 
     # Добавляем ф-ию активации или argmax, если надо:
     if activation in {'softmax', 'sigmoid'}:  # Ф-ия активации, если нужна:
-        outputs = layers.Activation(activation)(outputs)
+        outputs = layers.Activation(activation)(out)
 
     elif activation and activation.lower() == 'argmax':
 
@@ -902,7 +971,10 @@ def Deeplabv3Plus(backbone        : 'Базовая модель для извл
 
         # Пороговая обработка для прода, если канал всего один:
         else:
-            outputs = K.cast(outputs > 0, int64)
+            outputs = K.cast(outputs > 0, 'int64')
+
+    else:
+        raise ValueError(f'Неожиданная ф-ия активации: {activation}!')
 
     # Сборка слоёв в итоговую модель:
     return keras.models.Model(inputs, outputs, name=name)

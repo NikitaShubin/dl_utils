@@ -1,10 +1,10 @@
-ARG TFVER='2.16.1'
-FROM tensorflow/tensorflow:${TFVER}-gpu
+#ARG TFVER='2.17.0'
+#FROM tensorflow/tensorflow:${TFVER}-gpu
 #FROM tensorflow/tensorflow:2.14.0-gpu
 #FROM tensorflow/tensorflow:2.15.0-gpu
 #FROM tensorflow/tensorflow:2.16.1-gpu
 #FROM tensorflow/tensorflow:2.17.0-gpu
-#FROM tensorflow/tensorflow:latest-gpu
+FROM tensorflow/tensorflow:latest-gpu
 #FROM tensorflow/tensorflow:nightly-gpu
 
 
@@ -125,12 +125,13 @@ ARG PYTHONMODULES="                                                      \
     # tensorflow_hub tensorflow_datasets jupyter-tensorboard             \
                                                                          \
     # Всё для ONNX (используется в onnx_utils.py):                       \
-    onnx tf2onnx onnxmltools onnxconverter-common                        \
+    onnx onnxmltools onnxconverter-common                                \
+    git+https://github.com/onnx/tensorflow-onnx                          \
                                                                          \
     onnxruntime-gpu --extra-index-url  https://aiinfra.pkgs.visualstudio.\
 com/PublicPackages/_packaging/onnxruntime-cuda-12/pypi/simple/           \
     # Доп. параметр необходим для работы onnxruntime на gpu при          \
-    # использовании CUDA 12 (https://onnxruntime.ai/docs/install/).      \
+    # использовании CUDA 12 (см. https://onnxruntime.ai/docs/install/).  \
                                                                          \
     # Линтеры, стайлчекеры, тестеры и прочие утилиты работы с кодом:     \
     cookiecutter-data-science pytest pycodestyle pycodestyle_magic       \
