@@ -891,7 +891,7 @@ def Deeplabv3Plus(backbone        : 'Базовая модель для извл
                   out_dropout_rate: 'Доля отбрасываемых признаков для выходного Dropout'              = 0.1            ,
                   spatial_dropout : 'Использовать на выходе канальный Dropout вместо обычного'        = False          ,
                   pre_out_filters : 'Число нейронов на gпредпоследней свёртке'                        = 128            ,
-                  en_lvl_4_dec    : 'Уровень карты признаков, использующейся в обход SPP (от 0 до 2)' = 2              ,
+                  en_lvl_4_dec    : 'Уровень карты признаков, использующейся в обход SPP (от 0 до 4)' = 2              ,
                   dec_filters     : 'Число нейронов в свёртке для низкоуровневой карты признаков'     = 48             ,
                   spp_filters     : 'Число нейронов в пирамидальных свёртках'                         = 256            ,
                   spp_dilations   : 'Размеры прореживаний в пирамидальных свёртках'                   = [6, 12, 18]    ,
@@ -913,41 +913,49 @@ def Deeplabv3Plus(backbone        : 'Базовая модель для извл
     features_list = encoder(img_input) if use_submodels \
         else encoder.call(img_input)
 
-    # Уточняем уровень обходной карты признаков:
-    if en_lvl_4_dec < 0:
-        en_lvl_4_dec = en_lvl_4_dec + len(features_list)
-
+    # Применяем пирамедельюые свёртки к карте самых верхнеуровневых признаков:
     spp = spatial_pyramid_pooling(features_list[-1],
                                   dilation_rates=spp_dilations,
                                   num_channels=spp_filters,
                                   activation='relu',
                                   dropout=spp_dropout)
 
-    # Повышаем разрешение до размера обходной карты признаков:
-    up_rate = 2 ** ((len(features_list) - 1) - en_lvl_4_dec)
-    if up_rate > 1:
-        spp = layers.UpSampling2D(up_rate, interpolation='bilinear')(spp)
+    # Уточняем уровень обходной карты признаков:
+    if en_lvl_4_dec < 0:
+        en_lvl_4_dec = en_lvl_4_dec + len(features_list)
 
-    # Берём карту признаков нижнего уровня:
-    dec_inp = features_list[en_lvl_4_dec]
+    # Если низкоуровневый признак не указан (или указан высокоуровневый), то
+    # не используем обходной путь вообще:
+    if en_lvl_4_dec in {None, len(features_list) - 1}:
+        up_rate = 2 ** (len(features_list) - 1)
+        out = layers.UpSampling2D(up_rate, interpolation='bilinear')(spp)
 
-    # Conv + BN + Activation в обход SPP:
-    dec = layers.Conv2D(dec_filters, 1, use_bias=False)(dec_inp)
-    dec = layers.BatchNormalization()(dec)
-    dec = layers.Activation('relu')(dec)
+    else:
+        # Повышаем разрешение до размера обходной карты признаков:
+        up_rate = 2 ** ((len(features_list) - 1) - en_lvl_4_dec)
+        if up_rate > 1:
+            spp = layers.UpSampling2D(up_rate, interpolation='bilinear')(spp)
 
-    # Объединяем SPP с картой более низкоуровневых признаков:
-    out = layers.Concatenate()([spp, dec])
+        # Берём карту признаков нижнего уровня:
+        dec_inp = features_list[en_lvl_4_dec]
 
-    # Предфинальное трио Conv + BN + Activation:
-    out = layers.Conv2D(pre_out_filters, 1, use_bias=False)(out)
-    out = layers.BatchNormalization()(out)
-    out = layers.Activation('relu')(out)
+        # Conv + BN + Activation в обход SPP:
+        dec = layers.Conv2D(dec_filters, 1, use_bias=False)(dec_inp)
+        dec = layers.BatchNormalization()(dec)
+        dec = layers.Activation('relu')(dec)
 
-    # Повышаем разрешение до размера входного изображения:
-    up_rate = 2 ** (en_lvl_4_dec)
-    if up_rate > 1:
-        out = layers.UpSampling2D(up_rate, interpolation='bilinear')(out)
+        # Объединяем SPP с картой более низкоуровневых признаков:
+        out = layers.Concatenate()([spp, dec])
+
+        # Предфинальное трио Conv + BN + Activation:
+        out = layers.Conv2D(pre_out_filters, 1, use_bias=False)(out)
+        out = layers.BatchNormalization()(out)
+        out = layers.Activation('relu')(out)
+
+        # Повышаем разрешение до размера входного изображения:
+        up_rate = 2 ** (en_lvl_4_dec)
+        if up_rate > 1:
+            out = layers.UpSampling2D(up_rate, interpolation='bilinear')(out)
 
     # Последние Dropout и свёртка:
     if out_dropout_rate:
