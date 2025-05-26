@@ -321,19 +321,34 @@ def get_keras_application_model_constructor_list(obj=keras.applications):
     return models
 
 
-def get_all_layers(model, except_types=(layers.InputLayer,)):
+def get_all_layers(model, except_types=(layers.InputLayer,), recurcive=True):
     '''
     Получает список всех слоёв в модели, включая подмодели.
     '''
-    except_types = tuple(except_types)
+    # Делаем except_types кортежем, если он вообще задан:
+    if except_types:
+        if not isinstance(except_types, (tuple, list, set)):
+            except_types = (except_types,)
+        else:
+            except_types = tuple(except_types)
 
     all_layers = []
     for layer in model.layers:
-        if isinstance(layer, models.Model):
+
+        # Если попалась подмодель и включён рекурсивный режим, то лезем внутрь:
+        if recurcive and isinstance(layer, models.Model):
             all_layers += get_all_layers(layer, except_types)
+
+        # Если найден слой - вносим в список:
         elif isinstance(layer, layers.Layer):
-            if not isinstance(layer, except_types):
+            if not (except_types and isinstance(layer, except_types)):
                 all_layers.append(layer)
+
+        else:
+            raise ValueError(
+                f'Объект {layer} не является ни слоем, ни подмоделью!'
+            )
+
     return all_layers
 
 
@@ -393,8 +408,9 @@ def backbone2encoder(backbone, return_outputs=False):
         # Собираем новую модель с телом базовой модели, имеющей выход на каждом
         # слое:
 
-        backbone_layers = get_all_layers(backbone)  # Список всех слоёв модели, кроме входных
-        model = keras.models.Model(backbone.inputs, [layer.output for layer in backbone_layers])
+        backbone_layers = get_all_layers(backbone, recurcive=False)  # Список всех слоёв модели, кроме входных
+        all_outputs=[layer.output for layer in backbone_layers]
+        model = keras.models.Model(inputs=backbone.inputs, outputs=all_outputs)
 
         # Прогоняем нулевой тензор через модель и снимаем тензоры со всех
         # слоёв:
@@ -455,6 +471,83 @@ def backbone2encoder(backbone, return_outputs=False):
     # Иначе борачиваем в модель и возвращаем её:
     else:
         return keras.models.Model(backbone.inputs, outputs, name='encoder')
+
+
+def replace_head(model, filters, activation=None, freaze_nohead_layers=True):
+    '''
+    Заменяет последний свёрточный слой на новый с иной активацией.
+    '''
+
+    # Полный список слоёв:
+    all_layers = get_all_layers(model, recurcive=False)
+
+    # Ищем первый с конца свёрточный слой:
+    for layer_ind in reversed(range(len(all_layers))):
+        layer = all_layers[layer_ind]
+
+        # Если слой не является свёрточным, идём дальше:
+        if not isinstance(layer, layers.Conv2D):
+            continue
+
+        # Извлекаем параметры слоя:
+        layer_config = layer.get_config()
+
+        # Если в слое уже нужное число нейронов, то заменять не будем:
+        if layer_config['filters'] == filters:
+
+            # Ставим слою новую активацию:
+            layer.activation = layers.Activation(activation)
+
+            # Если надо заморозить все слои, кроме текущего:
+            if freaze_nohead_layers:
+                for layer2freeze in all_layers:
+                    if layer2freeze == layer:
+                        break
+                    layer2freeze.trainable = False
+                else:
+                    raise Exception('Ошибка заморозки слоёв!')
+
+            # Если этот слой и есть финальный, то пересобирать модель не надо:
+            if layer_ind == len(all_layers) - 1:
+
+                # На всякий случай перекомпилим модель и возвращаем:
+                return recompile_model(model)
+
+            # Если слой не был последним, возвращаем пересобранную модель:
+            else:
+                return models.Model(model.inputs,
+                                    layer.output,
+                                    name=model.name)
+
+        # Если число фильтров не равно желаемому, то придётся действительно
+        # заменить слой:
+        else:
+
+            # Сначала соберём модель без последнего слоя:
+            nohead_model = models.Model(model.inputs,
+                                        all_layers[layer_ind - 1].output)
+
+            # Замораживаем её слои, если надо:
+            if freaze_nohead_layers:
+                nohead_model.trainable = False
+
+            # Берём конфигурацию исходного слоя и заменяем в нём число
+            # параметров и активацию:
+            layer_config['activation'] = activation
+            layer_config['filters'] = filters
+
+            # Собираем новую модель с нужной свёрткой:
+            inp = nohead_model.inputs
+            out = nohead_model.call(inp)
+            out = layers.Conv2D(**layer_config)(out)
+            new_model = models.Model(inp, out, name=model.name)
+
+            return new_model
+
+        raise Exception('Здесь код выполняться не должен!')
+
+    else:
+        raise Exception('В модели не найден ни один свёрточный слой!')
 
 
 # Слой, который просто задаёт имя тензору:
@@ -519,31 +612,44 @@ def res_block(inp, net, name='ResBlock'):
 
 
 def spatial_pyramid_pooling(x,
-                            dilation_rates=[6, 12, 18],
+                            dilation_rates=[0, 6, 12, 18],
                             num_channels=256,
                             activation='relu',
                             dropout=0.0):
     '''
     Строит пиромидальный пулинг, использующийся, например в DeepLabV3+
     '''
-    # Свёртка с размером 1х1:
-    x0 = layers.Conv2D(num_channels, 1, use_bias=False)(x)
+    if dilation_rates:
 
-    # Свёртки 3x3 с расширяющимся прореживанием ядра:
-    kwargs = {
-        'filters': num_channels,
-        'kernel_size': 3,
-        'padding': 'same',
-        'use_bias': False,
-    }
-    xf = [layers.Conv2D(**kwargs, dilation_rate=dilation_rate)(x)
-          for dilation_rate in dilation_rates]
+        # Параметры свёрток:
+        kwargs = {
+            'filters': num_channels,
+            'kernel_size': 3,
+            'padding': 'same',
+            'use_bias': False,
+        }
 
-    # Объединение выходов предыдущих слоёв в один тензор:
-    xf.append(x0)
-    xf = layers.Concatenate()(xf)
+        xfs = []
+        for dilation_rate in dilation_rates:
 
-    # Добавляем к предыдущим свёрткам BN и активацию:
+            # Свёртка с размером 1х1, если нужна:
+            if dilation_rate == 0:
+                xf = layers.Conv2D(num_channels, 1, use_bias=False)(x)
+
+            # Свёртки 3x3 с различным прореживанием ядра:
+            else:
+                xf = layers.Conv2D(**kwargs, dilation_rate=dilation_rate)(x)
+
+            xfs.append(xf)
+
+        # Объединение выходов предыдущих слоёв в один тензор:
+        xf = layers.Concatenate()(xfs)
+
+    # Если список прореживаний не задан вообще, то берём признаки из входа:
+    else:
+        xf = x
+
+    # Добавляем к полученным признакам BN и активацию:
     xf = layers.BatchNormalization()(xf)
     xf = layers.Activation(activation)(xf)
 
@@ -816,7 +922,9 @@ def UNet(backbone        : 'Базовая модель для извлечен�
     # Используется для универсализации способа задавать вход.
 
     # Применяем базовую модель для извлечения признаков:
-    encoder = backbone_with_preprop(backbone, as_encoder=True)
+    encoder = backbone_with_preprop(backbone,
+                                    as_encoder=True,
+                                    as_submodel=False)
     features_list = encoder(img_input) if use_submodels \
         else encoder.call(img_input)
 
@@ -875,28 +983,29 @@ def UNet(backbone        : 'Базовая модель для извлечен�
 
         # Пороговая обработка для прода, если канал всего один:
         else:
-            outputs = K.cast(outputs > 0, tf.int64)
+            outputs = K.cast(outputs > 0, 'int64')
 
     # Сборка слоёв в итоговую модель:
     return keras.models.Model(inputs, outputs, name=name)
 
 
-def Deeplabv3Plus(backbone        : 'Базовая модель для извлечения признаков'                                          ,
-                  input_tensor    : 'Входной тензор'                                                  = None           ,
-                  input_shape     : 'Размер входа (если input_tensor не задан)'                       = (256, 256, 3)  ,
-                  use_submodels   : 'Инкапсулировать базовую модель и голову как подмодели'           = False          ,
-                  input_batch_size: 'Размер батча (если input_tensor не задан)'                       = None           ,
-                  activation      : 'Тип ф-ии активации на выходе'                                    = 'auto'         ,
-                  out_filters     : 'Число нейронов на выходе (число классов)'                        = 1              ,
-                  out_dropout_rate: 'Доля отбрасываемых признаков для выходного Dropout'              = 0.1            ,
-                  spatial_dropout : 'Использовать на выходе канальный Dropout вместо обычного'        = False          ,
-                  pre_out_filters : 'Число нейронов на gпредпоследней свёртке'                        = 128            ,
-                  en_lvl_4_dec    : 'Уровень карты признаков, использующейся в обход SPP (от 0 до 4)' = 2              ,
-                  dec_filters     : 'Число нейронов в свёртке для низкоуровневой карты признаков'     = 48             ,
-                  spp_filters     : 'Число нейронов в пирамидальных свёртках'                         = 256            ,
-                  spp_dilations   : 'Размеры прореживаний в пирамидальных свёртках'                   = [6, 12, 18]    ,
-                  spp_dropout     : 'Дропаут в пирамидальных свёртках'                                = 0.             ,
-                  name            : 'Имя модели'                                                      = 'deeplabv3plus'):
+def Deeplabv3Plus(backbone         : 'Базовая модель для извлечения признаков'                                          ,
+                  bb_preprop_kwargs: 'Параметры ф-ии backbone_with_preprop'                            = {}             ,
+                  input_tensor     : 'Входной тензор'                                                  = None           ,
+                  input_shape      : 'Размер входа (если input_tensor не задан)'                       = (256, 256, 3)  ,
+                  use_submodels    : 'Инкапсулировать базовую модель и голову как подмодели'           = False          ,
+                  input_batch_size : 'Размер батча (если input_tensor не задан)'                       = None           ,
+                  activation       : 'Тип ф-ии активации на выходе'                                    = 'auto'         ,
+                  out_filters      : 'Число нейронов на выходе (число классов)'                        = 1              ,
+                  out_dropout_rate : 'Доля отбрасываемых признаков для выходного Dropout'              = 0.1            ,
+                  spatial_dropout  : 'Использовать на выходе канальный Dropout вместо обычного'        = False          ,
+                  pre_out_filters  : 'Число нейронов на gпредпоследней свёртке'                        = 128            ,
+                  en_lvl_4_dec     : 'Уровень карты признаков, использующейся в обход SPP (от 0 до 4)' = 2              ,
+                  dec_filters      : 'Число нейронов в свёртке для низкоуровневой карты признаков'     = 48             ,
+                  spp_filters      : 'Число нейронов в пирамидальных свёртках'                         = 256            ,
+                  spp_dilations    : 'Размеры прореживаний в пирамидальных свёртках'                   = [0, 6, 12, 18] ,
+                  spp_dropout      : 'Дропаут в пирамидальных свёртках'                                = 0.             ,
+                  name             : 'Имя модели'                                                      = 'deeplabv3plus'):
     '''
     Собирает модель сегментации Deeplabv3+.
     '''
@@ -906,12 +1015,25 @@ def Deeplabv3Plus(backbone        : 'Базовая модель для извл
                                    input_batch_size=input_batch_size)
     # Используется для универсализации способа задавать вход.
 
-    # Применяем базовую модель для извлечения признаков:
-    encoder = backbone_with_preprop(backbone,
-                                    as_encoder=True,
-                                    as_submodel=False)
+    # Применяем базовую модель для извлечения признаков, есл инадо:
+    if isinstance(backbone, models.Model) and len(backbone.outputs) < 5:
+        raise ValueError('Из переданной модели нельзя извлечь низкоуровневые' +
+                         ' признаки! Пожалуйста, передайте имя, конструктор ' +
+                         'или сразу модель с несколькими выходами.')
+
+    # Собираем базовую модель, извлекающую промежуточные признаки, если это
+    # ещё не сделано:
+    if isinstance(backbone, str):
+        bb_preprop_kwargs['as_encoder'] = True
+        encoder = backbone_with_preprop(backbone, **bb_preprop_kwargs)
+    else:
+        assert isinstance(backbone, models.Model)
+
+        encoder = backbone
+
     features_list = encoder(img_input) if use_submodels \
         else encoder.call(img_input)
+    assert isinstance(features_list, list)
 
     # Применяем пирамедельюые свёртки к карте самых верхнеуровневых признаков:
     spp = spatial_pyramid_pooling(features_list[-1],
@@ -1864,6 +1986,8 @@ def recompile_model(model, make_train_function=False):
         # Повторное создание ф-ии обучения, если надо:
         if make_train_function:
             model.make_train_function()
+
+    return model
 
 
 class Distiller(keras.Model):
