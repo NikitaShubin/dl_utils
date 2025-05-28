@@ -4,6 +4,7 @@
 #FROM tensorflow/tensorflow:2.15.0-gpu
 #FROM tensorflow/tensorflow:2.16.1-gpu
 #FROM tensorflow/tensorflow:2.17.0-gpu
+
 FROM tensorflow/tensorflow:latest-gpu
 #FROM tensorflow/tensorflow:nightly-gpu
 

@@ -99,7 +99,7 @@ import numpy as np
 from typing import Union
 # from inspect import isclass
 from functools import reduce
-from zipfile import ZipFile
+import zipfile
 from shutil import rmtree, copyfile
 from tqdm import tqdm
 from time import time
@@ -882,6 +882,12 @@ def mkdirs(path):
     Создаёт все нужные дирректории заданного пути.
     Возвращает False, если путь уже существовал.
     '''
+
+    # Если передана пустая строка, здачит имелся ввиду текущий католог,
+    # который уже создан:
+    if not path:
+        return False
+
     if not os.path.exists(path) or not os.path.isdir(path):
         try:
             os.makedirs(path)
@@ -953,7 +959,7 @@ def unzip_file(zip_file, unzipped_files_subdir):
     Распаковывает заданный zip-файл в заданную дирректорию.
     '''
     # Распаковываем:
-    with ZipFile(zip_file, 'r') as z:
+    with zipfile.ZipFile(zip_file, 'r') as z:
         z.extractall(unzipped_files_subdir)
 
     return unzipped_files_subdir
@@ -998,6 +1004,168 @@ def unzip_dir(zipped_files_dir    : 'Путь к папке с *.zip-файла�
                                 num_procs=not use_multiprocessing, desc=desc)
 
     return unzipped_files_dirs
+
+
+class Zipper:
+    def __init__(
+        self,
+        unzipped: str = '',
+        zipped: str = '',
+        remove_source: bool = False,
+        rewrite_target: bool = False,
+        desc: str = ''
+    ):
+        '''
+        Инициализация экземпляра Zipper.
+
+        :param unzipped: Путь к файлу/папке для сжатия или распакованному
+                         содержимому
+        :param zipped: Путь к архиву для распаковки или создания
+        :param remove_source: Удалить исходный файл после операции
+        :param rewrite_target: Перезаписать существующий файл
+        :param desc: Описание операции
+        '''
+        self.unzipped = unzipped
+        self.zipped = zipped
+        self.remove_source = remove_source
+        self.rewrite_target = rewrite_target
+        self.desc = desc
+
+        self.compress = self.__compress
+        self.extract = self.__extract
+
+    @staticmethod
+    def _compress(
+        source: str,
+        target: str,
+        remove_source: bool,
+        rewrite_target: bool,
+        desc: str = ''
+    ) -> bool:
+        '''Внутренняя реализация сжатия.'''
+        try:
+            if not os.path.exists(source):
+                print(f'"{source}" не найден!')
+                return False
+
+            if os.path.exists(target) and not rewrite_target:
+                print(f'"{target}" уже существует!')
+                return False
+
+            with zipfile.ZipFile(target, 'w', zipfile.ZIP_DEFLATED) as zipf, \
+                    AnnotateIt(desc):
+                if os.path.isdir(source):
+                    for root, _, files in os.walk(source):
+                        for file in files:
+                            file_path = os.path.join(root, file)
+                            arcname = os.path.relpath(
+                                file_path,
+                                start=os.path.dirname(source)
+                            )
+                            zipf.write(file_path, arcname)
+                else:
+                    zipf.write(source, os.path.basename(source))
+
+            if remove_source:
+                if os.path.isdir(source):
+                    import shutil
+                    shutil.rmtree(source)
+                else:
+                    os.remove(source)
+
+            return True
+        except Exception:
+            return False
+
+    @staticmethod
+    def _extract(
+        source: str,
+        target: str,
+        remove_source: bool,
+        rewrite_target: bool,
+        desc: str = ''
+    ) -> bool:
+        '''Внутренняя реализация распаковки.'''
+        try:
+            if not os.path.exists(source):
+                print(f'"{source}" не найден!')
+                return False
+
+            if os.path.exists(target) and not rewrite_target:
+                print(f'"{target}" уже существует!')
+                return False
+
+            os.makedirs(target, exist_ok=True)
+
+            with zipfile.ZipFile(source, 'r') as zipf, AnnotateIt(desc):
+                zipf.extractall(target)
+
+            if remove_source:
+                os.remove(source)
+
+            return True
+        except Exception:
+            return False
+
+    @staticmethod
+    def compress(
+        unzipped: str = "",
+        zipped: str = "",
+        remove_source: bool = False,
+        rewrite_target: bool = False,
+        desc: str = ''
+    ) -> bool:
+        '''Статический метод сжатия.'''
+        target = zipped if zipped else f"{unzipped}.zip"
+        return Zipper._compress(
+            source=unzipped,
+            target=target,
+            remove_source=remove_source,
+            rewrite_target=rewrite_target,
+            desc=desc
+        )
+
+    @staticmethod
+    def extract(
+        zipped: str,
+        unzipped: str = "",
+        remove_source: bool = False,
+        rewrite_target: bool = False,
+        desc: str = ''
+    ) -> bool:
+        '''Статический метод распаковки.'''
+        target = unzipped if unzipped else os.path.splitext(zipped)[0]
+        return Zipper._extract(
+            source=zipped,
+            target=target,
+            remove_source=remove_source,
+            rewrite_target=rewrite_target,
+            desc=desc
+        )
+
+    def __compress(self) -> bool:
+        '''Сжатие unzipped в zipped. Возвращает True при успехе.'''
+        target = self.zipped if self.zipped else f"{self.unzipped}.zip"
+        return Zipper._compress(
+            source=self.unzipped,
+            target=target,
+            remove_source=self.remove_source,
+            rewrite_target=self.rewrite_target,
+            desc=self.desc
+        )
+
+    def __extract(self) -> bool:
+        '''Распаковка zipped в unzipped. Возвращает True при успехе.'''
+        target = self.unzipped if self.unzipped else os.path.splitext(
+            self.zipped
+        )[0]
+        return Zipper._extract(
+            source=self.zipped,
+            target=target,
+            remove_source=self.remove_source,
+            rewrite_target=self.rewrite_target,
+            desc=self.desc
+        )
 
 
 def obj2yaml(obj, file='./cfg.yaml', encoding='utf-8', allow_unicode=True):
