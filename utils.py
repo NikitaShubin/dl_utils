@@ -100,12 +100,14 @@ from typing import Union
 # from inspect import isclass
 from functools import reduce
 import zipfile
-from shutil import rmtree, copyfile
+import glob
+from shutil import rmtree, copyfile, move
 from tqdm import tqdm
 from time import time
 from multiprocessing import pool, Pool
 from IPython.display import clear_output, HTML  # , Javascript, display
 from matplotlib import pyplot as plt
+from typing import Union, Iterable, List
 
 
 ########################
@@ -996,7 +998,7 @@ def unzip_dir(zipped_files_dir    : 'Путь к папке с *.zip-файла�
         unzipped_files_subdir = os.path.join(unzipped_files_dir, name)
 
         # Добавляем пути в списки:
-        zip_files             .append(     zip_file        )
+        zip_files.append(zip_file)
         unzipped_files_subdirs.append(unzipped_files_subdir)
 
     # Распаковываем во временную папку:
@@ -1007,119 +1009,298 @@ def unzip_dir(zipped_files_dir    : 'Путь к папке с *.zip-файла�
 
 
 class Zipper:
+    '''
+    Позволяет сжимать один или несколько файлов или распаковать zip-архивы.
+    При успешном выполнении возвращает путь к созданному архиву (при сжатии)
+    или путь к распакованным файлам (при извлечении).
+
+    Первый опыт вайб-кодинга. Использован DeepSeek R1.
+    '''
+
     def __init__(
         self,
-        unzipped: str = '',
+        unzipped: Union[str, Iterable[str]] = '',
         zipped: str = '',
         remove_source: bool = False,
         rewrite_target: bool = False,
         desc: str = ''
     ):
-        '''
-        Инициализация экземпляра Zipper.
+        # Проверка наличия хотя бы одного параметра:
+        if not unzipped and not zipped:
+            raise ValueError('Должен быть задан хотя бы один из параметров!')
 
-        :param unzipped: Путь к файлу/папке для сжатия или распакованному
-                         содержимому
-        :param zipped: Путь к архиву для распаковки или создания
-        :param remove_source: Удалить исходный файл после операции
-        :param rewrite_target: Перезаписать существующий файл
-        :param desc: Описание операции
-        '''
         self.unzipped = unzipped
         self.zipped = zipped
         self.remove_source = remove_source
         self.rewrite_target = rewrite_target
         self.desc = desc
 
+        # Связываем методы экземпляра с внутренними реализациями:
         self.compress = self.__compress
         self.extract = self.__extract
 
     @staticmethod
-    def _compress(
-        source: str,
-        target: str,
-        remove_source: bool,
-        rewrite_target: bool,
-        desc: str = ''
-    ) -> bool:
-        '''Внутренняя реализация сжатия.'''
+    def _source_to_list(source: Union[str, Iterable[str]]) -> List[str]:
+        '''Преобразует различные форматы источников в список файлов'''
+        # Обработка строки с возможными шаблонами (wildcards):
+        if isinstance(source, str):
+            if any(char in source for char in '*?['):
+                paths = glob.glob(source, recursive=True)
+                if not paths:
+                    raise FileNotFoundError(f'Маска "{source}" не найдена!')
+                return paths
+            return [source]  # Одиночный файл/папка
+
+        # Обработка итератора (списка, кортежа и т.д.):
+        paths = list(source)
+        if not paths:
+            raise ValueError('Список файлов пуст!')
+        return paths
+
+    @staticmethod
+    def _get_base_path(paths: List[str]) -> str:
+        '''Определяет базовый путь для группы файлов'''
+
+        abs_paths = [os.path.abspath(p) for p in paths]
+
+        # Пытаемся найти общий путь для всех файлов:
         try:
-            if not os.path.exists(source):
-                print(f'"{source}" не найден!')
-                return False
+            base = os.path.commonpath(abs_paths)
 
+        # Если пути на разных дисках - берем первый путь:
+        except ValueError:
+            base = abs_paths[0]
+
+        return base if os.path.isdir(base) else os.path.dirname(base)
+
+    @staticmethod
+    def _get_default_archive_path(source_list: List[str]) -> str:
+        '''
+        Определяет путь по умолчанию для архива:
+        - Для одного файла: /path/to/file.txt → /path/to/file.txt.zip
+        - Для нескольких файлов/папок: /path/to/common → /path/to/common.zip
+        '''
+        if len(source_list) == 1 and os.path.isfile(source_list[0]):
+            return os.path.abspath(source_list[0]) + '.zip'
+        base = Zipper._get_base_path(source_list)
+        return base + '.zip'
+
+    @staticmethod
+    def _compress(
+        source: Union[str, Iterable[str]],
+        target: str = '',
+        remove_source: bool = False,
+        rewrite_target: bool = False,
+        desc: str = ''
+    ) -> Union[str, bool]:
+        '''
+        Основной метод для сжатия файлов/папок в ZIP-архив
+
+        Этапы работы:
+        1. Преобразование входных данных в список файлов
+        2. Проверка существования всех исходных файлов
+        3. Определение пути для архива (если не задан)
+        4. Проверка конфликтов существующего архива
+        5. Создание архива с сохранением структуры папок
+        6. Удаление исходных файлов (если требуется)
+        7. Возврат пути к созданному архиву
+
+        Логика упаковки директорий:
+        - Если передан путь к одной директории: сохраняет директорию целиком
+          с ее именем в корне архива
+        - Если передана маска или список файлов: сохраняет файлы без
+          родительской директории
+
+        Возвращает:
+        - Путь к созданному архиву при успехе
+        - False при ошибке
+        '''
+        try:
+            # Шаг 1 - Преобразование источника в список файлов:
+            source_list = Zipper._source_to_list(source)
+
+            # Шаг 2 - Проверка существования всех файлов в списке:
+            for path in source_list:
+                if not os.path.exists(path):
+                    raise FileNotFoundError(f'"{path}" не найден!')
+
+            # Шаг 3 - Определение пути для архива, если не задан:
+            if not target:
+                target = Zipper._get_default_archive_path(source_list)
+
+            # Шаг 4 - Проверка существования архива и политики перезаписи:
             if os.path.exists(target) and not rewrite_target:
-                print(f'"{target}" уже существует!')
-                return False
+                raise FileExistsError(f'"{target}" уже существует!')
 
-            with zipfile.ZipFile(target, 'w', zipfile.ZIP_DEFLATED) as zipf, \
-                    AnnotateIt(desc):
-                if os.path.isdir(source):
-                    for root, _, files in os.walk(source):
+            # Шаг 5 - Создание ZIP-архива с разной логикой для директорий:
+            with zipfile.ZipFile(target, 'w', zipfile.ZIP_DEFLATED) as zipf:
+                # Особый случай: одна директория - сохраняем ее целиком
+                if len(source_list) == 1 and os.path.isdir(source_list[0]):
+                    dir_path = os.path.abspath(source_list[0])
+                    dir_name = os.path.basename(dir_path)
+
+                    # Рекурсивный обход директории
+                    for root, _, files in os.walk(dir_path):
                         for file in files:
-                            file_path = os.path.join(root, file)
-                            arcname = os.path.relpath(
-                                file_path,
-                                start=os.path.dirname(source)
+                            full_path = os.path.join(root, file)
+
+                            # Формируем путь в архиве:
+                            arcname = os.path.join(
+                                dir_name,
+                                os.path.relpath(full_path, start=dir_path)
                             )
-                            zipf.write(file_path, arcname)
+                            zipf.write(full_path, arcname)
                 else:
-                    zipf.write(source, os.path.basename(source))
+                    # Для файлов/масок/списков - сохраняем без родительской
+                    # директории:
+                    base_path = Zipper._get_base_path(source_list)
 
+                    for path in source_list:
+                        abs_path = os.path.abspath(path)
+
+                        # Обработка директорий (рекурсивный обход):
+                        if os.path.isdir(abs_path):
+                            for root, _, files in os.walk(abs_path):
+                                for file in files:
+                                    full_path = os.path.join(root, file)
+
+                                    # Вычисление относительного пути для
+                                    # архива:
+                                    arcname = os.path.relpath(
+                                        full_path,
+                                        start=base_path
+                                    )
+                                    zipf.write(full_path, arcname)
+
+                        # Обработка одиночных файлов:
+                        else:
+                            arcname = os.path.relpath(abs_path,
+                                                      start=base_path)
+                            zipf.write(abs_path, arcname)
+
+            # Шаг 6 - Удаление исходных файлов при включенной опции:
             if remove_source:
-                if os.path.isdir(source):
-                    import shutil
-                    shutil.rmtree(source)
-                else:
-                    os.remove(source)
 
-            return True
-        except Exception:
+                # Удаляем в обратном порядке (вложенные элементы сначала):
+                for path in reversed(source_list):
+                    abs_path = os.path.abspath(path)
+                    if os.path.isdir(abs_path):
+                        rmtree(abs_path)  # Рекурсивное удаление папки
+                    else:
+                        os.remove(abs_path)  # Удаление файла
+
+            # Шаг 7 - Возвращаем путь к созданному архиву:
+            return target
+
+        except Exception as e:
+            print(f'Ошибка сжатия: {e}')
             return False
 
     @staticmethod
     def _extract(
         source: str,
-        target: str,
-        remove_source: bool,
-        rewrite_target: bool,
-        desc: str = ''
-    ) -> bool:
-        '''Внутренняя реализация распаковки.'''
-        try:
-            if not os.path.exists(source):
-                print(f'"{source}" не найден!')
-                return False
-
-            if os.path.exists(target) and not rewrite_target:
-                print(f'"{target}" уже существует!')
-                return False
-
-            os.makedirs(target, exist_ok=True)
-
-            with zipfile.ZipFile(source, 'r') as zipf, AnnotateIt(desc):
-                zipf.extractall(target)
-
-            if remove_source:
-                os.remove(source)
-
-            return True
-        except Exception:
-            return False
-
-    @staticmethod
-    def compress(
-        unzipped: str = "",
-        zipped: str = "",
+        target: str = '',
         remove_source: bool = False,
         rewrite_target: bool = False,
         desc: str = ''
-    ) -> bool:
-        '''Статический метод сжатия.'''
-        target = zipped if zipped else f"{unzipped}.zip"
+    ) -> Union[str, bool]:
+        '''
+        Основной метод для распаковки ZIP-архива
+
+        Этапы работы:
+        1. Проверка существования архива
+        2. Анализ содержимого архива (один файл или несколько)
+        3. Определение целевого пути (если не задан):
+            - Для архива с одним файлом в корне: директория архива
+            - Для остальных случаев: директория архива (без создания подпапки)
+        4. Создание целевой директории (если не существует)
+        5. Распаковка с учетом типа архива (один файл/несколько)
+        6. Удаление исходного архива (если требуется)
+        7. Возврат пути к распакованному файлу/папке
+
+        Особый случай:
+        - Для архивов с одним файлом возвращается путь к файлу
+        - Для архивов с несколькими файлами возвращается путь к папке
+
+        Возвращает:
+        - Путь к распакованным данным при успехе
+        - False при ошибке
+        '''
+        try:
+            # Шаг 1 - Проверка существования архива:
+            if not os.path.exists(source):
+                raise FileNotFoundError(f'Архив "{source}" не найден!')
+
+            # Шаг 2 - Анализ содержимого архива:
+            single_file_in_root = False
+            result_path = target  # Инициализация результирующего пути
+
+            with zipfile.ZipFile(source, 'r') as zipf:
+                namelist = zipf.namelist()  # Получаем список элементов
+
+                # Проверка на архив с одним файлом в корне:
+                if len(namelist) == 1 and not namelist[0].endswith('/'):
+                    single_file_in_root = True
+
+                    # Проверка отсутствия вложенных директорий:
+                    if '/' in namelist[0] or '\\' in namelist[0]:
+                        single_file_in_root = False
+
+            # Шаг 3 - Определение целевого пути:
+            if not target:
+                # Всегда используем директорию архива как цель по умолчанию
+                target = os.path.dirname(os.path.abspath(source))
+
+            # Шаг 4 - Создание целевой директории:
+            os.makedirs(target, exist_ok=True)
+
+            # Шаг 5 - Распаковка с учетом типа архива:
+            with zipfile.ZipFile(source, 'r') as zipf:
+                if single_file_in_root:
+                    filename = namelist[0]  # Имя единственного файла
+
+                    # Распаковка во временную папку:
+                    zipf.extract(filename, target)
+
+                    # Формирование путей:
+                    extracted_path = os.path.join(target, filename)
+                    final_path = os.path.join(target, os.path.basename(filename))
+
+                    # Перемещение файла в целевую директорию при необходимости:
+                    if extracted_path != final_path:
+                        move(extracted_path, final_path)
+                        result_path = final_path
+                    else:
+                        result_path = extracted_path
+
+                # Стандартная распаковка всего архива:
+                else:
+                    zipf.extractall(target)
+                    result_path = target  # Возвращаем путь к папке
+
+            # Шаг 6 - Удаление исходного архива при включенной опции:
+            if remove_source:
+                os.remove(source)
+
+            # Шаг 7 - Возвращаем путь к результату:
+            return result_path
+
+        except Exception as e:
+            print(f'Ошибка распаковки: {e}')
+            return False
+
+    # Статические методы-обертки для прямого вызова:
+    @staticmethod
+    def compress(
+        unzipped: Union[str, Iterable[str]],
+        zipped: str = '',
+        remove_source: bool = False,
+        rewrite_target: bool = False,
+        desc: str = ''
+    ) -> Union[str, bool]:
         return Zipper._compress(
             source=unzipped,
-            target=target,
+            target=zipped,
             remove_source=remove_source,
             rewrite_target=rewrite_target,
             desc=desc
@@ -1128,40 +1309,33 @@ class Zipper:
     @staticmethod
     def extract(
         zipped: str,
-        unzipped: str = "",
+        unzipped: str = '',
         remove_source: bool = False,
         rewrite_target: bool = False,
         desc: str = ''
-    ) -> bool:
-        '''Статический метод распаковки.'''
-        target = unzipped if unzipped else os.path.splitext(zipped)[0]
+    ) -> Union[str, bool]:
         return Zipper._extract(
             source=zipped,
-            target=target,
+            target=unzipped,
             remove_source=remove_source,
             rewrite_target=rewrite_target,
             desc=desc
         )
 
-    def __compress(self) -> bool:
-        '''Сжатие unzipped в zipped. Возвращает True при успехе.'''
-        target = self.zipped if self.zipped else f"{self.unzipped}.zip"
+    # Методы экземпляра класса:
+    def __compress(self) -> Union[str, bool]:
         return Zipper._compress(
             source=self.unzipped,
-            target=target,
+            target=self.zipped,
             remove_source=self.remove_source,
             rewrite_target=self.rewrite_target,
             desc=self.desc
         )
 
-    def __extract(self) -> bool:
-        '''Распаковка zipped в unzipped. Возвращает True при успехе.'''
-        target = self.unzipped if self.unzipped else os.path.splitext(
-            self.zipped
-        )[0]
+    def __extract(self) -> Union[str, bool]:
         return Zipper._extract(
             source=self.zipped,
-            target=target,
+            target=self.unzipped,
             remove_source=self.remove_source,
             rewrite_target=self.rewrite_target,
             desc=self.desc
@@ -1174,7 +1348,10 @@ def obj2yaml(obj, file='./cfg.yaml', encoding='utf-8', allow_unicode=True):
     Параметры по-умолчанию позволяют сохранять кириллицу.
     '''
     with open(file, 'w', encoding=encoding) as stream:
-        yaml.safe_dump(obj, stream, allow_unicode=allow_unicode, sort_keys=False)
+        yaml.safe_dump(obj,
+                       stream,
+                       allow_unicode=allow_unicode,
+                       sort_keys=False)
 
     return file
 
@@ -1196,8 +1373,8 @@ def get_file_list(path, extentions=[]):
     '''
     # Обработка параметра extentions:
 
-    # Если вместо списка/множества/кортежа расширений ...
-    # ... указана строка, то делаем из неё множество:
+    # Если вместо списка/множества/кортежа расширений
+    # указана строка, то делаем из неё множество:
     if isinstance(extentions, str):
         extentions = {extentions}
 
@@ -1231,13 +1408,13 @@ def get_file_list(path, extentions=[]):
         # Уточняем путь до текущего файла:
         file = os.path.join(path, file)
 
-        # Если текущий файл - каталог, то добавляем всё его ...
-        # ... содержимое в список через рекурсивный вызов:
+        # Если текущий файл - каталог, то добавляем всё его
+        # содержимое в список через рекурсивный вызов:
         if os.path.isdir(file):
             file_list += get_file_list(file, extentions)
 
-        # Если тип текущего файла соответствует искомому, либо ...
-        # ... типы искомых файлов не заданы, то вносим файл в список:
+        # Если тип текущего файла соответствует искомому, либо
+        # типы искомых файлов не заданы, то вносим файл в список:
         elif not len(extentions) or \
                 os.path.splitext(file)[1].lower() in extentions:
             file_list.append(file)
