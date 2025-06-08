@@ -1,4 +1,4 @@
-# Модуль [`tresh.py`](https://github.com/NikitaShubin/dl_utils/blob/main/tresh.py "Перейти к модулю")
+# Модуль [`_optflow.py`](https://github.com/NikitaShubin/dl_utils/blob/main/tresh.py "Перейти к модулю")
 
 Реализует визуализацию оптического потока из видеопотока с возможностью интерактивного управления. 
 Основные функции включают:

@@ -1248,7 +1248,7 @@ class Zipper:
 
             # Шаг 3 - Определение целевого пути:
             if not target:
-                # Всегда используем директорию архива как цель по умолчанию
+                # Всегда используем директорию архива как цель по умолчанию:
                 target = os.path.dirname(os.path.abspath(source))
 
             # Шаг 4 - Создание целевой директории:
@@ -1264,9 +1264,12 @@ class Zipper:
 
                     # Формирование путей:
                     extracted_path = os.path.join(target, filename)
-                    final_path = os.path.join(target, os.path.basename(filename))
+                    final_path = os.path.join(
+                        target, os.path.basename(filename)
+                    )
 
-                    # Перемещение файла в целевую директорию при необходимости:
+                    # Перемещение файла в целевую директорию при
+                    # необходимости:
                     if extracted_path != final_path:
                         move(extracted_path, final_path)
                         result_path = final_path

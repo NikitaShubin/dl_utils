@@ -1,0 +1,47 @@
+Привет!
+
+У меня есть репозиторий https://github.com/NikitaShubin/dl_utils
+
+Полностью перепиши его README.mp на русском языке с учётом содержания репозитория. Так же прошу включить в него mermaid-диаграмму, где было бы визуализировано дерево зависимостей модулей репозитория друг от друга слева на право. Ветвление должно начинаться с utils.py, т.к. это единственный модуль, не использующий ни один другой в репозитории.
+
+Для просмотра содержимого основных файлов репозитория пройди по следующим ссылкам:
+
+https://github.com/NikitaShubin/dl_utils/blob/main/LICENSE
+https://github.com/NikitaShubin/dl_utils/blob/main/.gitignore
+https://github.com/NikitaShubin/dl_utils/blob/main/README.md
+
+https://github.com/NikitaShubin/dl_utils/blob/main/utils.py
+https://github.com/NikitaShubin/dl_utils/blob/main/video_utils.py
+https://github.com/NikitaShubin/dl_utils/blob/main/alb_utils.py
+https://github.com/NikitaShubin/dl_utils/blob/main/classes.py
+https://github.com/NikitaShubin/dl_utils/blob/main/copybal.py
+https://github.com/NikitaShubin/dl_utils/blob/main/cv_utils.py
+https://github.com/NikitaShubin/dl_utils/blob/main/cvat.py
+https://github.com/NikitaShubin/dl_utils/blob/main/cvat_srv.py
+https://github.com/NikitaShubin/dl_utils/blob/main/dinoal.py
+https://github.com/NikitaShubin/dl_utils/blob/main/ipy_utils.py
+https://github.com/NikitaShubin/dl_utils/blob/main/keras_utils.py
+https://github.com/NikitaShubin/dl_utils/blob/main/ml_utils.py
+https://github.com/NikitaShubin/dl_utils/blob/main/onnx_utils.py
+https://github.com/NikitaShubin/dl_utils/blob/main/pt_utils.py
+https://github.com/NikitaShubin/dl_utils/blob/main/sam2al.py
+https://github.com/NikitaShubin/dl_utils/blob/main/samal.py
+https://github.com/NikitaShubin/dl_utils/blob/main/seg.py
+https://github.com/NikitaShubin/dl_utils/blob/main/tf_utils.py
+https://github.com/NikitaShubin/dl_utils/blob/main/tfmot_utils.py
+https://github.com/NikitaShubin/dl_utils/blob/main/yolo.py
+
+Отдельно рассмотри и опиши назначение bash-скриптов:
+https://github.com/NikitaShubin/dl_utils/blob/main/rerun.sh
+https://github.com/NikitaShubin/dl_utils/blob/main/run.sh
+https://github.com/NikitaShubin/dl_utils/blob/main/show.sh
+https://github.com/NikitaShubin/dl_utils/blob/main/split-video.sh
+
+В репозиторий включён докер со всеми необходимыми зависимостями:
+https://github.com/NikitaShubin/dl_utils/blob/main/docker/Dockerfile
+https://github.com/NikitaShubin/dl_utils/blob/main/docker/run.sh
+https://github.com/NikitaShubin/dl_utils/blob/main/docker/stop.sh
+
+Особняком стоит инструмент предразметки (о нём тоже скажи пару слов):
+https://github.com/NikitaShubin/dl_utils/blob/main/dockerPreAnnotation/Dockerfile
+https://github.com/NikitaShubin/dl_utils/blob/main/dockerPreAnnotation/PreAnnotation.ipynb
