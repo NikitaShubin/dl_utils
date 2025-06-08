@@ -93,7 +93,7 @@ import cv2
 import yaml
 import random
 import tempfile
-
+import ast
 import numpy as np
 
 from typing import Union
@@ -108,6 +108,7 @@ from multiprocessing import pool, Pool
 from IPython.display import clear_output, HTML  # , Javascript, display
 from matplotlib import pyplot as plt
 from typing import Union, Iterable, List
+from collections import defaultdict, deque
 
 
 ########################
@@ -1345,6 +1346,478 @@ class Zipper:
         )
 
 
+class ImportVisitor(ast.NodeVisitor):
+    """
+    Анализатор AST для извлечения информации об импортах Python-кода.
+
+    Атрибуты:
+        unconditional_imports (set): Модули, импортированные на верхнем уровне
+        conditional_imports (set): Модули, импортированные внутри блоков кода
+        depth (int): Текущий уровень вложенности при обходе AST
+    """
+
+    def __init__(self):
+        """Инициализирует анализатор, сбрасывая состояние."""
+        self.reset()
+
+    def reset(self):
+        """
+        Сбрасывает состояние анализатора перед новым анализом.
+
+        Обнуляет:
+        - Множества безусловных и условных импортов
+        - Счетчик глубины вложенности
+        """
+        self.unconditional_imports = set()  # Импорты верхнего уровня
+        self.conditional_imports = set()    # Импорты внутри блоков кода
+        self.depth = 0                      # Уровень вложенности (0 = верхний уровень)
+
+    def analyze_file(self, file_path):
+        """
+        Основной метод для анализа файла.
+
+        Параметры:
+            file_path (str): Путь к анализируемому .py файлу
+
+        Возвращает:
+            tuple: (unconditional_imports, conditional_imports) - два множества строк
+
+        Исключения:
+            FileNotFoundError: Файл не существует
+            UnicodeDecodeError: Ошибка чтения файла
+            SyntaxError: Синтаксическая ошибка в коде
+
+        Процесс:
+            1. Сбрасывает предыдущее состояние анализатора
+            2. Читает содержимое файла
+            3. Парсит AST
+            4. Обходит AST для сбора информации об импортах
+        """
+        # Сброс предыдущего состояния
+        self.reset()
+
+        # Чтение файла с обработкой ошибок
+        try:
+            with open(file_path, 'r', encoding='utf-8') as file:
+                source_code = file.read()
+        except FileNotFoundError:
+            raise FileNotFoundError(f"Файл не найден: {file_path}")
+        except UnicodeDecodeError:
+            raise UnicodeDecodeError(f"Ошибка декодирования файла: {file_path}")
+
+        # Парсинг AST и обработка синтаксических ошибок
+        try:
+            tree = ast.parse(source_code)
+        except SyntaxError as e:
+            raise SyntaxError(f"Синтаксическая ошибка в файле {file_path}: {e}")
+
+        # Запуск обхода AST
+        self.visit(tree)
+
+        return self.unconditional_imports, self.conditional_imports
+
+    def analyze_string(self, source_code):
+        """
+        Анализирует код из строки вместо файла.
+
+        Параметры:
+            source_code (str): Строка с Python-кодом для анализа
+
+        Возвращает:
+            tuple: (unconditional_imports, conditional_imports) - два множества строк
+
+        Исключения:
+            SyntaxError: Синтаксическая ошибка в коде
+
+        Полезно для:
+            - Анализа фрагментов кода
+            - Юнит-тестирования
+            - Интерактивного использования
+        """
+        self.reset()
+        try:
+            tree = ast.parse(source_code)
+        except SyntaxError as e:
+            raise SyntaxError(f"Синтаксическая ошибка в коде: {e}")
+        self.visit(tree)
+        return self.unconditional_imports, self.conditional_imports
+
+    # --- Методы обработки узлов AST ---
+
+    def visit_Import(self, node):
+        """
+        Обрабатывает обычные импорты (import ...).
+
+        Примеры:
+            import os
+            import pandas as pd
+
+        Логика:
+            - Извлекает корневое имя модуля (первую часть)
+            - Определяет контекст (верхний уровень или блок)
+            - Добавляет в соответствующее множество
+        """
+        for alias in node.names:
+            # Извлекаем корневое имя модуля (до первой точки)
+            module_name = alias.name.split('.')[0]
+
+            # Разделяем импорты по уровню вложенности
+            if self.depth == 0:  # Верхний уровень
+                self.unconditional_imports.add(module_name)
+            else:  # Внутри блока кода
+                self.conditional_imports.add(module_name)
+
+    def visit_ImportFrom(self, node):
+        """
+        Обрабатывает импорты вида 'from ... import ...'.
+
+        Примеры:
+            from sys import exit
+            from sklearn.model_selection import train_test_split
+
+        Особенности:
+            - Игнорирует относительные импорты (с точками)
+            - Не обрабатывает импорты без указания модуля
+        """
+        # Пропускаем относительные импорты (level > 0)
+        if node.level > 0:
+            return
+
+        # Проверяем наличие имени модуля
+        if node.module:
+            # Извлекаем корневое имя модуля
+            module_name = node.module.split('.')[0]
+
+            # Разделяем по уровню вложенности
+            if self.depth == 0:
+                self.unconditional_imports.add(module_name)
+            else:
+                self.conditional_imports.add(module_name)
+
+    # --- Управление контекстом вложенности ---
+
+    def _enter_context(self):
+        """Увеличивает счетчик глубины при входе в новый контекст."""
+        self.depth += 1
+
+    def _exit_context(self):
+        """Уменьшает счетчик глубины при выходе из контекста."""
+        self.depth -= 1
+
+    # --- Методы обработки контекстных узлов ---
+    # Эти методы обеспечивают отслеживание вложенности кода
+    def visit_FunctionDef(self, node):
+        """Обрабатывает определение обычной функции (def)."""
+        self._enter_context()     # Вход в контекст функции
+        self.generic_visit(node)  # Продолжение обхода дочерних узлов
+        self._exit_context()      # Выход из контекста
+    # Остальные элементы обрабатываются аналогично:
+    visit_AsyncFunctionDef = visit_ClassDef = visit_If = \
+        visit_For = visit_AsyncFor = visit_While = visit_With = \
+        visit_AsyncWith = visit_Try = visit_TryFinally = \
+        visit_TryExcept = visit_AsyncFunctionDef = visit_FunctionDef
+
+    # --- Дополнительные методы ---
+
+    def get_combined_imports(self):
+        """Возвращает объединенное множество всех импортов."""
+        return self.unconditional_imports | self.conditional_imports
+
+    def get_stats(self):
+        """Возвращает статистику по найденным импортам."""
+        return {
+            'total_unconditional': len(self.unconditional_imports),
+            'total_conditional': len(self.conditional_imports),
+            'total_combined': len(self.get_combined_imports()),
+            'all_imports': sorted(self.get_combined_imports())
+        }
+
+    def build_dependency_graph(self, files):
+        """
+        Строит направленный граф зависимостей между модулями.
+
+        Параметры:
+            files (list): Список путей к .py файлам
+
+        Возвращает:
+            dict: Граф в формате {
+                module: {
+                    'unconditional': set(модулей),
+                    'conditional': set(модулей)
+                }
+            }
+
+        Процесс:
+            1. Извлекает имена модулей из путей файлов
+            2. Для каждого файла анализирует импорты
+            3. Строит граф, учитывая только модули из списка
+            4. Различает условные и безусловные зависимости
+        """
+        # Получаем имена модулей (без расширения .py)
+        module_names = set()
+        for file_path in files:
+            base = os.path.basename(file_path)
+            if base.endswith('.py'):
+                module_name = base[:-3]
+            else:
+                module_name = base
+            module_names.add(module_name)
+
+        # Инициализация графа
+        graph = {module: {'unconditional': set(), 'conditional': set()}
+                 for module in module_names}
+
+        # Анализ каждого файла
+        for file_path in files:
+            base = os.path.basename(file_path)
+            current_module = base[:-3] if base.endswith('.py') else base
+
+            try:
+                # Получаем импорты файла
+                unconditional, conditional = self.analyze_file(file_path)
+            except Exception:
+                continue  # Пропустить файл при ошибке
+
+            # Добавляем безусловные зависимости
+            for imp in unconditional:
+                if imp in module_names:  # Только модули из списка
+                    graph[current_module]['unconditional'].add(imp)
+
+            # Добавляем условные зависимости
+            for imp in conditional:
+                if imp in module_names:  # Только модули из списка
+                    graph[current_module]['conditional'].add(imp)
+
+        return graph
+
+    @staticmethod
+    def _filter_edges_by_longest_paths(edges):
+        """
+        Обрабатывает рёбра одного типа, оставляя только те, что принадлежат
+        максимальным путям.
+
+        Новая логика:
+            - Удаляет короткие пути при наличии более длинных альтернативных
+              путей между теми же узлами
+            - Сохраняет независимые пути максимальной длины
+            - Ребро удаляется, если существует более длинный путь между его
+              началом и концом
+
+        Параметры:
+            edges (list): Список рёбер вида [(source, target)]
+
+        Возвращает:
+            set: Множество рёбер, принадлежащих максимальным путям
+        """
+
+        # Строим граф и определяем все узлы
+        graph = defaultdict(list)
+        all_nodes = set()
+        for u, v in edges:
+            graph[u].append(v)
+            all_nodes.add(u)
+            all_nodes.add(v)
+
+        # Вычисляем максимальную длину пути между всеми парами узлов
+        max_path_lengths = {}
+        for node in sorted(all_nodes):  # Стабильный порядок
+            queue = deque([(node, 0)])  # (current_node, path_length)
+            visited = {node: 0}  # node: max_path_length
+
+            while queue:
+                current, length = queue.popleft()
+                for neighbor in graph.get(current, []):
+                    new_length = length + 1
+                    # Обновляем только если нашли более длинный путь
+                    if neighbor not in visited or new_length > visited[neighbor]:
+                        visited[neighbor] = new_length
+                        queue.append((neighbor, new_length))
+
+            # Сохраняем результаты для стартового узла
+            for target, path_len in visited.items():
+                if node != target:  # Исключаем петли
+                    max_path_lengths[(node, target)] = path_len
+
+        # Фильтруем рёбра: оставляем только те, которые являются частью максимального пути
+        kept_edges = set()
+        for (u, v) in edges:
+            # Проверяем, является ли это ребро частью максимального пути
+            if (u, v) in max_path_lengths:
+                current_length = 1  # Длина прямого ребра
+                max_length = max_path_lengths[(u, v)]
+
+                # Если существует более длинный путь между u и v, удаляем прямое ребро
+                if max_length > current_length:
+                    continue
+                kept_edges.add((u, v))
+            else:
+                # Если нет другого пути, сохраняем ребро
+                kept_edges.add((u, v))
+
+        return kept_edges
+
+    def filter_longest_paths(self, graph):
+        """
+        Оставляет только рёбра, входящие в самые длинные пути.
+
+        Параметры:
+            graph (dict): Граф зависимостей
+
+        Возвращает:
+            dict: Отфильтрованный граф
+
+        Особенности:
+            - Условные и безусловные рёбра обрабатываются раздельно
+            - Для каждого типа рёбер вычисляются максимальные пути
+            - Сохраняются только рёбра, принадлежащие этим путям
+        """
+        # Копируем граф для модификации
+        new_graph = {module: {'unconditional': set(), 'conditional': set()}
+                     for module in graph}
+
+        # Обработка безусловных рёбер
+        unconditional_edges = []
+        for source, data in graph.items():
+            for target in data['unconditional']:
+                unconditional_edges.append((source, target))
+        kept_unconditional = self._filter_edges_by_longest_paths(unconditional_edges)
+
+        # Обработка условных рёбер
+        conditional_edges = []
+        for source, data in graph.items():
+            for target in data['conditional']:
+                conditional_edges.append((source, target))
+        kept_conditional = self._filter_edges_by_longest_paths(conditional_edges)
+
+        # Заполнение нового графа
+        for (source, target) in kept_unconditional:
+            new_graph[source]['unconditional'].add(target)
+        for (source, target) in kept_conditional:
+            new_graph[source]['conditional'].add(target)
+
+        return new_graph
+
+    def to_mermaid(self, graph, filename=None):
+        """
+        Конвертирует граф в формат Mermaid с выравниванием стоков (модулей без зависимостей).
+        
+        Параметры:
+            graph (dict): Граф зависимостей
+            filename (str, optional): Файл для сохранения
+
+        Возвращает:
+            str: Строка в формате Mermaid (если filename=None)
+
+        Особенности:
+            - Стоки (модули без исходящих зависимостей) группируются и выравниваются горизонтально
+            - Безусловные зависимости: сплошная стрелка (-->)
+            - Условные зависимости: пунктирная стрелка (-.->)
+            - При наличии обеих зависимостей отрисовывается только безусловная
+            - Группа стоков помещается в невидимый подграф для выравнивания
+        """
+        # Генерация безопасных имён узлов
+        safe_names = {}
+        for i, node in enumerate(graph.keys()):
+            safe_names[node] = f"node_{i}"
+        
+        lines = ["graph RL;"]
+        
+        # Определение стоков (модулей без исходящих зависимостей)
+        all_nodes = set(graph.keys())
+        sink_nodes = set()
+        for node in all_nodes:
+            # Проверяем отсутствие исходящих зависимостей
+            if not graph[node]['unconditional'] and not graph[node]['conditional']:
+                sink_nodes.add(node)
+        
+        # Создаем множество безусловных рёбер для проверки
+        unconditional_set = set()
+        for source, data in graph.items():
+            for target in data['unconditional']:
+                unconditional_set.add((source, target))
+        
+        # Добавление всех узлов
+        for node in all_nodes:
+            lines.append(f"    {safe_names[node]}[{node}];")
+        
+        # Создание подграфа для стоков (горизонтальное выравнивание)
+        if sink_nodes:
+            lines.append("    %% Выравнивание стоков на одном уровне")
+            lines.append("    subgraph SinkGroup [ ]")
+            lines.append("        direction LR")
+            for node in sink_nodes:
+                lines.append(f"        {safe_names[node]}")
+            lines.append("    end")
+            lines.append("    style SinkGroup fill:none,stroke:none;")
+        
+        # Добавление рёбер с приоритетом безусловных
+        for source, data in graph.items():
+            # Безусловные зависимости
+            for target in data['unconditional']:
+                if target in safe_names:  # Проверка существования узла
+                    line = f"    {safe_names[source]} --> {safe_names[target]};"
+                    lines.append(line)
+            
+            # Условные зависимости (только если нет безусловной)
+            for target in data['conditional']:
+                if target in safe_names:  # Проверка существования узла
+                    # Пропускаем если есть безусловная зависимость
+                    if (source, target) in unconditional_set:
+                        continue
+                    line = f"    {safe_names[source]} -.-> {safe_names[target]};"
+                    lines.append(line)
+        
+        mermaid_content = "\n".join(lines)
+        
+        # Сохранение в файл или возврат строки
+        if filename:
+            with open(filename, 'w', encoding='utf-8') as f:
+                f.write(mermaid_content)
+        else:
+            return mermaid_content
+
+    def draw_dependency_in_mermaid(self, files, filter_short_paths=False,
+                                   output_file=None):
+        """
+        Строит граф зависимостей модулей в формате Mermaid.
+
+        Параметры:
+            files (list): Список .py файлов
+            filter_short_paths (bool): Флаг фильтрации коротких путей
+            output_file (str, optional): Файл для сохранения результата
+
+        Возвращает:
+            str: Результат в формате Mermaid (если output_file=None)
+
+        Процесс:
+            1. Построение графа зависимостей
+            2. Применение фильтра (если включено)
+            3. Экспорт в Mermaid
+        """
+        graph = self.build_dependency_graph(files)
+
+        if filter_short_paths:
+            graph = self.filter_longest_paths(graph)
+
+        return self.to_mermaid(graph, filename=output_file)
+
+        '''
+        Чтобы создать граф для модулей dl_utils достаточно выполнить:
+        py_files = sorted(get_file_list(os.path.dirname(__file__), '.py', False))
+        '''
+
+def _dl_utils_dependency_graph():
+    '''
+    Строит графы зависимостей модулей библиотеки dl_utils.
+    Используется для обновления README.md
+    '''
+    # Полный список модулей библиотеки:
+    py_files = sorted(get_file_list(os.path.dirname(__file__), '.py', False))
+    iv = ImportVisitor()
+    iv.draw_dependency_in_mermaid(py_files, True, 'short.mmd')
+    iv.draw_dependency_in_mermaid(py_files, False, 'full.mmd')
+
+
 def obj2yaml(obj, file='./cfg.yaml', encoding='utf-8', allow_unicode=True):
     '''
     Пишет словарь, множество или кортеж в yaml-файл.
@@ -1369,7 +1842,7 @@ def yaml2obj(file='./cfg.yaml', encoding='utf-8'):
     return obj
 
 
-def get_file_list(path, extentions=[]):
+def get_file_list(path, extentions=[], recurcive=True):
     '''
     Возвращает список всех файлов, содержащихся по указанному пути,
     включая поддиректории.
@@ -1413,7 +1886,7 @@ def get_file_list(path, extentions=[]):
 
         # Если текущий файл - каталог, то добавляем всё его
         # содержимое в список через рекурсивный вызов:
-        if os.path.isdir(file):
+        if os.path.isdir(file) and recurcive:
             file_list += get_file_list(file, extentions)
 
         # Если тип текущего файла соответствует искомому, либо

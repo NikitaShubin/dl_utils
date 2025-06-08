@@ -40,44 +40,61 @@
 <summary>🔄 Зависимости модулей</summary>
 
 ```mermaid
-graph LR
-    utils --> video_utils
-    utils --> classes
-    utils --> cv_utils
-    utils --> keras_utils
-    utils --> onnx_utils
-    utils --> tf_utils
-    
-    cv_utils --> alb_utils
-    cv_utils --> ml_utils
-    
-    classes --> copybal
-    classes --> pt_utils
-    
-    alb_utils --> pt_utils
-    ml_utils --> pt_utils
-    
-    tf_utils --> tfmot_utils
-    
-    pt_utils --> dinoal
-    pt_utils --> samal
-    pt_utils --> sam2al
-    pt_utils --> seg
-    pt_utils --> yolo
-    
-    ml_utils --> cvat
-    cv_utils --> cvat
-    classes --> cvat
-    
-    cvat --> cvat_srv
-    
-    cv_utils --> ipy_utils
-    ml_utils --> ipy_utils
-    classes --> ipy_utils
+graph RL;
+    node_0[pt_utils];
+    node_1[copybal];
+    node_2[seg];
+    node_3[sam2al];
+    node_4[alb_utils];
+    node_5[ipy_utils];
+    node_6[tf_utils];
+    node_7[video_utils];
+    node_8[cvat_srv];
+    node_9[cvat];
+    node_10[yolo];
+    node_11[onnx_utils];
+    node_12[cv_utils];
+    node_13[samal];
+    node_14[tfmot_utils];
+    node_15[keras_utils];
+    node_17[classes];
+    node_16[dinoal];
+    node_18[utils];
+    node_19[ml_utils];
+    %% Выравнивание стоков на одном уровне
+    subgraph SinkGroup [ ]
+        direction LR
+        node_0
+        node_18
+    end
+    style SinkGroup fill:none,stroke:none;
+    node_1 --> node_18;
+    node_2 --> node_9;
+    node_3 --> node_13;
+    node_4 --> node_18;
+    node_5 --> node_9;
+    node_6 --> node_4;
+    node_7 --> node_18;
+    node_8 --> node_9;
+    node_9 --> node_7;
+    node_9 --> node_12;
+    node_10 --> node_1;
+    node_10 --> node_19;
+    node_10 --> node_9;
+    node_11 --> node_19;
+    node_12 --> node_18;
+    node_13 --> node_0;
+    node_13 --> node_9;
+    node_14 --> node_15;
+    node_15 --> node_18;
+    node_16 --> node_0;
+    node_16 --> node_9;
+    node_17 --> node_18;
+    node_19 --> node_18;
 ```
 </details>
 
-## 🐧 >_ Bash-скрипты
+## `>_` Bash-скрипты
 - **rerun.sh**: Перезапуск скриптов при изменении кода
 - **show.sh**: Вывод последних строк локфайлов в реальном времени
 - **split-video.sh**: Разделение видео на фрагменты по времени
