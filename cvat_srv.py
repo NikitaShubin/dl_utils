@@ -176,6 +176,53 @@ class Client:
         )
         return CVATSRVProject(self, project)
 
+    @staticmethod
+    def parse_url(url):
+        '''
+        Извлекает информацию из URL-строки страницы в CVAT
+        '''
+        url_parts = url.split('/')
+
+        parsed_url = {}
+
+        # Из строки извлекаются номера датасетов, задач и подзадач:
+        for class_name in ['project', 'task', 'job']:
+            class_name_s = class_name + 's'
+            if class_name_s in url_parts:
+                class_ind = url_parts.index(class_name_s)
+                url_parts.pop(class_ind)
+                class_id = url_parts.pop(class_ind)
+                parsed_url[class_name + '_id'] = int(class_id.split('?')[0])
+
+        # Всё, что осталось, счтитается адресом самого сервера:
+        if len(url_parts) == 3:  # 'http://*'.split('/') -> ['http:', '', '*']
+            if url_parts[1] != '':
+                raise ValueError(
+                    f'Не удалось распарсить остаток URL: {url_parts}'
+                )
+        elif len(url_parts) != 1:
+            raise ValueError(
+                f'Не удалось распарсить остаток URL: {url_parts}'
+            )
+        parsed_url['host'] = '/'.join(url_parts)
+
+        return parsed_url
+
+    def from_url(self, url):
+        '''
+        Возвращает объект найденный по url.
+        '''
+        parsed_url = self.parse_url(url)
+
+        if 'job_id' in parsed_url:
+            return CVATSRVJob.from_id(self, parsed_url['job_id'])
+        elif 'task_id' in parsed_url:
+            return CVATSRVTask.from_id(self, parsed_url['task_id'])
+        elif 'project_id' in parsed_url:
+            return CVATSRVProject.from_id(self, parsed_url['project_id'])
+        else:
+            raise ValueError(f'Некорректный URL: "{url}", {parsed_url}')
+
 
 def get_name(obj):
     '''
@@ -409,6 +456,12 @@ class _CVATSRVObj:
         Возвращает URL объекта.
         '''
         return self.obj.url.replace('/api/', '/')
+
+    def from_url(self, url):
+        '''
+        Возвращает объект, соответствующий заданному URL:
+        '''
+        return self.client.from_url(url)
 
     def set_annotations(self,
                         file='annotations.xml',
