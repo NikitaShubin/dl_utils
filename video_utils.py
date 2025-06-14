@@ -360,8 +360,8 @@ class Resize:
             return int(target_size * source_size)
 
         else:
-            raise ValueError('Параметр "im_size" должен быть задан целыми ' + \
-                             'или вещественными числами. Получено ' + \
+            raise ValueError('Параметр "im_size" должен быть задан целыми ' +
+                             'или вещественными числами. Получено ' +
                              target_size, '!')
     # Нужно, например, для перехода от относительного размера к абсолютному.
 
@@ -840,19 +840,19 @@ class StreamRandomCrop:
     '''
     def reset(self):
         self.im_size = None
-    
+
     def __init__(self, size = 256):
         size = np.array(size)
         if not hasattr(size, 'size') or size.size == 1:
             size = np.array([size] * 2)[:]
         self.size = size
         self.reset()
-    
+
     def __call__(self, image):
         im_size = np.array(image.shape[:2])
         if not np.all(np.equal(self.im_size, im_size)):
             self.im_size = im_size
-            
+
             isint = np.issubdtype(self.size.dtype, np.uint64) or np.issubdtype(self.size.dtype, np.int64)
             isfloat = np.issubdtype(self.size.dtype, np.float64)
             if isint and not isfloat:
@@ -865,10 +865,10 @@ class StreamRandomCrop:
                 self.true_size = (self.im_size * self.size).astype(self.im_size.dtype)
             else:
                 raise ValueError('Параметр size должен быть вещественного или целочисленного типа')
-            
+
             self.di = np.random.randint(self.im_size[0] - self.true_size[0])
             self.dj = np.random.randint(self.im_size[1] - self.true_size[1])
-        
+
         return image[self.di:self.di + self.true_size[0], self.dj:self.dj + self.true_size[1], ...]
 
 
@@ -882,7 +882,7 @@ class StreamRandomFlip:
         self._ud  = np.random.choice([True, False]) if self.ud  is None else self.ud
         self._lr  = np.random.choice([True, False]) if self.lr  is None else self.lr
         self._rot = np.random.randint(4)            if self.rot is None else self.rot
-    
+
     def __init__(self, ud=None, lr=None, rot=None):
         '''
         Отражение и поворот. Если параметр == None, то 
@@ -892,20 +892,20 @@ class StreamRandomFlip:
         self.lr = lr
         self.rot = rot
         self.reset()
-    
+
     def __call__(self, image):
         im_size = np.array(image.shape[:2])
         if not np.all(np.equal(self.im_size, im_size)):
             self.reset()
             self.im_size = im_size
-        
+
         if self._ud:
             image = np.flipud(image)
         if self._lr:
             image = np.fliplr(image)
         if self._rot:
             image = np.rot90(image, self._rot)
-        
+
         return image
 
 

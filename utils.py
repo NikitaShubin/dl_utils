@@ -95,19 +95,19 @@ import random
 import tempfile
 import ast
 import numpy as np
-
-from typing import Union
-# from inspect import isclass
-from functools import reduce
 import zipfile
 import glob
+import json
+
+# from inspect import isclass
+from functools import reduce
 from shutil import rmtree, copyfile, move
 from tqdm import tqdm
 from time import time
 from multiprocessing import pool, Pool
 from IPython.display import clear_output, HTML  # , Javascript, display
 from matplotlib import pyplot as plt
-from typing import Union, Iterable, List
+from typing import Iterable
 from collections import defaultdict, deque
 
 
@@ -224,6 +224,7 @@ cv2_vid_exts = {'.mpg', '.mpeg', '.mp4', '.mkv', '.avi', '.mov', '.ts'}
 # Неполный список изображений, поддерживаемых OpenCV для чтения:
 cv2_img_exts = {'.bmp', '.jpg', '.jpeg', '.tif', '.tiff', '.png'}
 
+cv2_exts = cv2_vid_exts | cv2_img_exts
 
 def dtype_like(val):
     '''
@@ -503,7 +504,7 @@ def put_text_carefully(text         : 'Растеризируемый текст
 def color_float_hsv_to_uint8_rgb(h: float,
                                  s: float = 1.,
                                  v: float = 1.,
-                                 a: Union[float, None] = None) -> tuple:
+                                 a: float | None = None) -> tuple:
     '''
     Переводит вещественные HSV(A) в целые RGB(А).
     Полезно для выбора цветов в визуализациях.
@@ -948,6 +949,39 @@ def emptydir(path):
     mkdirs(path)
 
 
+def get_empty_dir(path=None, clear=False):
+    '''
+    Возвращает путь до пустой папки.
+    Она может быть либо задана явно,
+    либо будет создана автоматически
+    по временному пути.
+
+    Если путь задан явно, но папка не пуста, то
+    она очищается, если clear == True, иначе
+    возвращается ошибка.
+    '''
+    # Создаём временную дирректорию, если путь не указан:
+    if path is None:
+        path = tempfile.TemporaryDirectory().name
+
+    # Если папка не создана - создаём:
+    elif not os.path.isdir(path):
+        mkdirs(path)
+
+    # Если папка не пуста:
+    elif os.listdir(path):
+
+        # Очищаем содержимое, если можно:
+        if clear:
+            emptydir(path)
+
+        # Если очищать нельзя - возвращаем исключение:
+        else:
+            raise ValueError(f'Папка "{path}" не пуста!')
+
+    return path
+
+
 def first_existed_path(paths):
     '''
     Возвращяет первый существующий путь из списка путей.
@@ -1018,12 +1052,26 @@ class Zipper:
     Первый опыт вайб-кодинга. Использован DeepSeek R1.
     '''
 
+    @staticmethod
+    def flag(bool_val: bool | None, default: bool):
+        '''
+        Возвращает bool_val, если он не None, иначе default
+        '''
+        return bool_val if bool_val is not None else default
+
     def __init__(
         self,
-        unzipped: Union[str, Iterable[str]] = '',
+        unzipped: str | Iterable[str] = '',
         zipped: str = '',
+        remove_unzipped: bool | None = None,
+        rewrtie_unzipped: bool | None = None,
+        remove_zipped: bool | None = None,
+        rewrtie_zipped: bool | None = None,
         remove_source: bool = False,
         rewrite_target: bool = False,
+        compress_desc: str = '',
+        extract_desc: str = '',
+
         desc: str = ''
     ):
         # Проверка наличия хотя бы одного параметра:
@@ -1032,16 +1080,19 @@ class Zipper:
 
         self.unzipped = unzipped
         self.zipped = zipped
-        self.remove_source = remove_source
-        self.rewrite_target = rewrite_target
-        self.desc = desc
+        self.remove_unzipped = self.flag(remove_unzipped, remove_source)
+        self.rewrtie_unzipped = self.flag(rewrtie_unzipped, rewrite_target)
+        self.remove_zipped = self.flag(remove_zipped, remove_source)
+        self.rewrtie_zipped = self.flag(rewrtie_zipped, rewrite_target)
+        self.compress_desc = compress_desc
+        self.extract_desc = extract_desc
 
         # Связываем методы экземпляра с внутренними реализациями:
         self.compress = self.__compress
         self.extract = self.__extract
 
     @staticmethod
-    def _source_to_list(source: Union[str, Iterable[str]]) -> List[str]:
+    def _source_to_list(source: str | Iterable[str]) -> list[str]:
         '''Преобразует различные форматы источников в список файлов'''
         # Обработка строки с возможными шаблонами (wildcards):
         if isinstance(source, str):
@@ -1059,10 +1110,10 @@ class Zipper:
         return paths
 
     @staticmethod
-    def _get_base_path(paths: List[str]) -> str:
+    def _get_base_path(paths: list[str]) -> str:
         '''Определяет базовый путь для группы файлов'''
 
-        abs_paths = [os.path.abspath(p) for p in paths]
+        abs_paths = list(map(os.path.abspath, paths))
 
         # Пытаемся найти общий путь для всех файлов:
         try:
@@ -1075,7 +1126,7 @@ class Zipper:
         return base if os.path.isdir(base) else os.path.dirname(base)
 
     @staticmethod
-    def _get_default_archive_path(source_list: List[str]) -> str:
+    def _get_default_archive_path(source_list: list[str]) -> str:
         '''
         Определяет путь по умолчанию для архива:
         - Для одного файла: /path/to/file.txt → /path/to/file.txt.zip
@@ -1088,12 +1139,11 @@ class Zipper:
 
     @staticmethod
     def _compress(
-        source: Union[str, Iterable[str]],
+        source: str | Iterable[str],
         target: str = '',
         remove_source: bool = False,
         rewrite_target: bool = False,
-        desc: str = ''
-    ) -> Union[str, bool]:
+    ) -> str | bool:
         '''
         Основной метод для сжатия файлов/папок в ZIP-архив
 
@@ -1203,8 +1253,7 @@ class Zipper:
         target: str = '',
         remove_source: bool = False,
         rewrite_target: bool = False,
-        desc: str = ''
-    ) -> Union[str, bool]:
+    ) -> str | bool:
         '''
         Основной метод для распаковки ZIP-архива
 
@@ -1296,19 +1345,19 @@ class Zipper:
     # Статические методы-обертки для прямого вызова:
     @staticmethod
     def compress(
-        unzipped: Union[str, Iterable[str]],
+        unzipped: str | Iterable[str],
         zipped: str = '',
         remove_source: bool = False,
         rewrite_target: bool = False,
         desc: str = ''
-    ) -> Union[str, bool]:
-        return Zipper._compress(
-            source=unzipped,
-            target=zipped,
-            remove_source=remove_source,
-            rewrite_target=rewrite_target,
-            desc=desc
-        )
+    ) -> str | bool:
+        with AnnotateIt(desc):
+            return Zipper._compress(
+                source=unzipped,
+                target=zipped,
+                remove_source=remove_source,
+                rewrite_target=rewrite_target,
+            )
 
     @staticmethod
     def extract(
@@ -1317,33 +1366,33 @@ class Zipper:
         remove_source: bool = False,
         rewrite_target: bool = False,
         desc: str = ''
-    ) -> Union[str, bool]:
-        return Zipper._extract(
-            source=zipped,
-            target=unzipped,
-            remove_source=remove_source,
-            rewrite_target=rewrite_target,
-            desc=desc
-        )
+    ) -> str | bool:
+        with AnnotateIt(desc):
+            return Zipper._extract(
+                source=zipped,
+                target=unzipped,
+                remove_source=remove_source,
+                rewrite_target=rewrite_target,
+            )
 
     # Методы экземпляра класса:
-    def __compress(self) -> Union[str, bool]:
-        return Zipper._compress(
-            source=self.unzipped,
-            target=self.zipped,
-            remove_source=self.remove_source,
-            rewrite_target=self.rewrite_target,
-            desc=self.desc
-        )
+    def __compress(self) -> str | bool:
+        with AnnotateIt(self.compress_desc):
+            return Zipper._compress(
+                source=self.unzipped,
+                target=self.zipped,
+                remove_source=self.remove_unzipped,
+                rewrite_target=self.rewrtie_zipped,
+            )
 
-    def __extract(self) -> Union[str, bool]:
-        return Zipper._extract(
-            source=self.zipped,
-            target=self.unzipped,
-            remove_source=self.remove_source,
-            rewrite_target=self.rewrite_target,
-            desc=self.desc
-        )
+    def __extract(self) -> str | bool:
+        with AnnotateIt(self.extract_desc):
+            return Zipper._extract(
+                source=self.zipped,
+                target=self.unzipped,
+                remove_source=self.remove_zipped,
+                rewrite_target=self.rewrtie_unzipped,
+            )
 
 
 class ImportVisitor(ast.NodeVisitor):
@@ -1840,6 +1889,31 @@ def yaml2obj(file='./cfg.yaml', encoding='utf-8'):
         obj = yaml.safe_load(stream)
 
     return obj
+
+
+def json2obj(file):
+    '''
+    Читае json и jsonl
+    '''
+
+    # Определяем тип файла:
+    ext = os.path.splitext(file)[-1].lower()
+    assert ext in {'.json', '.jsonl'}
+
+    with open(file, 'r', encoding='utf-8') as f:
+
+        # Если обычный json:
+        if ext == '.json':
+            data = json.load(f)
+
+        # Если jsonl:
+        else:
+            data = []
+            for line in f:
+                data.append(json.loads(line.strip()))
+
+    return data
+
 
 
 def get_file_list(path, extentions=[], recurcive=True):
@@ -2403,6 +2477,29 @@ class DelayedInit:
         call_method = self.__getattr__('__call__')
         return call_method(*args, **kwargs)
     # Почему-то для delayed_obj() приходится прописывать __call__ явно.
+
+
+def disable_methods(*method_names):
+    """
+    Декоратор для отключения унаследованных методов
+
+    Пример использования:
+        class Parent:
+            def method1(self): print("Метод 1")
+            def method2(self): print("Метод 2")
+            def method3(self): print("Метод 3")
+
+        @disable_methods('method1', 'method2', 'method3')
+        class Child(Parent):
+            pass
+    """
+    def decorator(cls):
+        for name in method_names:
+            def method_raiser(self, *args, __name=name, **kwargs):
+                raise AttributeError(f"Метод '{__name}' отключен в классе {cls.__name__}")
+            setattr(cls, name, method_raiser)
+        return cls
+    return decorator
 
 
 def apply_on_cartesian_product(func     : 'Функция двух аргументов'        ,

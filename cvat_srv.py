@@ -1,13 +1,20 @@
 import os
-from PIL import Image
 import numpy as np
+import shutil
+from PIL import Image
 from cvat_sdk import make_client, core
 from getpass import getpass
 from zipfile import ZipFile
+from tqdm import tqdm
 
-from cvat import (add_row2df, concat_dfs, ergonomic_draw_df_frame,
-    cvat_backups2raw_tasks)
-from utils import mkdirs, rmpath, mpmap, get_n_colors, unzip_dir
+from cvat import (
+    add_row2df, concat_dfs, ergonomic_draw_df_frame, cvat_backups2raw_tasks,
+    cvat_backup_task_dir2task
+)
+from utils import (
+    mkdirs, rmpath, mpmap, get_n_colors, unzip_dir, AnnotateIt, cv2_exts,
+    cv2_vid_exts, get_file_list, json2obj, get_empty_dir, Zipper
+)
 
 
 class Client:
@@ -232,7 +239,7 @@ def get_name(obj):
     return obj.name
 
 
-class _CVATSRVObj:
+class CVATSRVBase:
     '''
     Абстрактный класс для проектов, задач, подзадач и прочих сущностей из
     cvat_sdk. Составляет основу древовидной структуру данных:
@@ -539,7 +546,7 @@ class _CVATSRVObj:
         return file
 
 
-class CVATSRVJob(_CVATSRVObj):
+class CVATSRVJob(CVATSRVBase):
     '''
     Поздазача CVAT-сервера.
     '''
@@ -625,8 +632,10 @@ class CVATSRVJob(_CVATSRVObj):
         task_substr = f'/tasks/{self.parend_id()}/jobs/'
         return super().url.replace('/jobs/', task_substr)
 
+    def __len__(self):
+        return len(self.obj.get_frames_info())
 
-class CVATSRVTask(_CVATSRVObj):
+class CVATSRVTask(CVATSRVBase):
     '''
     Здазача CVAT-сервера.
     '''
@@ -645,7 +654,7 @@ class CVATSRVTask(_CVATSRVObj):
         return cls(client, client.tasks.retrieve(id))
 
 
-class CVATSRVProject(_CVATSRVObj):
+class CVATSRVProject(CVATSRVBase):
     '''
     Датасет CVAT-сервера.
     '''
@@ -708,7 +717,7 @@ class CVATSRVProject(_CVATSRVObj):
                 'version': '1.0'}
 
 
-class CVATSRV(_CVATSRVObj):
+class CVATSRV(CVATSRVBase):
     '''
     CVAT-сервер.
     '''
@@ -822,3 +831,492 @@ class ReadTasks:
     def __exit__(self, type, value, traceback):
         self.rmdirs()
         return
+
+
+#########################################################################
+# Объекты, инкапсулирующие значительную часть функциональности cvat.py: #
+#########################################################################
+
+
+class CVATBase:
+    '''
+    Базовый класс объектов редактирования данных в CVAT.
+    '''
+
+    def __init__(self,
+                 cvat_srv_obj: CVATSRVBase | None = None,
+                 zipped_backup: str | None = None,
+                 unzipped_backup: str | None = None,
+                 desc: bool = True,
+                 *, _skip_parse: bool = False):
+        '''
+        cvat_srv_obj    - объект-представитель задачи или проекта из CVAТ,
+                          через который осуществляется доступ к серверу.
+        zipped_backup   - путь до zip-архива, содержащего бекап CVAT-объекта.
+        unzipped_backup - путь до папки, содержащей распакованную версию
+                          zipped_backup.
+        _skip_parse     - Не менять! используется только внутренними методами
+                          при создании новой задачи.
+
+        Исходная логика такова:
+            1) посредством cvat_srv_obj закачиваем бекап в файл
+               zipped_backup;
+            2) распаковываем архив zipped_backup в папку unzipped_backup;
+            3) парсим (загружаем в оперативную память) всю разметку из папки
+               unzipped_backup.
+
+        Детали исходной логики и исценарии отхода от неё:
+                1) Если не задана unzipped_backup, то создаём в этом качестве
+            временную папку.
+                2) Если не задан zipped_backup, создаём временную папку и
+            задаём для него в ней файл bu.zip.
+                3) Если задана только unzipped_backup, то рассчитываем, что в
+            ней уже есть все необходимые данные и сразу парсим их.
+                4) Если задан только zipped_backup, то выполняем (1) и парсим
+            результат.
+                5) Если unzipped_backup уже не пуста, но так же существует
+            zipped_backup или задан cvat_srv_obj - возвращаем ошибку, чтобы не
+            перезаписывать данные в unzipped_backup, которые могут
+            представлять какую-то важность.
+                5) Если задан только cvat_srv_obj, то выполняем (1, 2),
+            закачку бекапа, распаковываем его и парсим результат.
+        '''
+        # Доопределяет переменные:
+        self.__prepare_variables(cvat_srv_obj,
+                                 zipped_backup,
+                                 unzipped_backup,
+                                 desc)
+
+        # Парсим распакованный бекап (если нет специальной директивы):
+        if not _skip_parse:
+            self.__prepare_resources()
+
+    # Приводит переменные к рабочему состоянию:
+    def __prepare_variables(self,
+                            cvat_srv_obj,
+                            zipped_backup,
+                            unzipped_backup,
+                            desc):
+        '''
+        if (cvat_srv_obj, zipped_backup, unzipped_backup) == (None,) * 3:
+            raise ValueError('Хотя бы один параметр должен быть задан!')
+        '''
+
+        # Инициируем список файлов, подлежащих удалению перед закрытием
+        # объекта:
+        self.paths2remove = []
+
+        # Доопределяем путь к архиву бекапа, если он не задан:
+        if zipped_backup is None:
+            # Указываем его место во временной папке, которая потом будет
+            # удалена:
+            zipped_backup = get_empty_dir()
+            self.paths2remove.append(zipped_backup)
+            zipped_backup = os.path.join(zipped_backup, 'bu.zip')
+        else:
+            # Даже если архив задан, он подлежит удалению перед деструкцией
+            # экземлпяра класса:
+            self.paths2remove.append(zipped_backup)
+
+        # Создаём папку для распакованных данных, если она не задана,
+        # или не существует:
+        if unzipped_backup is None or not os.path.isdir(unzipped_backup):
+            unzipped_backup = get_empty_dir(unzipped_backup, False)
+            self.paths2remove.append(unzipped_backup)
+
+        # Создаём объект для сжатия unzipped_backup в zipped_backup и
+        # распаковки обратно:
+        compressor = Zipper(unzipped=unzipped_backup,
+                            zipped=zipped_backup,
+                            remove_unzipped=False,
+                            rewrtie_unzipped=False,
+                            remove_zipped=True,
+                            rewrtie_zipped=True,
+                            compress_desc='Сжатие бекапа' if desc else None,
+                            extract_desc='извлечение бекапа' if desc else None)
+
+        # Фиксируем объекты:
+        self.cvat_srv_obj = cvat_srv_obj
+        self.zipped_backup = zipped_backup
+        self.unzipped_backup = unzipped_backup
+        self.compressor = compressor
+        self.desc = desc
+
+    # Приводит все файлы к рабочему состоянию:
+    def __prepare_resources(self):
+
+        # Если unzipped_backup уже не пуста:
+        if os.listdir(self.unzipped_backup):
+
+            # Если при этом архив бекапа существует или хотя бы задан
+            # объект взаимодействия с сервером:
+            if os.path.isfile(self.zipped_backup) or \
+                    self.cvat_srv_obj is not None:
+
+                # Значит, в папке может быть что-то важное, так что
+                # очищать её не будем, а вернём ошибку.
+                raise ValueError(f'Папка "{self.unzipped_backup}" не пуста!')
+
+        # Если unzipped_backup пуста:
+        else:
+
+            # Если при этом объект взаимодействия с сервером задан, то
+            # сразу создаём свежий бекап:
+            if self.cvat_srv_obj is not None:
+                rmpath(self.zipped_backup)  # Уже существующий архив удаляем
+                with AnnotateIt('Загрузка бекапа' if self.desc else ''):
+                    self.cvat_srv_obj.backup(self.zipped_backup)
+
+            # Распаковываем бекап:
+            self.compressor.extract()
+            # Архив после этого удаляется.
+
+        # Должен создавать поля data и info
+        self._parse_unzipped_backup()
+
+    # Парсит распакованный бекап:
+    def _parse_unzipped_backup(self):
+        raise NotImplementedError('Метод должен быть переопределён!')
+
+    # Создаёт новый экземпляр класса из фото/видео/дирректории с данными:
+    @classmethod
+    def from_raw_data(cls,
+                      data_path: str | list[str] | tuple[str],
+                      cvat_srv_obj: str | None = None,
+                      unzipped_backup: str | None = None,
+                      include_as_is: bool = False):
+        raise NotImplementedError('Метод должен быть переопределён!')
+
+    # Пишет текущее состояние разметки в папку с распакованным бекапом,
+    # а при необходимости собирает архив и отправляет его на CVAT-сервер.
+    def sync(self, push=True):
+        raise NotImplementedError('Метод должен быть переопределён!')
+
+    # Размер объекта = размеру поля data:
+    def __len__(self):
+        return len(self.data)
+
+    # Удаляет все файлы и папки, подлежащие удалению:
+    def rm_all_paths2remove(self):
+        for path in self.paths2remove:
+            rmpath(path)
+
+    # Перед закрытием объекта надо удалять все файлы/папки из списка:
+    def __del__(self):
+        self.rm_all_paths2remove()
+
+
+class CVATProject(CVATBase):
+    '''
+    Интерфейс для работы с CVAT-датасетами.
+    '''
+
+    # Парсит распакованный бекап:
+    def _parse_unzipped_backup(self):
+
+        # Список задач:
+        self.data = []
+
+        # Список файлов в распакованном датасете:
+        base_names = os.listdir(self.unzipped_backup)
+
+        # Загружаем основную инфу о датасете:
+        if 'project.json' not in base_names:
+            raise Exception('"project.json" не найден!')
+        self.info = json2obj(
+            os.path.join(self.unzipped_backup, 'project.json')
+        )
+        base_names.remove('project.json')  # Выкидываем файл из списка
+
+        # Перебираем все папки в корне:
+        for base_name in tqdm(base_names,
+                              desc='Чтение бекапа',
+                              disable=not self.desc):
+
+            # Доопределяем путь до файла:
+            subdir = os.path.join(self.unzipped_backup, base_name)
+
+            # Если это дирректория с задачей, то парсим её:
+            if os.path.isdir(subdir):
+                self.data.append(CVATTask(unzipped_backup=subdir))
+
+            # Если это файл:
+            else:
+                raise FileExistsError(f'Неожиданный файл "{file}"!')
+
+    # Пишет текущее состояние разметки в папку с распакованным бекапом,
+    # а при необходимости собирает архив и отправляет его на CVAT-сервер.
+    def sync(self, push=True):
+
+        # Вызываем синхронизацю каждого из подобъектов:
+        for task_data in tqdm(self.data,
+                              desc='Выполняем локальную синхронизацию',
+                              disable=not self.desc):
+            task_data.sync(False)
+
+        # Если надо отправлять результат на CVAT-сервер:
+        if push:
+            if self.cvat_srv_obj is None:
+                raise Exception('Не задан cvat_srv_obj. '
+                                'Отправка на CVAT-сервер невозможна!')
+
+            # Формируем архив:
+            self.compressor.compress()
+
+            # Отправляем архив на сервер:
+            with AnnotateIt('Выгрузка бекапа' if self.desc else ''):
+
+                # Переходим в CVAT на один уровень выше:
+                parent = self.cvat_srv_obj.parent()
+
+                # Выполняем Выгрузку бекапа и заменяем интерфейсный
+                # объект:
+                self.cvat_srv_obj = parent.restore(self.zipped_backup)
+
+
+class CVATTask(CVATBase):
+    '''
+    Интерфейс для работы с CVAT-задачами.
+    '''
+
+    # Парсит распакованный бекап:
+    def _parse_unzipped_backup(self):
+
+        # Извлекаем список подзадач и метаданные задачи:
+        task, self.info = cvat_backup_task_dir2task(self.unzipped_backup,
+                                                    True)
+
+        # Создаём для каждой подзадачи экземпляр класса CVATJob:
+        self.data = mpmap(CVATJob.from_subtask, task, num_procs=0)
+
+    @staticmethod
+    def __prepare_single_raw_file(data_path: str,
+                                  task_data_dir: str | None = None,
+                                  include_as_is: bool = False):
+        '''
+        Подготовка бекапа из единственного файла с неразмеченными данными.
+        '''
+        # Если это файл:
+        if os.path.isfile(data_path):
+
+            # Определяем тип файла:
+            ext = os.path.splitext(data_path)[-1].lower()
+
+            # Если это видео или фото - копируем его в подпапку:
+            if ext in cv2_exts:
+                shutil.copy(data_path, task_data_dir)
+
+                # Определяем путь до него в новой папке:
+                base_name = os.path.basename(data_path)
+                file_list = [os.path.join(task_data_dir, base_name)]
+
+            # Если это архив и его надо брать как есть, то распаковываем
+            # его в подпапку:
+            elif ext in {'.zip'} and include_as_is:
+                Zipper.extract(data_path, task_data_dir)
+
+                # Составляем список файлов:
+                file_list = get_file_list(task_data_dir, cv2_exts, False)
+
+            else:
+                raise Exception(
+                    f'Неподдерживаемый тип файла "{data_path}"'
+                )
+
+        # Если это дирректория:
+        elif os.path.isdir(data_path):
+
+            # Если её надо брать как есть, то копируем всё её
+            # содержимое:
+            if include_as_is:
+                shutil.copytree(data_path, task_data_dir)
+
+                # Составляем отсортированный список файлов в итоговой папке:
+                file_list = get_file_list(task_data_dir, cv2_exts, False)
+                file_list = sorted(file_list)
+
+            # Если придётся парсить, ищем в корне подходящие по типу
+            # файлы:
+            else:
+                # Составляем отсортированный по имени список всех файлов
+                # подходящего типа:
+                file_list = []
+                num_videos = 0
+                for file in sorted(os.listdir(data_path)):
+                    ext = os.path.splitext(file)[1].lower()
+                    if ext in cv2_exts:
+                        file_list.append(os.path.join(data_path, file))
+
+                        # Проверка на неизбыточность данных:
+                        if ext in cv2_vid_exts:
+                            if num_videos > 0:
+                                raise FileExistsError(
+                                    'В задаче не может быть более '
+                                    'одного видеофайла!'
+                                )
+                        else:
+                            num_videos += 1
+
+                # Копируем все найденные файлы подходящего типа в
+                # подпапку:
+                for file in file_list:
+                    shutil.copy(file, task_data_dir)
+
+        # Если data_path не файл и не папка:
+        else:
+            raise FileNotFoundError(f'Не найден "{data_path}"!')
+
+        return file_list
+
+    @staticmethod
+    def __prepare_multiple_raw_files(data_path: list[str] | tuple[str],
+                                     task_data_dir: str | None = None,
+                                     include_as_is: bool = False):
+        '''
+        Подготовка бекапа из списка/кортежа неразмеченных данных.
+        '''
+        # Если требуется использование как есть:
+        if include_as_is:
+
+            # Множество дирректорий, в которых лежат файлы из списка:
+            data_paths = set(map(os.path.dirname, data_path))
+
+            # Все файлы из списка должны лежать в одной дирректории:
+            if len(data_paths) != 1:
+                raise ValueError(
+                    'В режиме include_as_is все файлы в списке должны '
+                    'лежать в одной дирректории!'
+                )
+
+            # Определяем место расположения всех файлов:
+            source_dir = data_paths.pop()
+
+            # Копируем все файлы из этой дирректории в целевую:
+            shutil.copytree(source_dir, task_data_dir)
+
+            # Составляем итоговый список файлов с учётом нового
+            # расположения:
+            file_list = [os.path.join(source_dir, basename)
+                         for basename in map(os.path.basename, data_path)]
+
+        # Если брать нужно только сами файлы:
+        else:
+
+            file_list = []
+            for file in data_paths:
+
+                # Копируем файл в целевую папку:
+                shutil.copy(file, task_data_dir)
+
+                # Пополняем итоговый список файлов:
+                basename = os.path.basename(file)
+                file_list.append(os.path.join(task_data_dir, basename))
+
+        return file_list
+
+    # Создаёт новый экземпляр класса из фото/видео/дирректории с данными:
+    @classmethod
+    def from_raw_data(cls,
+                      data_path: str | list[str] | tuple[str],
+                      include_as_is: bool = False,
+                      *init_args, **init_kwargs):
+        '''
+        Флаг include_as_is используется если нужно включить контекст
+        (см. https://docs.cvat.ai/docs/manual/advanced/contextual-images/).
+        В этом случае передавать надо либо папку, в которой уже всё
+        подготовлено, либо архив содержимого подобной папки (не включая саму
+        папку!). Можно использовать и список файлов, но тогда они должны все
+        лежать в одной папке, содержимое которой будет скопировано целиком.
+        Во всех остальных случаях в корне папки будут выискиваться файлы
+        подходящего типа, а архив игнорироваться (возвращаться ошибка).
+        '''
+        # Инициируем экземпляр класса, но пока без работы с файлами:
+        cvat_task = cls(*init_args, **init_kwargs, _skip_parse=True)
+
+        # Получаем целевую папку с распакованным бекапом:
+        unzipped_backup = cvat_task.unzipped_backup
+
+        # Подпапка для данных в дирректории с распакованным бекапом:
+        task_data_dir = os.path.join(unzipped_backup, 'data')
+        mkdirs(task_data_dir)  # Создаём подпапку для данных
+
+        # Копируем данные в целевую папку и получаем список файлов в
+        # итоговом пути:
+        if isinstance(data_path, str):  # Если передан всего один файл
+            prepare_raw_data = cls.__prepare_single_raw_file
+        else:                           # Если файлов несколько
+            prepare_raw_data = cls.__prepare_multiple_raw_files
+        file_list = prepare_raw_data(data_path,
+                                     task_data_dir,
+                                     include_as_is)
+
+        # Иницируем пустую разметку:
+        data = cls._init_annotations(file_list)
+
+        # Пишем эту разметку в папку с бекапом:
+        cls._write_annotations2unzipped_backup(data,
+                                               task_data_dir,
+                                               unzipped_backup)
+
+        # Выполняем работу с файлами, которую отложили в начале:
+        cvat_task.__prepare_resources()
+
+        return cvat_task
+
+    # Создаёт список элементов типа CVATJob для неразмеченных данных:
+    @classmethod
+    def _init_annotations(cls, file_list):
+        return [CVATJob.from_raw_data(file_list)]
+
+    # Пишет указанную разметку в папку с распакованным бекапом:
+    @classmethod
+    def _write_annotations2unzipped_backup(cls,
+                                           data,
+                                           task_data_dir,
+                                           unzipped_backup):
+        pass
+
+    # Пишет текущее состояние разметки в папку с распакованным бекапом,
+    # а при необходимости собирает архив и отправляет его на CVAT-сервер.
+    def sync(self, push=True):
+        self._write_annotations2unzipped_backup(self.data)
+
+
+class CVATJob:
+    '''
+    Интерфейс для работы с CVAT-подзадачами.
+    '''
+
+    def __init__(self, df, file, true_frames, issues=None):
+        self.df = df
+        self.file = file
+        self.true_frames = true_frames
+        self.issues = issues
+
+    @classmethod
+    def from_subtask(cls, subtask, issues=None):
+        df, file, true_frames = subtask
+        return cls(df, file, true_frames, issues)
+
+    def __len__(self):
+        return len(self.true_frames)
+
+    # Создаёт экземпляр класса с пустой разметкой:
+    @classmethod
+    def from_raw_data(cls, file: str | list[str] | tuple[str]):
+
+        if isinstance(file, str):
+            first_file = file
+
+        else:
+            first_file = file[0]
+
+            # Если список из одного элемента - берём его вместо списка:
+            if len(file) == 1:
+                file = file[0]
+
+        # Определяем общее число кадров:
+        total_frames = VideoGenerator.get_file_total_frames(file)
+
+        # Собираем экземпляр класса с пустой разметкой:
+        return cls(None, file, {frame: frame for frame in range(total_frames)})
