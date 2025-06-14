@@ -49,7 +49,7 @@ class Dino:
         return prompt2label
 
     # Фиксирует новый словарь запросов -> меток:
-    def model_path(self, prompt2label=None):
+    def set_prompt2label(self, prompt2label=None):
         self.prompt2label = self._parse_prompt2label(prompt2label)
 
     # Переводит словарь запросов в запросы для инференса GroundingDINO:
