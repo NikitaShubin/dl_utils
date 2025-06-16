@@ -380,10 +380,11 @@ def cvat_backups2raw_tasks(unzipped_cvat_backups_dir, desc=None):
     return tasks
 
 
-def file2related_images_dict(file):
+def get_related_files(file, images_only=False, as_manifest=False):
     '''
     Формирует словарь перехода 
-    имя_файла_изображения -> кортеж_имён_связанных_файлов.
+    имя_файла_изображения -> кортеж_имён_связанных_файлов или список,
+    использующийся в manifest.jsonl
 
     В CVAT можно создавать задачи, где каждому изображению ставится в
     соответствие один и более файлов (не только изображений).
@@ -391,33 +392,45 @@ def file2related_images_dict(file):
     https://docs.cvat.ai/docs/manual/advanced/contextual-images/
     '''
 
-    # Инициализация словаря:
-    related_images_dict = {}
-
-    # Если файл лишь один, всё равно делаем из него список:
+    # Из единственного файла всё равно делаем список:
     files = [file] if isinstance(file, str) else file
 
-    # Перебираем все файлы списка:
+    resources = [] if as_manifest else {}
+
+    # Перебираем все переданные файлы:
     for file in files:
 
-        # Разделяем путь до файла на составляющие:
-        dir, name, ext = split_dir_name_ext(file)
+        # Относительный и полный версии пути до его ресурсов:
+        task_data_path, name, ext = split_dir_name_ext(file)
+        rel_dir = os.path.join('related_images', f'{name}_{ext[1:]}')
+        full_path = os.path.join(task_data_path, rel_dir)
 
-        # Определяем путь до папки, содержащей файлы, соответствующие
-        # текущему:
-        related_dir = name + ext.replace('.', '_')
-        related_dir = os.path.join(dir, 'related_images', related_dir)
+        # Составляем список связанных с текущим файлом ресурсов:
+        if os.path.isdir(full_path):
 
-        # Составляем список связанных файлов:
-        releated_files = []
-        for related_file_name in sorted(os.listdir(related_dir)):
-            releated_files.append(os.path.join(related_dir, related_file_name))
+            # Получаем список всех ресурсов:
+            cur_resources = get_file_list(full_path,
+                                          cv2_img_exts if images_only else [])
 
-        # Вносим файлы в словарь, если они есть:
-        if releated_files:
-            related_images_dict[file] = releated_files
+        else:
+            cur_resources = []
 
-    return related_images_dict
+        # Если нужно формировать именно список для manifest.jsonl:
+        if as_manifest:
+
+            # Делаем пути относительными:
+            cur_resources = [os.path.relpath(resource, task_data_path)
+                             for resource in cur_resources]
+
+            resources.append({'name': str(name),
+                              'extension': ext,
+                              'meta': {'related_images': cur_resources}})
+
+        # Если нужен обычный словарь:
+        else:
+            resources[file] = cur_resources
+
+    return resources
 
 
 def cvat_backup_task_dir2info(task_dir):
