@@ -2,18 +2,19 @@ import os
 import numpy as np
 import shutil
 from PIL import Image
-from cvat_sdk import make_client, core
+from cvat_sdk import make_client, core, api_client
 from getpass import getpass
 from zipfile import ZipFile
 from tqdm import tqdm
 
 from cvat import (
     add_row2df, concat_dfs, ergonomic_draw_df_frame, cvat_backups2raw_tasks,
-    cvat_backup_task_dir2task
+    cvat_backup_task_dir2task, get_related_files
 )
 from utils import (
     mkdirs, rmpath, mpmap, get_n_colors, unzip_dir, AnnotateIt, cv2_exts,
-    cv2_vid_exts, get_file_list, json2obj, get_empty_dir, Zipper
+    cv2_vid_exts, get_file_list, json2obj, get_empty_dir, Zipper, obj2json,
+    get_video_info
 )
 
 
@@ -125,45 +126,80 @@ class Client:
 
     def new_task(self,
                  name,
-                 file,
-                 labels,
+                 file=None,
+                 labels=None,
                  annotation_path=None):
         '''
         Создаёт новую задачу без разметки.
         '''
 
-        # Доводим до ума входные параметры, если надо:
-        labels = self._adapt_labels(labels)
-        file = self._adapt_file(file)
+        # Если не задано ничего, кроме имени:
+        if (file, labels, annotation_path) == (None,) * 3:
 
-        task_spec = {'name': name,
-                     'labels': labels}
+            # Создаём пустую задачу:
+            data, response = self.obj.api_client.tasks_api.create(
+                api_client.models.TaskWriteRequest(
+                    name=name,
+                    labels=[
+                        api_client.models.PatchedLabelRequest(
+                            name='Empty_label'
+                        )
+                    ]
+                )
+            )
+            task_id = data.id
 
-        task = self.obj.tasks.create_from_data(
-            spec=task_spec,
-            resource_type=core.proxies.tasks.ResourceType.LOCAL,
-            resources=file,
-            annotation_path=annotation_path,
-            annotation_format='CVAT 1.1',
-        )
+            # Возвращаем обёрнутый объект:
+            return CVATSRVTask.from_id(self, task_id)
 
-        # Возвращаем обёрнутый объект:
-        return CVATSRVTask(self, task)
+        # Если всё задано:
+        else:
+            # Доводим до ума входные параметры, если надо:
+            labels = self._adapt_labels(labels)
+            file = self._adapt_file(file)
 
-    def new_project(self, name, labels):
+            task_spec = {'name': name,
+                         'labels': labels}
+
+            task = self.obj.tasks.create_from_data(
+                spec=task_spec,
+                resource_type=core.proxies.tasks.ResourceType.LOCAL,
+                resources=file,
+                annotation_path=annotation_path,
+                annotation_format='CVAT 1.1',
+            )
+
+            # Возвращаем обёрнутый объект:
+            return CVATSRVTask(self, task)
+
+    def new_project(self, name, labels=None):
         '''
         Создаёт пустой датасет.
         '''
-        # Добавляет классам цвета, если надо:
-        labels = self._adapt_labels(labels)
 
-        # Создаём проект:
-        proj_spec = {'name': name,
-                     'labels': labels}
-        project = self.obj.projects.create_from_dataset(proj_spec)
+        # Если метки не указаны:
+        if labels is None:
+            data, response = api_client.projects_api.create(
+                api_client.models.ProjectWriteRequest(name=name)
+            )
+            project_id = data.id
 
-        # Возвращаем обёрнутрый объект:
-        return CVATSRVProject(self, project)
+            # Возвращаем обёрнутый объект:
+            return CVATSRVProject.from_id(self, project_id)
+
+        # Если метки указаны:
+        else:
+
+            # Добавляет классам цвета, если надо:
+            labels = self._adapt_labels(labels)
+
+            # Создаём проект:
+            proj_spec = {'name': name,
+                         'labels': labels}
+            project = self.obj.projects.create_from_dataset(proj_spec)
+
+            # Возвращаем обёрнутрый объект:
+            return CVATSRVProject(self, project)
 
     def restore_task(self, backup_file):
         '''
@@ -368,7 +404,7 @@ class CVATSRVBase:
             return self.client.restore_project(backup_file)
 
         # Если сейчас мы на уровне проекта, то восстанавливаем задачу:
-        if self._hier_lvl == 1:
+        elif self._hier_lvl == 1:
             task = self.client.restore_task(backup_file)
 
             # Привязываем задачу к текущему датасету:
@@ -926,7 +962,7 @@ class CVATBase:
 
         # Создаём объект для сжатия unzipped_backup в zipped_backup и
         # распаковки обратно:
-        compressor = Zipper(unzipped=unzipped_backup,
+        compressor = Zipper(unzipped=os.path.join(unzipped_backup, '*'),
                             zipped=zipped_backup,
                             remove_unzipped=False,
                             rewrtie_unzipped=False,
@@ -999,10 +1035,15 @@ class CVATBase:
     # Удаляет все файлы и папки, подлежащие удалению:
     def rm_all_paths2remove(self):
         for path in self.paths2remove:
+
+            if self.desc:
+                print(f'"{path}" удалён!')
+
             rmpath(path)
 
     # Перед закрытием объекта надо удалять все файлы/папки из списка:
     def __del__(self):
+        print('Base Del')
         self.rm_all_paths2remove()
 
 
@@ -1271,15 +1312,92 @@ class CVATTask(CVATBase):
     # Пишет указанную разметку в папку с распакованным бекапом:
     @classmethod
     def _write_annotations2unzipped_backup(cls,
-                                           data,
+                                           jobs,
                                            task_data_dir,
                                            unzipped_backup):
-        pass
+
+        # Пишем manifest.jsonl:
+        cls._write_manifest(jobs)
+
+    # Пишет файл manifest.jsonl:
+    @classmethod
+    def _write_manifest(cls, jobs):
+        # Получаем общий список файлов:
+        files = [job.file for job in jobs]
+        file = files[0]
+        if len(files) > 1:
+            for file_ in files[1:]:
+                if file_ != file:
+                    raise Exception('Подзадачи имеют несовпадающий'
+                                    'список файлов!')
+
+        # Берём первый файл для образца:
+        first_file = file if isinstance(file, str) else file[0]
+
+        # Формируем содержимое файла:
+        manifest = [{'version': '1.1'}]
+        if os.path.splitext(file)[1] in cv2_vid_exts:  # Если это видео
+
+            # Указываем тип "видео":
+            manifest.append({'type': 'video'})
+
+            # Определяем размеры и число кадров в видео:
+            file_info = get_video_info(first_file)
+
+            # Прописываем свойства видео:
+            manifest.append({
+                'properties': {
+                    'name': os.path.basename(first_file),
+                    'resolution': [
+                        file_info['width'],
+                        file_info['height']
+                    ],
+                    'length': file_info['length']
+                }
+            })
+
+            # Добавляем хвост:
+            manifest.append({'number': 0, 'pts': 0})
+
+        else:  # Если это изображения
+
+            # Указываем тип "изображения":
+            manifest.append({'type': 'images'})
+
+            # Формируем список описаний файлов:
+            manifest += get_related_files(file,
+                                          images_only=False,
+                                          as_manifest=True)
+
+        # Пишем результат в файл:
+        manifest_file = os.path.join(os.path.dirname(file), 'manifest.jsonl')
+        return obj2json(manifest, manifest_file)
 
     # Пишет текущее состояние разметки в папку с распакованным бекапом,
     # а при необходимости собирает архив и отправляет его на CVAT-сервер.
     def sync(self, push=True):
-        self._write_annotations2unzipped_backup(self.data)
+
+        task_data_dir = os.path.join(self.unzipped_backup, 'data')
+
+        # Обновляем содержимое файлов в распакованном датасете:
+        self._write_annotations2unzipped_backup(self.data,
+                                                task_data_dir,
+                                                self.unzipped_backup)
+
+        # Если нужно отправлять результат на CVAT-сервер:
+        if push:
+
+            with AnnotateIt('Отправка задачи в CVAT' if self.desc else ''):
+
+                # Создаём архив:
+                self.compressor.compress()
+
+                # Отправка архива на CVAT-сервер:
+                self.cvat_srv_obj.parent().restore(self.zipped_backup)
+
+    def __del__(self):
+        print('Task Del')
+        self.rm_all_paths2remove()
 
 
 class CVATJob:
