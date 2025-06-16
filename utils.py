@@ -761,6 +761,30 @@ def img_dir2video(img_dir,
     return os.path.abspath(video_file)
 
 
+def get_video_info(file):
+    '''
+    Извлекает из видеофайла такие его параметры, как разрешение кадра,
+    общее число кадров и число кадров в секунду.
+    '''
+
+    ext = os.path.splitext(file)[1]
+    if ext not in cv2_vid_exts:
+        raise ValueError(f'Непоодерживаемый тип файла: "{ext[1:]}"!')
+
+    # Извлекаем основные параметры видео:
+    info = {}
+    cap = cv2.VideoCapture(file)
+    if not cap.isOpened():
+        raise ValueError(f"Не удалось открыть видеофайл: {file}")
+    info['width'] = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    info['height'] = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    info['length'] = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    info['fps'] = cap.get(cv2.CAP_PROP_FPS)
+    cap.release()
+
+    return info
+
+
 class ImReadBuffer:
     '''
     Класс, буферизирующий чтение кадра из видео или фото.
@@ -1283,6 +1307,9 @@ class Zipper:
 
             # Шаг 2 - Анализ содержимого архива:
             single_file_in_root = False
+            if isinstance(target, str) and \
+                    any(char in target for char in '*?['):
+                target = os.path.dirname(target)  # ".../*/" -> ".../"
             result_path = target  # Инициализация результирующего пути
 
             with zipfile.ZipFile(source, 'r') as zipf:
@@ -1872,9 +1899,9 @@ def obj2yaml(obj, file='./cfg.yaml', encoding='utf-8', allow_unicode=True):
     Пишет словарь, множество или кортеж в yaml-файл.
     Параметры по-умолчанию позволяют сохранять кириллицу.
     '''
-    with open(file, 'w', encoding=encoding) as stream:
+    with open(file, 'w', encoding=encoding) as f:
         yaml.safe_dump(obj,
-                       stream,
+                       f,
                        allow_unicode=allow_unicode,
                        sort_keys=False)
 
@@ -1885,35 +1912,59 @@ def yaml2obj(file='./cfg.yaml', encoding='utf-8'):
     '''
     Читает yaml-файл.
     '''
-    with open(file, 'r', encoding=encoding) as stream:
-        obj = yaml.safe_load(stream)
+    with open(file, 'r', encoding=encoding) as f:
+        obj = yaml.safe_load(f)
 
     return obj
 
 
-def json2obj(file):
+def obj2json(obj, file='./cfg.json', encoding='utf-8'):
     '''
-    Читае json и jsonl
+    Пишет json- и jsonl-файлы.
     '''
 
     # Определяем тип файла:
     ext = os.path.splitext(file)[-1].lower()
     assert ext in {'.json', '.jsonl'}
 
-    with open(file, 'r', encoding='utf-8') as f:
+    with open(file, 'w', encoding='utf-8') as f:
 
         # Если обычный json:
         if ext == '.json':
-            data = json.load(f)
+            assert isinstance(obj, dict)
+            json.dump(obj, f)
 
         # Если jsonl:
         else:
-            data = []
+            assert isinstance(obj, (tuple, list, set))
+            for line in obj:
+                f.write(json.dumps(line) + '\n')
+
+    return file
+
+
+def json2obj(file='./cfg.json', encoding='utf-8'):
+    '''
+    Читае json- и jsonl-файлы.
+    '''
+
+    # Определяем тип файла:
+    ext = os.path.splitext(file)[-1].lower()
+    assert ext in {'.json', '.jsonl'}
+
+    with open(file, 'r', encoding=encoding) as f:
+
+        # Если обычный json:
+        if ext == '.json':
+            obj = json.load(f)
+
+        # Если jsonl:
+        else:
+            obj = []
             for line in f:
-                data.append(json.loads(line.strip()))
+                obj.append(json.loads(line.strip()))
 
-    return data
-
+    return obj
 
 
 def get_file_list(path, extentions=[], recurcive=True):
