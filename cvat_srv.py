@@ -1,8 +1,11 @@
 import os
 import numpy as np
 import shutil
+import json
+import time
 from PIL import Image
-from cvat_sdk import make_client, core, api_client
+from cvat_sdk import make_client, core
+from cvat_sdk.api_client import models
 from getpass import getpass
 from zipfile import ZipFile
 from tqdm import tqdm
@@ -200,24 +203,95 @@ class Client:
 
             # Возвращаем обёрнутрый объект:
             return CVATSRVProject(self, project)
+    def _send_backup(self, backup_file: str, backup_type: str) -> int:
+        '''
+        Отправляет бекап на CVAT-сервер.
+        '''
+        # Создаем объект запроса:
+        api_client = self.obj.api_client
+        if backup_type == 'task':
+            file_request = models.TaskFileRequest
+            restore_from_backup = api_client.tasks_api.create_backup
+        elif backup_type == 'project':
+            file_request = models.ProjectFileRequest
+            restore_from_backup = api_client.project_api.create_backup
+        else:
+            raise ValueError('Неверное значение "backup_type": '
+                             f'{backup_type}')
+
+        # Формируем запрос на выгрузку бекапа:
+        with open(backup_file, 'rb') as f:
+
+            # Создаем объект запроса:
+            backup_request = file_request(f)
+
+            # Отправляем запрос:
+            data, response = restore_from_backup(
+                task_file_request=backup_request,
+                _content_type='multipart/form-data'  # Без этого не работает!
+            )
+
+        # Выясняем rq_id, по которому отследить процесс закачки:
+        response_body = response.data.decode('utf-8')
+        response_data = json.loads(response_body)
+        return response_data['rq_id']
+
+    def _rq_id2id(self, rq_id: str, timeout=300, interval=5) -> int:
+        '''
+        Ожидает успешного выполнения CVAT-сервером запроса по его rq_id и
+        возвращает id полученного объекта.
+
+        :param rq_id: ID запроса на импорт
+        :param timeout: Максимальное время ожидания в секундах
+        :param interval: Интервал проверки статуса в секундах
+        :return: ID созданного объекта
+        '''
+        # Повторяем запросы пока не кончится время:
+        start_time = time.time()
+        while (time.time() - start_time) < timeout:
+
+            # Получаем статус запроса:
+            data, _ = self.obj.api_client.requests_api.retrieve(rq_id)
+            status = data['status'].to_str()
+
+            # Если процесс завершён:
+            if status == 'finished':
+                return data['result_id']
+
+            # Если процесс прерван:
+            elif status == "failed":
+                error_msg = data.get('message', '') or data.get('error', '')
+                raise RuntimeError(f"Ошибка импорта: {error_msg}")
+
+            time.sleep(interval)  # Ждем перед следующей проверкой
+
+        raise TimeoutError(f'Превышено время ожидания ({timeout} секунд)')
 
     def restore_task(self, backup_file):
         '''
         Восстанавливает задачу из бекапа.
         '''
-        task = self.obj.api_client.tasks_api.create_backup(
-            filename=backup_file
-        )
-        return CVATSRVTask(self, task)
+        # Запуск передачи бекапа:
+        req_id = self._send_backup(backup_file, 'task')
+
+        # Ожидание результата:
+        task_id = self._rq_id2id(req_id)
+
+        # Получение новой задачи из её ID:
+        return CVATSRVTask.from_id(self, task_id)
 
     def restore_project(self, backup_file):
         '''
         Восстанавливает проект из бекапа.
         '''
-        project = self.obj.api_client.projects_api.create_backup(
-            filename=backup_file
-        )
-        return CVATSRVProject(self, project)
+        # Запуск передачи бекапа:
+        req_id = self._send_backup(backup_file, 'project')
+
+        # Ожидание результата:
+        proj_id = self._rq_id2id(req_id)
+
+        # Получение новой задачи из её ID:
+        return CVATSRVProject.from_id(self, proj_id)
 
     @staticmethod
     def parse_url(url):
@@ -309,6 +383,21 @@ class CVATSRVBase:
         Должен возвращать экземпляр класса объекта по его id.
         '''
         raise NotImplementedError('Метод должен быть переопределён!')
+
+    def get_api(self, lvl=None):
+        '''
+        Возвращает API нужного уровня.
+        Если уровень не указан - берётся уровень текущего объекта.
+        '''
+        # Берём текущий уровень, если он не указан:
+        if lvl is None:
+            lvl = self._hier_lvl
+
+        # Определяем имя нужного атрибута:
+        attr = ['server_api', 'projects_api', 'tasks_api', 'jobs_api'][lvl]
+
+        # Возвращаем нужный API:
+        return getattr(self.client.obj.api_client, attr)
 
     def name2id(self, name):
         '''
@@ -459,6 +548,24 @@ class CVATSRVBase:
         Создаёт и возвращает подобъект.
         '''
         raise NotImplementedError('Метод должен быть переопределён!')
+
+    def delete(self):
+        '''
+        Удаляет текущий объект на сервере!
+        '''
+        if self._hier_lvl:
+
+            # Запускаем удаление и получаем ответ:
+            _, response = self.get_api().destroy(self.id)
+
+            # Удаление прошло успешно, если статус = 204:
+            if response.status == 204:
+                return True
+            else:
+                return response.status
+
+        else:
+            raise Exception('Невозможно удалить сам сервер!')
 
     def __getattr__(self, attr):
         '''
