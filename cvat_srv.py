@@ -63,11 +63,12 @@ class Client:
                 is_str = True
             else:
                 raise ValueError(
-                    'Список классов должен содержать строки, словари ' +
-                    'или `cvat_sdk.api_client.model.label.Label`. ' +
-                    f'Получен "{type(label)}!"')
+                    'Список классов должен содержать строки, словари '
+                    'или `cvat_sdk.api_client.model.label.Label`. '
+                    f'Получен "{type(label)}!"'
+                )
 
-        # Если передан словарь, то оставляем в нём только самое необъодимое:
+        # Если передан словарь, то оставляем в нём только самое необходимое:
         if is_dict and not is_str:
 
             # Инициируем список новых меток:
@@ -140,7 +141,7 @@ class Client:
         if (file, labels, annotation_path) == (None,) * 3:
 
             # Создаём пустую задачу:
-            data, response = self.obj.api_client.tasks_api.create(
+            data, response = self.api_client.tasks_api.create(
                 api_client.models.TaskWriteRequest(
                     name=name,
                     labels=[
@@ -164,7 +165,7 @@ class Client:
             task_spec = {'name': name,
                          'labels': labels}
 
-            task = self.obj.tasks.create_from_data(
+            task = self.tasks.create_from_data(
                 spec=task_spec,
                 resource_type=core.proxies.tasks.ResourceType.LOCAL,
                 resources=file,
@@ -199,11 +200,12 @@ class Client:
             # Создаём проект:
             proj_spec = {'name': name,
                          'labels': labels}
-            project = self.obj.projects.create_from_dataset(proj_spec)
+            project = self.projects.create_from_dataset(proj_spec)
 
             # Возвращаем обёрнутрый объект:
             return CVATSRVProject(self, project)
-    def _send_backup(self, backup_file: str, backup_type: str) -> int:
+
+    def _send_backup(self, backup_file: str, backup_type: str) -> str:
         '''
         Отправляет бекап на CVAT-сервер.
         '''
@@ -214,7 +216,7 @@ class Client:
             restore_from_backup = api_client.tasks_api.create_backup
         elif backup_type == 'project':
             file_request = models.ProjectFileRequest
-            restore_from_backup = api_client.project_api.create_backup
+            restore_from_backup = api_client.projects_api.create_backup
         else:
             raise ValueError('Неверное значение "backup_type": '
                              f'{backup_type}')
@@ -236,7 +238,7 @@ class Client:
         response_data = json.loads(response_body)
         return response_data['rq_id']
 
-    def _rq_id2id(self, rq_id: str, timeout=300, interval=5) -> int:
+    def _rq_id2id(self, rq_id: str, timeout=300, interval=5) -> int | None:
         '''
         Ожидает успешного выполнения CVAT-сервером запроса по его rq_id и
         возвращает id полученного объекта.
@@ -251,7 +253,7 @@ class Client:
         while (time.time() - start_time) < timeout:
 
             # Получаем статус запроса:
-            data, _ = self.obj.api_client.requests_api.retrieve(rq_id)
+            data, _ = self.api_client.requests_api.retrieve(rq_id)
             status = data['status'].to_str()
 
             # Если процесс завершён:
@@ -274,11 +276,12 @@ class Client:
         # Запуск передачи бекапа:
         req_id = self._send_backup(backup_file, 'task')
 
-        # Ожидание результата:
-        task_id = self._rq_id2id(req_id)
+        if 'requests_api' in dir(self.obj.api_client):
+            # Ожидание результата:
+            task_id = self._rq_id2id(req_id)
 
-        # Получение новой задачи из её ID:
-        return CVATSRVTask.from_id(self, task_id)
+            # Получение новой задачи из её ID:
+            return CVATSRVTask.from_id(self, task_id)
 
     def restore_project(self, backup_file):
         '''
@@ -287,11 +290,12 @@ class Client:
         # Запуск передачи бекапа:
         req_id = self._send_backup(backup_file, 'project')
 
-        # Ожидание результата:
-        proj_id = self._rq_id2id(req_id)
+        if 'requests_api' in dir(self.obj.api_client):
+            # Ожидание результата:
+            proj_id = self._rq_id2id(req_id)
 
-        # Получение новой задачи из её ID:
-        return CVATSRVProject.from_id(self, proj_id)
+            # Получение новой задачи из её ID:
+            return CVATSRVProject.from_id(self, proj_id)
 
     @staticmethod
     def parse_url(url):
@@ -828,7 +832,7 @@ class CVATSRVProject(CVATSRVBase):
         '''
         # Задачи с таким именем ещё не должно существовать:
         if name in self.keys():
-            raise KeyError(f'Задача "{name}" уже существует ' +
+            raise KeyError(f'Задача "{name}" уже существует '
                            f'в датасете "{self.name}"!')
 
         # Извлекаем метки из дадасета:
@@ -1404,7 +1408,8 @@ class CVATTask(CVATBase):
         # Пишем эту разметку в папку с бекапом:
         cls._write_annotations2unzipped_backup(data,
                                                task_data_dir,
-                                               unzipped_backup)
+                                               unzipped_backup,
+                                               info)
 
         # Выполняем работу с файлами, которую отложили в начале:
         cvat_task.__prepare_resources()
@@ -1421,15 +1426,23 @@ class CVATTask(CVATBase):
     def _write_annotations2unzipped_backup(cls,
                                            jobs,
                                            task_data_dir,
-                                           unzipped_backup):
+                                           unzipped_backup,
+                                           info):
 
-        # Пишем manifest.jsonl:
-        cls._write_manifest(jobs)
+        # Пишем файлы описания данных:
+        cls._write_manifest(jobs)  # Пишем manifest.jsonl
+        cls._write_index(jobs)     # Пишем index.json
 
-    # Пишет файл manifest.jsonl:
-    @classmethod
-    def _write_manifest(cls, jobs):
-        # Получаем общий список файлов:
+        # Пишем файлы описания данных:
+        cls._write_info(jobs, info)  # Пишем task.json
+        cls._write_annotanions(jobs)  # Пишем annotations.json
+
+    # Возвращает пути до распакованной задачи, папки с её данными и первый
+    # из файлов:
+    @staticmethod
+    def _jobs2paths(jobs):
+
+        # Получаем общий список файлов для всех подзадач:
         files = [job.file for job in jobs]
         file = files[0]
         if len(files) > 1:
@@ -1441,9 +1454,22 @@ class CVATTask(CVATBase):
         # Берём первый файл для образца:
         first_file = file if isinstance(file, str) else file[0]
 
+        # Пути до данных и всей папки задачи:
+        task_data_dir = os.path.dirname(first_file)
+        task_dir = os.path.dirname(task_data_dir)
+
+        return task_dir, task_data_dir, files, first_file
+
+    # Пишет файл manifest.jsonl:
+    @classmethod
+    def _write_manifest(cls, jobs):
+
+        # Определяем гланвые пути:
+        task_dir, task_data_dir, files, first_file = cls._jobs2paths(jobs)
+
         # Формируем содержимое файла:
         manifest = [{'version': '1.1'}]
-        if os.path.splitext(file)[1] in cv2_vid_exts:  # Если это видео
+        if os.path.splitext(first_file)[1] in cv2_vid_exts:  # Если это видео
 
             # Указываем тип "видео":
             manifest.append({'type': 'video'})
@@ -1472,13 +1498,50 @@ class CVATTask(CVATBase):
             manifest.append({'type': 'images'})
 
             # Формируем список описаний файлов:
-            manifest += get_related_files(file,
+            manifest += get_related_files(files,
                                           images_only=False,
                                           as_manifest=True)
 
-        # Пишем результат в файл:
-        manifest_file = os.path.join(os.path.dirname(file), 'manifest.jsonl')
+        # Определяем путь до нужного файла:
+        manifest_file = os.path.join(task_data_dir, 'manifest.jsonl')
+
+        # Пишем результат в файл и возвращаем путь до него:
         return obj2json(manifest, manifest_file)
+
+    # Пишет файл index.json (на самом деле удаляет его, т.к. он не обязателен):
+    @classmethod
+    def _write_index(cls, jobs):
+
+        # Определяем гланвые пути:
+        task_dir, task_data_dir, files, first_file = cls._jobs2paths(jobs)
+
+        # Определяем путь до нужного файла:
+        index_file = os.path.join(task_data_dir, 'index.json')
+
+        # Удаляем этот файл, т.к. его существование не обязательно:
+        return rmpath(index_file)
+
+    # Пишет файл описания задачи task.json:
+    @classmethod
+    def _write_info(jobs, info):
+
+        # Определяем гланвые пути:
+        task_dir, task_data_dir, files, first_file = cls._jobs2paths(jobs)
+
+        # Определяем путь до нужного файла:
+        info_file = os.path.join(task_data_dir, 'task.json')
+
+        # Пишем всю информацию о задаче в соответствующий файл:
+        return obj2json(info, info_file)
+
+    # Пишет файл разметки annotations.json:
+    @classmethod
+    def _write_annotanions(jobs):
+
+        # Определяем гланвые пути:
+        task_dir, task_data_dir, files, first_file = cls._jobs2paths(jobs)
+
+        
 
     # Пишет текущее состояние разметки в папку с распакованным бекапом,
     # а при необходимости собирает архив и отправляет его на CVAT-сервер.
@@ -1489,7 +1552,8 @@ class CVATTask(CVATBase):
         # Обновляем содержимое файлов в распакованном датасете:
         self._write_annotations2unzipped_backup(self.data,
                                                 task_data_dir,
-                                                self.unzipped_backup)
+                                                self.unzipped_backup,
+                                                self.info)
 
         # Если нужно отправлять результат на CVAT-сервер:
         if push:
