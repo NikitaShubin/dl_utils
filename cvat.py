@@ -83,7 +83,7 @@ from utils import (mpmap, ImReadBuffer, reorder_lists, mkdirs, CircleInd,
                    apply_on_cartesian_product, extend_list_in_dict_value,
                    DelayedInit, color_float_hsv_to_uint8_rgb,
                    draw_contrast_text, put_text_carefully, cv2_vid_exts,
-                   cv2_img_exts, split_dir_name_ext)
+                   cv2_img_exts, split_dir_name_ext, get_file_list, cv2_exts)
 from cv_utils import Mask, build_masks_IoU_matrix
 from video_utils import VideoGenerator, ViSave, recomp2mp4
 
@@ -248,33 +248,36 @@ def cvat_backup_task_dir2task(task_dir, also_return_meta=False):
 
     # Если есть manifest.jsonl, то список файлов читаем из него:
     file = ()
-    if os.path.isfile(manifest_file := os.path.join(task_dir, 'data',
-                                                    'manifest.jsonl')):
+    if os.path.isfile(
+        manifest_file := os.path.join(task_dir, 'data', 'manifest.jsonl')
+    ):
 
         # Читаем json-файл:
         with open(manifest_file, 'r', encoding='utf-8') as f:
             manifest = [json.loads(line) for line in f]
 
         # Формируем кортеж имён файлов:
-        file = tuple([os.path.join(task_dir, 'data',
-                                   d['name'] + d['extension'])
-                      for d in manifest if 'name' in d])
+        file = [os.path.join(task_dir, 'data', d['name'] + d['extension']) \
+                for d in manifest if 'name' in d]
 
     # Если manifest.jsonl не существует, или файлы в нём не описаны:
     if len(file) == 0:
 
-        # Формируем множество файлов в папке data, исключая task.json и
-        # annotations.json:
-        file = set(os.listdir(os.path.join(task_dir, 'data'))) - \
-            {'task.json', 'annotations.json', 'index.json', 'manifest.jsonl'}
-
-        # Множество должно содержать лишь один элемент:
-        if len(file) != 1:
-            raise ValueError(
-                f'Найдено более одного размеченного файла: {file}!')
+        # Формируем список файлов в папке data, являющихся либо изображениями,
+        # либо видео:
+        file = get_file_list(os.path.join(task_dir, 'data'), cv2_exts, False)
+        file = sorted(file)
 
         # Его и берём, формируя полный путь к файлу:
-        file = os.path.join(task_dir, 'data', file.pop())
+        if len(file) == 1:
+            file = os.path.join(task_dir, 'data', file.pop())
+
+        '''
+        # Множество должно содержать лишь один элемент:
+        else:
+            raise ValueError(
+                f'Найдено более одного размеченного файла: {file}!')
+        '''
 
     task_name = task_desc['name']                # Имя задачи
     jobs      = task_desc['jobs']                # Список подзадач
