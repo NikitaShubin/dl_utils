@@ -17,7 +17,7 @@ from cvat import (
 from utils import (
     mkdirs, rmpath, mpmap, get_n_colors, unzip_dir, AnnotateIt, cv2_exts,
     cv2_vid_exts, get_file_list, json2obj, get_empty_dir, Zipper, obj2json,
-    get_video_info
+    get_video_info, split_dir_name_ext
 )
 
 
@@ -487,6 +487,31 @@ class CVATSRVBase:
         # Если передано имя лишь одной подсущности:
         else:
             return self[name].backup(path)
+
+    def backup_all(self,
+                   path='./',
+                   desc='Загрузка бекапов',
+                   **mpmap_kwargs):
+        '''
+        Выполняет бекап всех элементов, входящих в объект, по отдельности.
+        '''
+        # Присовокупляем описание к остальным параметрам mpmap:
+        mpmap_kwargs = mpmap_kwargs | {'desc': desc}
+
+        # Формируем список объектов, подлежащих бекапу:
+        objs = self.values()
+
+        # Формируем список ID всех сущностей:
+        ids = [obj.id for obj in objs]
+
+        # Формируем список имён для бекапов из ID соответствующих сущностей:
+        paths = [os.path.join(path, f'{id}.zip') for id in ids]
+
+        # Бекапим все сущности:
+        client_kwargs = [self.client.kwargs4init()] * len(objs)
+        child_classes = [self.child_class] * len(objs)
+        return mpmap(self._backup, client_kwargs, child_classes,
+                     ids, paths, **mpmap_kwargs)
 
     def restore(self, backup_file):
         '''
@@ -1005,16 +1030,18 @@ class CVATBase:
                  cvat_srv_obj: CVATSRVBase | None = None,
                  zipped_backup: str | None = None,
                  unzipped_backup: str | None = None,
-                 desc: bool = True,
-                 *, _skip_parse: bool = False):
+                 parted: bool = True,
+                 verbose: bool = True):
         '''
         cvat_srv_obj    - объект-представитель задачи или проекта из CVAТ,
                           через который осуществляется доступ к серверу.
         zipped_backup   - путь до zip-архива, содержащего бекап CVAT-объекта.
         unzipped_backup - путь до папки, содержащей распакованную версию
                           zipped_backup.
-        _skip_parse     - Не менять! используется только внутренними методами
-                          при создании новой задачи.
+        parted          - флаг экспорта/импорта бекапа по частям (работает
+                          только для проектов, которые можро разрезать на
+                          задачи).
+        verbose         - флаг вывода информации о статусе процессов.
 
         Исходная логика такова:
             1) посредством cvat_srv_obj закачиваем бекап в файл
@@ -1043,62 +1070,137 @@ class CVATBase:
         self.__prepare_variables(cvat_srv_obj,
                                  zipped_backup,
                                  unzipped_backup,
-                                 desc)
+                                 parted,
+                                 verbose)
 
-        # Парсим распакованный бекап (если нет специальной директивы):
-        if not _skip_parse:
-            self.__prepare_resources()
+        # Парсим распакованный бекап:
+        self.__prepare_resources()
 
     # Приводит переменные к рабочему состоянию:
     def __prepare_variables(self,
                             cvat_srv_obj,
                             zipped_backup,
                             unzipped_backup,
-                            desc):
+                            parted,
+                            verbose):
         '''
         if (cvat_srv_obj, zipped_backup, unzipped_backup) == (None,) * 3:
             raise ValueError('Хотя бы один параметр должен быть задан!')
         '''
-
         # Инициируем список файлов, подлежащих удалению перед закрытием
         # объекта:
-        self.paths2remove = []
+        self.paths2remove = set()
+
+        # Если cvat_srv_obj не является представителем проекта, то
+        # синхронизация по частям невозможноа:
+        if not isinstance(cvat_srv_obj, CVATSRVProject):
+            parted = False
 
         # Доопределяем путь к архиву бекапа, если он не задан:
         if zipped_backup is None:
             # Указываем его место во временной папке, которая потом будет
             # удалена:
             zipped_backup = get_empty_dir()
-            self.paths2remove.append(zipped_backup)
+            self.paths2remove.add(zipped_backup)
             zipped_backup = os.path.join(zipped_backup, 'bu.zip')
         else:
             # Даже если архив задан, он подлежит удалению перед деструкцией
             # экземлпяра класса:
-            self.paths2remove.append(zipped_backup)
+            self.paths2remove.add(zipped_backup)
 
         # Создаём папку для распакованных данных, если она не задана,
         # или не существует:
         if unzipped_backup is None or not os.path.isdir(unzipped_backup):
             unzipped_backup = get_empty_dir(unzipped_backup, False)
-            self.paths2remove.append(unzipped_backup)
-
-        # Создаём объект для сжатия unzipped_backup в zipped_backup и
-        # распаковки обратно:
-        compressor = Zipper(unzipped=os.path.join(unzipped_backup, '*'),
-                            zipped=zipped_backup,
-                            remove_unzipped=False,
-                            rewrtie_unzipped=False,
-                            remove_zipped=True,
-                            rewrtie_zipped=True,
-                            compress_desc='Сжатие бекапа' if desc else None,
-                            extract_desc='извлечение бекапа' if desc else None)
+            self.paths2remove.add(unzipped_backup)
 
         # Фиксируем объекты:
         self.cvat_srv_obj = cvat_srv_obj
         self.zipped_backup = zipped_backup
         self.unzipped_backup = unzipped_backup
-        self.compressor = compressor
-        self.desc = desc
+        self.parted = parted
+        self.verbose = verbose
+
+    # Выполнчет сжатие бекапа(ов):
+    def compress(self):
+
+        # Определяем текстовое сопровождение процесса:
+        desc = 'Сжатие бекапа' if self.verbose else ''
+
+        # Если нужно архивировать по частям:
+        if self.parted:
+
+            # Формируем аргументы для параллельной архивации:
+            unzippeds = []
+            zippeds = []
+            num_tasks = 0
+            # Перебираем все поддирректории в папке с распакованным бекапом:
+            for dir_name in os.listdir(self.unzipped_backup):
+
+                # Файлы пропускаем:
+                task_dir = os.path.join(self.unzipped_backup, dir_name)
+                if not os.path.isdir(task_dir):
+                    continue
+
+                num_tasks += 1
+
+                # Пополняем списки путей:
+                unzippeds.append(os.path.join(task_dir, '*'))
+                zippeds.append(
+                    os.path.join(self.zipped_backup, f'{dir_name}.zip')
+                )
+
+            # Выполняем параллельное сжатие:
+            mpmap(Zipper.compress, unzippeds, zippeds,
+                  [False] * num_tasks, [True] * num_tasks,
+                  desc=desc)
+
+        # Если вносится весь архив целиком:
+        else:
+            with AnnotateIt(desc):
+                Zipper.compress(
+                    unzipped=os.path.join(self.unzipped_backup, '*'),
+                    zipped=self.zipped_backup,
+                    remove_source=False,
+                    rewrite_target=True,
+                    desc=desc
+                )
+
+    # Выполнчет распаковку бекапа(ов):
+    def extract(self):
+
+        # Определяем текстовое сопровождение процесса:
+        desc = 'Извлечение бекапа' if self.verbose else ''
+
+        # Если нужно распаковывать по частям:
+        if self.parted:
+
+            # Формируем аргументы для параллельной архивации:
+            zippeds = get_file_list(self.zipped_backup, '.zip', False)
+            unzippeds = []
+            num_tasks = len(zippeds)
+
+            for zipped in zippeds:
+                _, name, _ = split_dir_name_ext(zipped)
+                unzippeds.append(
+                    os.path.join(self.unzipped_backup, name, '*')
+                )
+
+            # Выполняем параллельную распаковку:
+            mpmap(Zipper.extract, zippeds, unzippeds,
+                  [True] * num_tasks, [False] * num_tasks,
+                  desc=desc)
+
+        # Если вносится весь архив целиком:
+        else:
+            with AnnotateIt(desc):
+                Zipper.extract(
+                    unzipped=os.path.join(self.unzipped_backup, '*'),
+                    zipped=self.zipped_backup,
+                    remove_source=True,
+                    rewrite_target=False,
+                    desc=desc
+                )
 
     # Приводит все файлы к рабочему состоянию:
     def __prepare_resources(self):
@@ -1122,14 +1224,44 @@ class CVATBase:
             # сразу создаём свежий бекап:
             if self.cvat_srv_obj is not None:
                 rmpath(self.zipped_backup)  # Уже существующий архив удаляем
-                with AnnotateIt('Загрузка бекапа' if self.desc else ''):
-                    self.cvat_srv_obj.backup(self.zipped_backup)
 
-            # Распаковываем бекап:
-            self.compressor.extract()
-            # Архив после этого удаляется.
+                # Качаем бекап частями или целиком:
+                desc = 'Загрузка бекапа' if self.verbose else ''
+                if self.parted:
+                    self.cvat_srv_obj.backup_all(self.zipped_backup,
+                                                 desc=desc,
+                                                 num_procs=1)
+                else:
+                    with AnnotateIt(desc):
+                        self.cvat_srv_obj.backup(self.zipped_backup)
 
-        # Должен создавать поля data и info
+            # Распаковываем бекап(ы):
+            self.extract()
+            # Архив(ы) после этого удаляе(ю)тся.
+
+            # Если задачи качались по отдельности, то project.json нужно
+            # создать отдельно:
+            if self.parted:
+
+                # Составляем список меток:
+                keys = {'name', 'color', 'attributes', 'type', 'sublabels'}
+                labels = []
+                for label in self.cvat_srv_obj.get_labels():
+                    label = label.to_dict()
+                    labels.append({k: label[k] for k in label.keys() & keys})
+
+                # Собираем общее описание:
+                info = {'name': self.cvat_srv_obj.name,
+                        'bug_tracker': self.cvat_srv_obj.bug_tracker,
+                        'status': self.cvat_srv_obj.status,
+                        'labels': labels,
+                        'version': '1.0'}
+
+                # Пишем всю инфу в файл:
+                json_file = os.path.join(self.unzipped_backup, 'project.json')
+                obj2json(info, file=json_file)
+
+        # Должен создавать поля data и info:
         self._parse_unzipped_backup()
 
     # Парсит распакованный бекап:
@@ -1158,7 +1290,7 @@ class CVATBase:
     def rm_all_paths2remove(self):
         for path in self.paths2remove:
 
-            if self.desc:
+            if self.verbose:
                 print(f'"{path}" удалён!')
 
             rmpath(path)
@@ -1194,7 +1326,7 @@ class CVATProject(CVATBase):
         # Перебираем все папки в корне:
         for base_name in tqdm(base_names,
                               desc='Чтение бекапа',
-                              disable=not self.desc):
+                              disable=not self.verbose):
 
             # Доопределяем путь до файла:
             subdir = os.path.join(self.unzipped_backup, base_name)
@@ -1214,7 +1346,7 @@ class CVATProject(CVATBase):
         # Вызываем синхронизацю каждого из подобъектов:
         for task_data in tqdm(self.data,
                               desc='Выполняем локальную синхронизацию',
-                              disable=not self.desc):
+                              disable=not self.verbose):
             task_data.sync(False)
 
         # Если надо отправлять результат на CVAT-сервер:
@@ -1223,11 +1355,11 @@ class CVATProject(CVATBase):
                 raise Exception('Не задан cvat_srv_obj. '
                                 'Отправка на CVAT-сервер невозможна!')
 
-            # Формируем архив:
-            self.compressor.compress()
+            # Формируем архив(ы):
+            self.compress()
 
             # Отправляем архив на сервер:
-            with AnnotateIt('Выгрузка бекапа' if self.desc else ''):
+            with AnnotateIt('Выгрузка бекапа' if self.verbose else ''):
 
                 # Переходим в CVAT на один уровень выше:
                 parent = self.cvat_srv_obj.parent()
@@ -1569,10 +1701,10 @@ class CVATTask(CVATBase):
         # Если нужно отправлять результат на CVAT-сервер:
         if push:
 
-            with AnnotateIt('Отправка задачи в CVAT' if self.desc else ''):
+            with AnnotateIt('Отправка задачи в CVAT' if self.verbose else ''):
 
-                # Создаём архив:
-                self.compressor.compress()
+                # Создаём архив(ы):
+                self.compress()
 
                 # Отправка архива на CVAT-сервер:
                 self.cvat_srv_obj.parent().restore(self.zipped_backup)
