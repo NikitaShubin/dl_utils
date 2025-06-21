@@ -986,7 +986,8 @@ def get_empty_dir(path=None, clear=False):
     '''
     # Создаём временную дирректорию, если путь не указан:
     if path is None:
-        path = tempfile.TemporaryDirectory().name
+        path = tempfile.mkdtemp()
+        print(path, os.path.isdir(path), '+')
 
     # Если папка не создана - создаём:
     elif not os.path.isdir(path):
