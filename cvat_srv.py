@@ -782,6 +782,7 @@ class CVATSRVJob(CVATSRVBase):
     def __len__(self):
         return len(self.obj.get_frames_info())
 
+
 class CVATSRVTask(CVATSRVBase):
     '''
     Здазача CVAT-сервера.
@@ -799,6 +800,11 @@ class CVATSRVTask(CVATSRVBase):
     @classmethod
     def from_id(cls, client, id):
         return cls(client, client.tasks.retrieve(id))
+
+    # Позволяет редактировать задачу на сервере посредством редактирования
+    # локальной копии бекапа:
+    def local_editor(self, *args, **kwargs):
+        return CVATTask(self, *args, **kwargs)
 
 
 class CVATSRVProject(CVATSRVBase):
@@ -862,6 +868,11 @@ class CVATSRVProject(CVATSRVBase):
                 'status': self.status,
                 'labels': self.labels(),
                 'version': '1.0'}
+
+    # Позволяет редактировать проект на сервере посредством редактирования
+    # локальной копии бекапа:
+    def local_editor(self, *args, **kwargs):
+        return CVATProject(self, *args, **kwargs)
 
 
 class CVATSRV(CVATSRVBase):
