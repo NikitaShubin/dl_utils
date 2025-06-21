@@ -987,7 +987,6 @@ def get_empty_dir(path=None, clear=False):
     # Создаём временную дирректорию, если путь не указан:
     if path is None:
         path = tempfile.mkdtemp()
-        print(path, os.path.isdir(path), '+')
 
     # Если папка не создана - создаём:
     elif not os.path.isdir(path):
@@ -1096,7 +1095,6 @@ class Zipper:
         rewrite_target: bool = False,
         compress_desc: str = '',
         extract_desc: str = '',
-
         desc: str = ''
     ):
         # Проверка наличия хотя бы одного параметра:
@@ -1109,8 +1107,8 @@ class Zipper:
         self.rewrtie_unzipped = self.flag(rewrtie_unzipped, rewrite_target)
         self.remove_zipped = self.flag(remove_zipped, remove_source)
         self.rewrtie_zipped = self.flag(rewrtie_zipped, rewrite_target)
-        self.compress_desc = compress_desc
-        self.extract_desc = extract_desc
+        self.compress_desc = self.flag(compress_desc, desc)
+        self.extract_desc = self.flag(extract_desc, desc)
 
         # Связываем методы экземпляра с внутренними реализациями:
         self.compress = self.__compress
@@ -1162,8 +1160,9 @@ class Zipper:
         base = Zipper._get_base_path(source_list)
         return base + '.zip'
 
-    @staticmethod
+    @classmethod
     def _compress(
+        cls,
         source: str | Iterable[str],
         target: str = '',
         remove_source: bool = False,
@@ -1193,7 +1192,7 @@ class Zipper:
         '''
         try:
             # Шаг 1 - Преобразование источника в список файлов:
-            source_list = Zipper._source_to_list(source)
+            source_list = cls._source_to_list(source)
 
             # Шаг 2 - Проверка существования всех файлов в списке:
             for path in source_list:
@@ -1202,7 +1201,7 @@ class Zipper:
 
             # Шаг 3 - Определение пути для архива, если не задан:
             if not target:
-                target = Zipper._get_default_archive_path(source_list)
+                target = cls._get_default_archive_path(source_list)
 
             # Шаг 4 - Проверка существования архива и политики перезаписи:
             if os.path.exists(target) and not rewrite_target:
@@ -1229,7 +1228,7 @@ class Zipper:
                 else:
                     # Для файлов/масок/списков - сохраняем без родительской
                     # директории:
-                    base_path = Zipper._get_base_path(source_list)
+                    base_path = cls._get_base_path(source_list)
 
                     for path in source_list:
                         abs_path = os.path.abspath(path)
@@ -1272,8 +1271,9 @@ class Zipper:
             print(f'Ошибка сжатия: {e}')
             return False
 
-    @staticmethod
+    @classmethod
     def _extract(
+        cls,
         source: str,
         target: str = '',
         remove_source: bool = False,
@@ -1371,8 +1371,9 @@ class Zipper:
             return False
 
     # Статические методы-обертки для прямого вызова:
-    @staticmethod
+    @classmethod
     def compress(
+        cls,
         unzipped: str | Iterable[str],
         zipped: str = '',
         remove_source: bool = False,
@@ -1380,15 +1381,16 @@ class Zipper:
         desc: str = ''
     ) -> str | bool:
         with AnnotateIt(desc):
-            return Zipper._compress(
+            return cls._compress(
                 source=unzipped,
                 target=zipped,
                 remove_source=remove_source,
                 rewrite_target=rewrite_target,
             )
 
-    @staticmethod
+    @classmethod
     def extract(
+        cls,
         zipped: str,
         unzipped: str = '',
         remove_source: bool = False,
@@ -1396,7 +1398,7 @@ class Zipper:
         desc: str = ''
     ) -> str | bool:
         with AnnotateIt(desc):
-            return Zipper._extract(
+            return cls._extract(
                 source=zipped,
                 target=unzipped,
                 remove_source=remove_source,
@@ -1406,7 +1408,7 @@ class Zipper:
     # Методы экземпляра класса:
     def __compress(self) -> str | bool:
         with AnnotateIt(self.compress_desc):
-            return Zipper._compress(
+            return self._compress(
                 source=self.unzipped,
                 target=self.zipped,
                 remove_source=self.remove_unzipped,
@@ -1415,7 +1417,7 @@ class Zipper:
 
     def __extract(self) -> str | bool:
         with AnnotateIt(self.extract_desc):
-            return Zipper._extract(
+            return self._extract(
                 source=self.zipped,
                 target=self.unzipped,
                 remove_source=self.remove_zipped,
