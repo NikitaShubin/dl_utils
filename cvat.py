@@ -189,11 +189,6 @@ def shape2df(shape    : 'Объект, из которого считывают�
     '''
     Вносит в датафрейм инфу о новом объекте.
     '''
-    '''
-    # Инициируем датафрейм, если это ещё не сделано:
-    if df is None:
-        df = new_df()
-    '''
     # Список извлекаемых значений:
     columns = set(df_columns_type.keys()) - {'true_frame'}
     # "true_frame" исключаем, т.к. он не считывается а вычисляется потом
@@ -217,6 +212,73 @@ def shape2df(shape    : 'Объект, из которого считывают�
                        str(unused_params))
 
     return df
+
+
+# Столбцы датафрейма для ...
+# ... трека вцелом (без учёта кадров):
+per_track_columns = ['group', 'source', 'attributes', 'elements', 'label']
+# ... трека в отдельном кадре:
+per_frame_columns = ['type', 'occluded', 'outside', 'z_order', 'rotation',
+                     'points', 'frame', 'attributes']
+# ... шейпа:
+per_shape_columns = per_track_columns + per_frame_columns
+# Всё это используется в df2annotations.
+
+def df2annotations(df):
+    '''
+    Формирует из датафрейма словарь разметки в формате annotations.json.
+    '''
+    # Разделяем датафрейм на формы и треки:
+    shapes_mask = df['track_id'].isna()
+    shapes_df = df[shapes_mask]
+    tracks_df = df[~shapes_mask]
+
+    # Перебираем каждую форму:
+    shapes = []
+    for dfrow in shapes_df.iloc:
+        shapes.append({name: dfrow[name] for name in per_shape_columns})
+
+    # Перебираем по отдельности каждый трек:
+    tracks = []
+    for track_id in tracks_df['track_id'].unique():
+        track_df = tracks_df[tracks_df['track_id'] == track_id]
+
+        # Иницируем словарь, описывающий трек:
+        track = {'frame': track_df['frame'].min()}
+        # Требует указания первого кадра.
+
+        # Описываем параметры, характеризующие трек в целом:
+        for name in per_track_columns:
+
+            # Записи в столбцах per_track_columns должны быть одинаковы в
+            # пределах одного трека:
+            vals = track_df[name]
+            if df_default_vals[name] == []:  # Список переводим в кортеж,
+                vals = vals.apply(tuple)     # чтобы применялась ф-ия unique
+            vals = vals.unique()
+            if len(vals) > 1:
+                raise ValueError('Противоречивые значения в столбце '
+                                 f'{name} трека {track_id}: {vals}!')
+            val = vals[0]
+            if isinstance(val, tuple):  # Возвращаем список, если надо
+                val = list(val)
+            track[name] = val
+
+        # Дополняем покадровой разметкой:
+        track_shapes = []
+        for dfrow in track_df.iloc:
+            shape = {name: dfrow[name] for name in per_frame_columns}
+            track_shapes.append(shape)
+        track['shapes'] = track_shapes
+
+        # Вносим полное описание очередного трека в общий список:
+        tracks.append(track)
+
+    # Собираем и возвращаем итоговый словарь:
+    return {'version': 0,
+            'tags': [],
+            'shapes': shapes,
+            'tracks': tracks}
 
 
 def cvat_backup_task_dir2task(task_dir, also_return_meta=False):
@@ -3175,6 +3237,7 @@ def hide_skipped_objects_in_df(df, true_frames):
     # номеру кадра:
     df = concat_dfs([df] + hidden_dfs)
     return df.sort_values('frame')
+
 
 def split_df_by_visibility(df):
     '''

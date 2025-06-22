@@ -12,7 +12,7 @@ from tqdm import tqdm
 
 from cvat import (
     add_row2df, concat_dfs, ergonomic_draw_df_frame, cvat_backups2raw_tasks,
-    cvat_backup_task_dir2task, get_related_files
+    cvat_backup_task_dir2task, get_related_files, df2annotations
 )
 from utils import (
     mkdirs, rmpath, mpmap, get_n_colors, unzip_dir, AnnotateIt, cv2_exts,
@@ -214,9 +214,11 @@ class Client:
         if backup_type == 'task':
             file_request = models.TaskFileRequest
             restore_from_backup = api_client.tasks_api.create_backup
+            backup_request_name = 'task_file_request'
         elif backup_type == 'project':
             file_request = models.ProjectFileRequest
             restore_from_backup = api_client.projects_api.create_backup
+            backup_request_name = 'backup_write_request'
         else:
             raise ValueError('Неверное значение "backup_type": '
                              f'{backup_type}')
@@ -229,7 +231,7 @@ class Client:
 
             # Отправляем запрос:
             data, response = restore_from_backup(
-                task_file_request=backup_request,
+                **{backup_request_name: backup_request},
                 _content_type='multipart/form-data'  # Без этого не работает!
             )
 
@@ -269,33 +271,39 @@ class Client:
 
         raise TimeoutError(f'Превышено время ожидания ({timeout} секунд)')
 
-    def restore_task(self, backup_file):
+    def restore_task(self, backup_file, return_id_only=False):
         '''
         Восстанавливает задачу из бекапа.
         '''
         # Запуск передачи бекапа:
         req_id = self._send_backup(backup_file, 'task')
 
-        if 'requests_api' in dir(self.obj.api_client):
+        if hasattr(self.obj.api_client, 'requests_api'):
             # Ожидание результата:
             task_id = self._rq_id2id(req_id)
 
-            # Получение новой задачи из её ID:
-            return CVATSRVTask.from_id(self, task_id)
+            # Возвращаем новую задачу, или только её ID:
+            if return_id_only:
+                return task_id
+            else:
+                return CVATSRVTask.from_id(self, task_id)
 
-    def restore_project(self, backup_file):
+    def restore_project(self, backup_file, return_id_only=False):
         '''
         Восстанавливает проект из бекапа.
         '''
         # Запуск передачи бекапа:
         req_id = self._send_backup(backup_file, 'project')
 
-        if 'requests_api' in dir(self.obj.api_client):
+        if hasattr(self.obj.api_client, 'requests_api'):
             # Ожидание результата:
             proj_id = self._rq_id2id(req_id)
 
-            # Получение новой задачи из её ID:
-            return CVATSRVProject.from_id(self, proj_id)
+            # Возвращаем новый проект, или только её ID:
+            if return_id_only:
+                return proj_id
+            else:
+                return CVATSRVProject.from_id(self, proj_id)
 
     @staticmethod
     def parse_url(url):
@@ -412,8 +420,8 @@ class CVATSRVBase:
                 return val.id
         return None
 
-    @classmethod
-    def _backup(cls, client_kwargs, child_class, child_id, path):
+    @staticmethod
+    def _backup(client_kwargs, child_class, child_id, path):
         '''
         Создаёт бекап, предварительно пересоздавая клиент.
         Нужно для использования mpmap, работающей только с сериализуемыми
@@ -422,6 +430,20 @@ class CVATSRVBase:
         client = Client(**client_kwargs)
         child = child_class.from_id(client, child_id)
         return child.backup(path)
+
+    @staticmethod
+    def _restore(client_kwargs, parent_class, parent_id, path):
+        '''
+        Воссоздаёт объект из бекапа, предварительно пересоздавая клиент.
+        Нужно для использования mpmap, работающей только с сериализуемыми
+        объектами.
+        '''
+        client = Client(**client_kwargs)
+        if parent_id is None:
+            return client.restore_project(path, return_id_only=True)
+        else:
+            parent = parent_class.from_id(client, parent_id)
+            return parent.restore(path, return_id_only=True)
 
     def backup(self,
                path='./',
@@ -513,13 +535,15 @@ class CVATSRVBase:
         return mpmap(self._backup, client_kwargs, child_classes,
                      ids, paths, **mpmap_kwargs)
 
-    def restore(self, backup_file):
+    def restore(self, backup_file, return_id_only=False):
         '''
         Восстанавливает задачу или проект по его бекапу.
         '''
         # Если сейчас мы на уровне сервера, то восстанавливаем проект:
         if self._hier_lvl == 0:
-            return self.client.restore_project(backup_file)
+            return self.client.restore_project(
+                backup_file, return_id_only=return_id_only
+            )
 
         # Если сейчас мы на уровне проекта, то восстанавливаем задачу:
         elif self._hier_lvl == 1:
@@ -528,12 +552,32 @@ class CVATSRVBase:
             # Привязываем задачу к текущему датасету:
             task.update({'project_id': self.id})
 
-            return task
+            # Возвращаем либо сам восстановленный объект, либо только его ID:
+            return task.id if return_id_only else task
 
         else:
             raise NotImplementedError(
                 'Восстанавливать можно лишь проекты и задачи!'
             )
+
+
+    def restore_all(self,
+                    paths: list | tuple | set,
+                    desc='Восстановление из бекапов',
+                    **mpmap_kwargs):
+        '''
+        Восстанавливает элементы текущего объекта из списка бекапов.
+        '''
+        # Присовокупляем описание к остальным параметрам mpmap:
+        mpmap_kwargs = mpmap_kwargs | {'desc': desc}
+
+        # Восстанавливаем все сущности:
+        client_kwargs = [self.client.kwargs4init()] * len(paths)
+        parent_class = self._hier_lvl2class.get(self._hier_lvl)
+        parent_classes = [parent_class] * len(paths)
+        parent_ids = [self.id if self._hier_lvl else None] * len(paths)
+        return mpmap(self._restore, client_kwargs, parent_classes,
+                     parent_ids, paths, **mpmap_kwargs)
 
     def values(self):
         '''
@@ -1279,7 +1323,7 @@ class CVATBase:
 
     # Пишет текущее состояние разметки в папку с распакованным бекапом,
     # а при необходимости собирает архив и отправляет его на CVAT-сервер.
-    def sync(self, push=True):
+    def push(self, local_only=False):
         raise NotImplementedError('Метод должен быть переопределён!')
 
     # Размер объекта = размеру поля data:
@@ -1341,16 +1385,16 @@ class CVATProject(CVATBase):
 
     # Пишет текущее состояние разметки в папку с распакованным бекапом,
     # а при необходимости собирает архив и отправляет его на CVAT-сервер.
-    def sync(self, push=True):
+    def push(self, local_only=False):
 
         # Вызываем синхронизацю каждого из подобъектов:
         for task_data in tqdm(self.data,
-                              desc='Выполняем локальную синхронизацию',
+                              desc='Обновление локальной копии',
                               disable=not self.verbose):
-            task_data.sync(False)
+            task_data.push(True)
 
         # Если надо отправлять результат на CVAT-сервер:
-        if push:
+        if not local_only:
             if self.cvat_srv_obj is None:
                 raise Exception('Не задан cvat_srv_obj. '
                                 'Отправка на CVAT-сервер невозможна!')
@@ -1358,15 +1402,25 @@ class CVATProject(CVATBase):
             # Формируем архив(ы):
             self.compress()
 
-            # Отправляем архив на сервер:
-            with AnnotateIt('Выгрузка бекапа' if self.verbose else ''):
+            # Отправляем архив(ы) на сервер
+            desc = 'Выгрузка бекапа' if self.verbose else ''
+            if self.parted:  # Если отправлять надо по частям
 
-                # Переходим в CVAT на один уровень выше:
-                parent = self.cvat_srv_obj.parent()
+                # Составляем список архивов:
+                paths = get_file_list(self.zipped_backup, '.zip')
 
-                # Выполняем Выгрузку бекапа и заменяем интерфейсный
-                # объект:
-                self.cvat_srv_obj = parent.restore(self.zipped_backup)
+                # Отправляем все архивы на сервер:
+                self.cvat_srv_obj.restore_all(paths, desc=desc)
+
+            else:  # Если отправлять надо один архив целиком
+                with AnnotateIt(desc):
+
+                    # Переходим в CVAT на один уровень выше:
+                    parent = self.cvat_srv_obj.parent()
+
+                    # Выполняем Выгрузку бекапа и заменяем интерфейсный
+                    # объект:
+                    self.cvat_srv_obj = parent.restore(self.zipped_backup)
 
 
 class CVATTask(CVATBase):
@@ -1564,22 +1618,6 @@ class CVATTask(CVATBase):
     def _init_annotations(cls, file_list):
         return [CVATJob.from_raw_data(file_list)]
 
-    # Пишет указанную разметку в папку с распакованным бекапом:
-    @classmethod
-    def _write_annotations2unzipped_backup(cls,
-                                           jobs,
-                                           task_data_dir,
-                                           unzipped_backup,
-                                           info):
-
-        # Пишем файлы описания данных:
-        cls._write_manifest(jobs)  # Пишем manifest.jsonl
-        cls._write_index(jobs)     # Пишем index.json
-
-        # Пишем файлы описания данных:
-        cls._write_info(jobs, info)  # Пишем task.json
-        cls._write_annotanions(jobs)  # Пишем annotations.json
-
     # Возвращает пути до распакованной задачи, папки с её данными и первый
     # из файлов:
     @staticmethod
@@ -1601,14 +1639,31 @@ class CVATTask(CVATBase):
         task_data_dir = os.path.dirname(first_file)
         task_dir = os.path.dirname(task_data_dir)
 
-        return task_dir, task_data_dir, files, first_file
+        return task_dir, task_data_dir, file, first_file
+
+    # Пишет указанную разметку в папку с распакованным бекапом:
+    @classmethod
+    def _write_annotations2unzipped_backup(cls,
+                                           jobs,
+                                           task_data_dir,
+                                           unzipped_backup,
+                                           info):
+        # Определяем гланвые пути:
+        task_dir, task_data_dir, file, first_file = cls._jobs2paths(jobs)
+
+        # Пишем файлы описания данных:
+        
+        cls._write_manifest(jobs, task_dir, task_data_dir,
+                            file, first_file)  # manifest.json
+        cls._write_index(jobs, task_data_dir)   # index.json
+
+        # Пишем файлы описания данных:
+        cls._write_info(jobs, info, task_data_dir)  # task.json
+        cls._write_annotanions(jobs, task_dir)      # annotations.json
 
     # Пишет файл manifest.jsonl:
-    @classmethod
-    def _write_manifest(cls, jobs):
-
-        # Определяем гланвые пути:
-        task_dir, task_data_dir, files, first_file = cls._jobs2paths(jobs)
+    @staticmethod
+    def _write_manifest(jobs, task_dir, task_data_dir, file, first_file):
 
         # Формируем содержимое файла:
         manifest = [{'version': '1.1'}]
@@ -1641,7 +1696,7 @@ class CVATTask(CVATBase):
             manifest.append({'type': 'images'})
 
             # Формируем список описаний файлов:
-            manifest += get_related_files(files,
+            manifest += get_related_files(file,
                                           images_only=False,
                                           as_manifest=True)
 
@@ -1652,11 +1707,8 @@ class CVATTask(CVATBase):
         return obj2json(manifest, manifest_file)
 
     # Пишет файл index.json (на самом деле удаляет его, т.к. он не обязателен):
-    @classmethod
-    def _write_index(cls, jobs):
-
-        # Определяем гланвые пути:
-        task_dir, task_data_dir, files, first_file = cls._jobs2paths(jobs)
+    @staticmethod
+    def _write_index(jobs, task_data_dir):
 
         # Определяем путь до нужного файла:
         index_file = os.path.join(task_data_dir, 'index.json')
@@ -1665,11 +1717,8 @@ class CVATTask(CVATBase):
         return rmpath(index_file)
 
     # Пишет файл описания задачи task.json:
-    @classmethod
-    def _write_info(jobs, info):
-
-        # Определяем гланвые пути:
-        task_dir, task_data_dir, files, first_file = cls._jobs2paths(jobs)
+    @staticmethod
+    def _write_info(jobs, info, task_data_dir):
 
         # Определяем путь до нужного файла:
         info_file = os.path.join(task_data_dir, 'task.json')
@@ -1678,17 +1727,21 @@ class CVATTask(CVATBase):
         return obj2json(info, info_file)
 
     # Пишет файл разметки annotations.json:
-    @classmethod
-    def _write_annotanions(jobs):
+    @staticmethod
+    def _write_annotanions(jobs, task_dir):
 
-        # Определяем гланвые пути:
-        task_dir, task_data_dir, files, first_file = cls._jobs2paths(jobs)
+        # Строим список разметок для каждой задачи:
+        annotations = [job._build_annotations() for job in jobs]
 
-        
+        # Определяем путь до нужного файла:
+        annotations_file = os.path.join(task_dir, 'annotations.json')
+
+        # Пишем всю разметку в соответствующий файл:
+        return obj2json(annotations, annotations_file)
 
     # Пишет текущее состояние разметки в папку с распакованным бекапом,
     # а при необходимости собирает архив и отправляет его на CVAT-сервер.
-    def sync(self, push=True):
+    def push(self, local_only=False):
 
         task_data_dir = os.path.join(self.unzipped_backup, 'data')
 
@@ -1699,7 +1752,7 @@ class CVATTask(CVATBase):
                                                 self.info)
 
         # Если нужно отправлять результат на CVAT-сервер:
-        if push:
+        if not local_only:
 
             with AnnotateIt('Отправка задачи в CVAT' if self.verbose else ''):
 
@@ -1752,3 +1805,7 @@ class CVATJob:
 
         # Собираем экземпляр класса с пустой разметкой:
         return cls(None, file, {frame: frame for frame in range(total_frames)})
+
+    # Строит словарь разметки формата annotations.json:
+    def _build_annotations(self):
+        return df2annotations(self.df)

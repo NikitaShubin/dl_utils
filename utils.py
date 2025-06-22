@@ -1921,6 +1921,25 @@ def yaml2obj(file='./cfg.yaml', encoding='utf-8'):
     return obj
 
 
+class NpEncoder(json.JSONEncoder):
+    '''
+    Поддержка numpy-типов в json.dumps в obj2json.
+
+    Взято из:
+    https://stackoverflow.com/a/57915246/14474616
+    '''
+    def default(self, obj):
+        if isinstance(obj, np.integer):
+            return int(obj)
+        elif isinstance(obj, np.floating):
+            return float(obj)
+        elif isinstance(obj, np.bool_):
+            return bool(obj)
+        if isinstance(obj, np.ndarray):
+            return obj.tolist()
+        return super(NpEncoder, self).default(obj)
+
+
 def obj2json(obj, file='./cfg.json', encoding='utf-8'):
     '''
     Пишет json- и jsonl-файлы.
@@ -1934,14 +1953,13 @@ def obj2json(obj, file='./cfg.json', encoding='utf-8'):
 
         # Если обычный json:
         if ext == '.json':
-            assert isinstance(obj, dict)
-            json.dump(obj, f)
+            json.dump(obj, f, cls=NpEncoder)
 
         # Если jsonl:
         else:
             assert isinstance(obj, (tuple, list, set))
             for line in obj:
-                f.write(json.dumps(line) + '\n')
+                f.write(json.dumps(line, cls=NpEncoder) + '\n')
 
     return file
 
