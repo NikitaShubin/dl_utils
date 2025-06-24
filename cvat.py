@@ -1319,7 +1319,7 @@ class CVATPoints:
                               rotate_immediately=apply_rot)
 
         elif self.type == 'rectangle':
-            xmin, ymin, xmax, ymax = self.asbbox(apply_rot)
+            xmin, ymin, xmax, ymax = self.asrectangle(apply_rot).flatten()
             x = np.array([xmin, xmax, xmax, xmin])
             y = np.array([ymin, ymin, ymax, ymax])
 
@@ -1388,7 +1388,7 @@ class CVATPoints:
 
             # Параметры прямоугольника:
             kwargs['xtl'], kwargs['ytl'], kwargs['xbr'], kwargs['ybr'] = \
-                map(str, self.asbbox(False))
+                map(str, self.asrectangle(False).flatten())
 
         # Тип многоугольника:
         elif self.type in {'polygon', 'polyline', 'points'}:
