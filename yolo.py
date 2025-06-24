@@ -27,12 +27,12 @@ import shutil
 import numpy as np
 import pandas as pd
 
-from cvat import (CVATPoints, split_image_and_labels2tiles, flat_tasks,
-    fill_na_in_track_id_in_all_tasks, sort_tasks)
-from copybal import (init_task_object_file_graphs, update_object_file_graphs,
-    drop_unused_track_ids_in_graphs, make_copy_bal)
-from utils import (mkdirs, ImReadBuffer, mpmap, cv2_vid_exts, cv2_img_exts,
-    draw_contrast_text, obj2yaml, df2img,rmpath)
+from cvat import CVATPoints, split_image_and_labels2tiles, flat_tasks
+from cvat import fill_na_in_track_id_in_all_tasks, sort_tasks
+from copybal import init_task_object_file_graphs, update_object_file_graphs
+from copybal import drop_unused_track_ids_in_graphs, make_copy_bal
+from utils import mkdirs, ImReadBuffer, mpmap, cv2_vid_exts, cv2_img_exts
+from utils import draw_contrast_text, obj2yaml, df2img,rmpath
 from ml_utils import train_val_test_split
 
 
@@ -59,7 +59,7 @@ class YOLOLabels:
         self.im_size = im_size
 
         # Объект, содежращий описание разметки в формате YOLO:
-        yolo_labels = []
+        self.yolo_labels = []
 
         # Расщепляем размер изображения на составляющие:
         height, width = im_size
@@ -80,15 +80,15 @@ class YOLOLabels:
 
             # Получаем параметры фигуры вокруг объекта:
             points = CVATPoints(points, type_, rotation)
-            # yolo_points = points.yolobbox(height, width) if type_ == 'rectangle' else points.yoloseg(height, width)
-            yolo_points = points.yolobbox(height, width) if mode == 'box' else points.yoloseg(height, width)
+
+            # Приводим фигуру к нужному формату:
+            attr = 'yoloseg' if mode == 'seg' else 'yolobbox'
+            yolo_points = getattr(points, attr)(height, width)
 
             assert yolo_points is not None
 
             # Добавляем эти параметры в список:
-            yolo_labels.append((label, yolo_points))
-
-        self.yolo_labels = yolo_labels
+            self.yolo_labels.append((label, yolo_points))
 
     # Заменяет метки с помощью функции:
     def apply_label_func(self, label_func):
@@ -105,7 +105,7 @@ class YOLOLabels:
             for label, yolo_points in self.yolo_labels:
 
                 # Если текущий объект вообще размечен, то пишем строчку в файл:
-                if label >=0:
+                if label >= 0:
                     points_str = ' '.join(map(str, yolo_points))
                     f.write('%s %s\n' % (label, points_str))
 
@@ -127,19 +127,25 @@ class YOLOLabels:
         Наносит метки Yolo-формата на изображение для превью.
         '''
         # Размеры изображения:
-        height, width = image.shape[:2]
+        imsize = image.shape[:2]
 
         # Создаём изображение, если не задано:
         if image is None:
-            image = np.zeros((height, width, 3), np.uint8)
+            image = np.zeros(list(imsize) + [3], np.uint8)
+
+        # Определяем требуемый формат данных:
+        type_ = 'polygon' if self.mode == 'box' else 'rectangle'
 
         # Пробегаем по всем объектам в кадре:
         for label, points in self.yolo_labels:
             try:
+
                 # Конвертируем YOLO-координаты в CVAT-координаты:
-                points1 = CVATPoints(points, 'polygon' if len(points) > 4 else 'rectangle')    # Оборачиваем точки в CVAT-класс
-                points2 = points1.aspolygon() if self.mode == 'seg' else points1.asrectangle() # Конвертируем тип разметки в нужный формат
-                points3 = points2.yolo2cvat(height, width)                                     # Переводим в YOLO-формат
+
+                # Оборачиваем точки в CVAT-класс:
+                yolo_points = CVATPoints(points, type_, imsize=imsize)
+                # Переводим из YOLO-формата в обычный для визуализации:
+                points2draw = yolo_points.yolo2cvat()
 
                 # Задаём цвет описанной фигуры:
                 if label == -1:
@@ -152,17 +158,19 @@ class YOLOLabels:
                 # вообще встречаться в превью!
 
                 # Отрисовываем контуры, если надо:
+                args = image, str(label), color
                 if edge_size:
-                    image = points3.draw(image, label, color, edge_size)
+                    image = points2draw.draw(*args, edge_size)
                 if alpha:
-                    image = points3.draw(image, label, color, 0, alpha)
+                    image = points2draw.draw(*args, 0, alpha)
 
-            except:
+            except Exception as e:
                 print(points, '\n')
-                print(points1.points, '\n')
-                print(points2.points, '\n')
-                print(points3.points, '\n')
-                raise
+                print(yolo_points, '\n')
+                print(yolo_points.points, '\n')
+                print(points2draw, '\n')
+                print(points2draw.points, '\n')
+                raise e
 
         return image
 
