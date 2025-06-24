@@ -1262,7 +1262,7 @@ class CVATPoints:
             raise ValueError('Неизвестный тип сегмента: %s' % self.type)
 
         rect = min(xmax, xmin), min(ymax, ymin), \
-            max(xmax - xmin), max(ymax - ymin)
+            max(xmax, xmin), max(ymax, ymin)
 
         return type(self)(rect, 'rectangle', self.rotation * apply_rot,
                           imsize=self.imsize, rotate_immediately=apply_rot)
