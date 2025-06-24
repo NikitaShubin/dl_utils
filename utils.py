@@ -495,6 +495,7 @@ def put_text_carefully(text         : 'Растеризируемый текст
     img[my: my + textsize[0], mx: mx + textsize[1], ...] = draw_mask_on_image(
         text_img,
         img[my: my + textsize[0], mx: mx + textsize[1], ...],
+        color=color,
         alpha=alpha,
     )
 

@@ -32,7 +32,7 @@ from cvat import fill_na_in_track_id_in_all_tasks, sort_tasks
 from copybal import init_task_object_file_graphs, update_object_file_graphs
 from copybal import drop_unused_track_ids_in_graphs, make_copy_bal
 from utils import mkdirs, ImReadBuffer, mpmap, cv2_vid_exts, cv2_img_exts
-from utils import draw_contrast_text, obj2yaml, df2img,rmpath
+from utils import draw_contrast_text, obj2yaml, df2img, rmpath
 from ml_utils import train_val_test_split
 
 
@@ -138,8 +138,8 @@ class YOLOLabels:
 
         # Пробегаем по всем объектам в кадре:
         for label, points in self.yolo_labels:
-            try:
 
+            try:
                 # Конвертируем YOLO-координаты в CVAT-координаты:
 
                 # Оборачиваем точки в CVAT-класс:
@@ -149,11 +149,11 @@ class YOLOLabels:
 
                 # Задаём цвет описанной фигуры:
                 if label == -1:
-                    color = (255, 0, 0)  # Синий   для неиспользуемых объектов
+                    color = (0, 0, 255)  # Синий   для неиспользуемых объектов
                 elif label > -1:
                     color = (0, 255, 0)  # Зелёный для обычных        объектов
                 else:
-                    color = (0, 0, 255)  # Красный для исключённых    объектов
+                    color = (255, 0, 0)  # Красный для исключённых    объектов
                 # Если исключения работают корректно, то красный цвет не должен
                 # вообще встречаться в превью!
 
