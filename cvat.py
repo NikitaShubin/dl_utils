@@ -985,8 +985,8 @@ class CVATPoints:
         # Пока действует только для прямоугольников:
         assert self.type == cvat_points.type == 'rectangle'
 
-        xmin1, ymin1, xmax1, ymax1 =        self.asrectangle()
-        xmin2, ymin2, xmax2, ymax2 = cvat_points.asrectangle()
+        xmin1, ymin1, xmax1, ymax1 =        self.asbbox()
+        xmin2, ymin2, xmax2, ymax2 = cvat_points.asbbox()
 
         # Упорядочиваем координаты по возрастанию, если очерёдность перепутана:
         if xmin1 > xmax1: xmin1, xmax1 = xmax1, xmin1
@@ -1019,8 +1019,8 @@ class CVATPoints:
         # Пока действует только для прямоугольников:
         assert self.type == cvat_points.type == 'rectangle'
 
-        xmin1, ymin1, xmax1, ymax1 =        self.asrectangle()
-        xmin2, ymin2, xmax2, ymax2 = cvat_points.asrectangle()
+        xmin1, ymin1, xmax1, ymax1 =        self.asbbox()
+        xmin2, ymin2, xmax2, ymax2 = cvat_points.asbbox()
 
         # Определяем объединение по абсциссе:
         xmin = min(xmin1, xmin2)
@@ -1261,15 +1261,17 @@ class CVATPoints:
         else:
             raise ValueError('Неизвестный тип сегмента: %s' % self.type)
 
-        return xmin, ymin, xmax, ymax
+        rect = min(xmax, xmin), min(ymax, ymin), \
+            abs(xmax - xmin), abs(ymax - ymin)
+
+        return type(self)(rect, 'rectangle', self.rotation * apply_rot,
+                          imsize=self.imsize, rotate_immediately=apply_rot)
     # Параметр apply_rot пришлось ввести во избежание рекурсии при вызове
     # метода apply_rot().
 
     # Обрамляющий прямоугольник (левый верхний угол, размеры):
     def asbbox(self):
-        xmin, ymin, xmax, ymax = self.asrectangle()
-        return min(xmax, xmin), min(ymax, ymin), \
-            abs(xmax - xmin), abs(ymax - ymin)
+        return self.asrectangle().flatten()
 
     # Обрамляющий прямоугольник в формате YOLO (центр, размер):
     def yolobbox(self, height=None, width=None):
@@ -1287,7 +1289,7 @@ class CVATPoints:
 
         # Интерпретируем параметры описанного прямоугольника как координаты
         # крайних точек:
-        xmin, ymin, xmax, ymax = self.asrectangle()
+        xmin, ymin, xmax, ymax = self.asbbox()
 
         cx = (xmin + xmax) / 2 / width   # Относительные
         cy = (ymin + ymax) / 2 / height  #     координаты центра
@@ -1316,7 +1318,7 @@ class CVATPoints:
                               rotate_immediately=apply_rot)
 
         elif self.type == 'rectangle':
-            xmin, ymin, xmax, ymax = self.asrectangle(apply_rot)
+            xmin, ymin, xmax, ymax = self.asbbox(apply_rot)
             x = np.array([xmin, xmax, xmax, xmin])
             y = np.array([ymin, ymin, ymax, ymax])
 
@@ -1340,7 +1342,7 @@ class CVATPoints:
         if type_ == 'polygon':
             return self.aspolygon(apply_rot, imsize=self.imsize)
         if type_ == 'rectangle':
-            return type(self)(self.asrectangle(), type_,
+            return type(self)(self.asbbox(), type_,
                               self.rotation * apply_rot, imsize=self.imsize)
         raise ValueError(f'Неожиданный тип: {type_}')
         # Пока ничего, кроме прямоугольника и многоугольника не
@@ -1349,7 +1351,7 @@ class CVATPoints:
     # Создаёт словарь аргументов для создания маски:
     def to_Mask_kwargs(self):
         return {'array': self.draw(color=255, thickness=-1).astype(bool),
-                'rect': self.asrectangle()}
+                'rect': self.asbbox()}
     # Используется так:
     # mask = Mask(**points.to_Mask_kwargs())
 
@@ -1385,7 +1387,7 @@ class CVATPoints:
 
             # Параметры прямоугольника:
             kwargs['xtl'], kwargs['ytl'], kwargs['xbr'], kwargs['ybr'] = \
-                map(str, self.asrectangle(False))
+                map(str, self.asbbox(False))
 
         # Тип многоугольника:
         elif self.type in {'polygon', 'polyline', 'points'}:
@@ -3869,7 +3871,7 @@ def crop_df_labels(df, bbox, area_part_th):
     
     # Функция, возвращающая пересечение текущего сегмента с заданной рамкой:
     def crop_func(row):
-        points0 = CVATPoints(row['points'], type_=row['type'], rotation=row['rotation']).asrectangle()
+        points0 = CVATPoints(row['points'], type_=row['type'], rotation=row['rotation']).asbbox()
         points1 = points0.crop(bbox)
         
         # Возвращаем пересечение текущего сегмента только если ...
