@@ -1367,6 +1367,16 @@ class CVATProject(CVATBase):
         )
         base_names.remove('project.json')  # Выкидываем файл из списка
 
+        # Читаем гайд датасета, если он есть:
+        guide_name = 'annotation_guide.md'
+        if guide_name in base_names:
+            guide_file = os.path.join(self.unzipped_backup, guide_name)
+            with open(guide_file, 'r') as f:
+                self.guide = f.read()
+            base_names.remove(guide_name)  # Выкидываем файл из списка
+        else:
+            self.guide = ''
+
         # Перебираем все папки в корне:
         for base_name in tqdm(base_names,
                               desc='Чтение бекапа',
@@ -1381,7 +1391,7 @@ class CVATProject(CVATBase):
 
             # Если это файл:
             else:
-                raise FileExistsError(f'Неожиданный файл "{file}"!')
+                raise FileExistsError(f'Неожиданный файл "{subdir}"!')
 
     # Пишет текущее состояние разметки в папку с распакованным бекапом,
     # а при необходимости собирает архив и отправляет его на CVAT-сервер.
@@ -1651,13 +1661,12 @@ class CVATTask(CVATBase):
         # Определяем гланвые пути:
         task_dir, task_data_dir, file, first_file = cls._jobs2paths(jobs)
 
-        # Пишем файлы описания данных:
-        
+        # Пишем файлы описания сырых данных:
         cls._write_manifest(jobs, task_dir, task_data_dir,
                             file, first_file)  # manifest.json
         cls._write_index(jobs, task_data_dir)   # index.json
 
-        # Пишем файлы описания данных:
+        # Пишем файлы описания задачи и разметки:
         cls._write_info(jobs, info, task_data_dir)  # task.json
         cls._write_annotanions(jobs, task_dir)      # annotations.json
 

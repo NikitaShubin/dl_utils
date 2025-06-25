@@ -85,8 +85,6 @@ class YOLOLabels:
             attr = 'yoloseg' if mode == 'seg' else 'yolobbox'
             yolo_points = getattr(points, attr)(height, width)
 
-            assert yolo_points is not None
-
             # Добавляем эти параметры в список:
             self.yolo_labels.append((label, yolo_points))
 
@@ -134,7 +132,7 @@ class YOLOLabels:
             image = np.zeros(list(imsize) + [3], np.uint8)
 
         # Определяем требуемый формат данных:
-        type_ = 'polygon' if self.mode == 'box' else 'rectangle'
+        type_ = 'polygon' if self.mode == 'seg' else 'rectangle'
 
         # Пробегаем по всем объектам в кадре:
         for label, points in self.yolo_labels:
@@ -165,11 +163,11 @@ class YOLOLabels:
                     image = points2draw.draw(*args, 0, alpha)
 
             except Exception as e:
-                print(points, '\n')
-                print(yolo_points, '\n')
-                print(yolo_points.points, '\n')
-                print(points2draw, '\n')
-                print(points2draw.points, '\n')
+                print('points:', points, '\n')
+                print('yolo_points:', yolo_points, '\n')
+                print('yolo_points.points:', yolo_points.points, '\n')
+                print('points2draw:', points2draw, '\n')
+                print('points2draw.points:', points2draw.points, '\n')
                 raise e
 
         return image
