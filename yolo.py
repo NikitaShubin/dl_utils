@@ -120,7 +120,7 @@ class YOLOLabels:
         # Возвращаем флаг успеха записи:
         return succeeded
 
-    def draw_labels(self, image=None, edge_size=3, alpha=0.5):
+    def draw_labels(self, image=None, edge_size=3, alpha=0.2):
         '''
         Наносит метки Yolo-формата на изображение для превью.
         '''
@@ -156,11 +156,11 @@ class YOLOLabels:
                 # вообще встречаться в превью!
 
                 # Отрисовываем контуры, если надо:
-                args = image, str(label), color
+                args = str(label), color
                 if edge_size:
-                    image = points2draw.draw(*args, edge_size)
+                    image = points2draw.draw(image, *args, edge_size)
                 if alpha:
-                    image = points2draw.draw(*args, 0, alpha)
+                    image = points2draw.draw(image, *args, -1, alpha)
 
             except Exception as e:
                 print('points:', points, '\n')
