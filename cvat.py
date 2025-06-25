@@ -281,7 +281,9 @@ def df2annotations(df):
             'tracks': tracks}
 
 
-def cvat_backup_task_dir2task(task_dir, also_return_meta=False):
+def cvat_backup_task_dir2task(task_dir,
+                              also_return_meta=False,
+                              hide_deleted_frames=True):
     '''
     Извлекает данные из подпапки с задачей в бекапе CVAT.
     Возвращает распарсенную задачу в виде списка из
@@ -352,8 +354,7 @@ def cvat_backup_task_dir2task(task_dir, also_return_meta=False):
 
     # Номера используемых кадров:
     true_frames = np.arange(start, stop + 1, step)
-    true_frames = {key:val for key, val in enumerate(true_frames)
-                   if key not in deleted_frames}
+    true_frames = {key:val for key, val in enumerate(true_frames)}
 
     # Подготавливаем список размеченных фрагментов последовательности для
     # заполнения:
@@ -392,8 +393,18 @@ def cvat_backup_task_dir2task(task_dir, also_return_meta=False):
         stop_frame  = job['stop_frame']  # Номер последнего кадра текущего фрагмента
         status      = job['status']      # Статус                 текущего фрагмента
         cur_true_frames = {frame: true_frames[frame]
-                           for frame in range(start_frame, stop_frame + 1)
-                           if frame not in deleted_frames}
+                           for frame in range(start_frame, stop_frame + 1)}
+
+        # Если нужно исключать удалённые кадры:
+        if hide_deleted_frames and deleted_frames:
+
+            # Убираем разметку на удалённых кадрах:
+            df = df[~df['frame'].isin(deleted_frames)]
+
+            # Удаляем сами кадры из словаря:
+            for deleted_frame in deleted_frames:
+                if deleted_frame in cur_true_frames:
+                    del cur_true_frames[deleted_frame]
 
         # Дополняем списки новым фрагментом данных:
         task.append((df, file, cur_true_frames))
