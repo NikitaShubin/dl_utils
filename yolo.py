@@ -156,11 +156,22 @@ class YOLOLabels:
                 # вообще встречаться в превью!
 
                 # Отрисовываем контуры, если надо:
-                args = str(label), color
                 if edge_size:
-                    image = points2draw.draw(image, *args, edge_size)
+                    image = points2draw.draw(image,
+                                             color=color,
+                                             thickness=edge_size)
+
+                # Добавляем полупрозрачнаую заливку, если надо:
                 if alpha:
-                    image = points2draw.draw(image, *args, -1, alpha)
+                    image = points2draw.draw(image,
+                                             color=color,
+                                             thickness=-1,
+                                             alpha=alpha)
+
+                # Надписываем номер класса:
+                image = points2draw.draw(image,
+                                         str(label),
+                                         thickness=0)
 
             except Exception as e:
                 print('points:', points, '\n')
