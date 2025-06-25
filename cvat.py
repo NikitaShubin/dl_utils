@@ -2155,7 +2155,7 @@ class CVATPoints:
             multipoly = self.shift(-shift).split_multipoly()
 
             # Формируем списки списокв точек:
-            pts = [p.points.astype(int) for p in multipoly]
+            pts = [np.round(p.points).astype(int) for p in multipoly]
 
             # Рисуем залитый или полый контур:
             if (self.type == 'polygon') and (thickness < 0):
@@ -2166,8 +2166,8 @@ class CVATPoints:
 
             # Определение координат центра надписи:
             if caption:
-                cx = int(self.x().mean())
-                cy = int(self.y().mean())
+                cx = int(np.round(self.x().mean()))
+                cy = int(np.round(self.y().mean()))
 
             # Обводим кружком первую вершину контура, если надо:
             if show_start_point:
@@ -2177,12 +2177,12 @@ class CVATPoints:
 
         # Отрисовываем прямоугольник:
         elif self.type == 'rectangle':
-            xmin, ymin, xmax, ymax = self.flatten().astype(int)
+            xmin, ymin, xmax, ymax = np.round(self.flatten()).astype(int)
             img = cv2.rectangle(img, (xmin, ymin), (xmax, ymax),
                                 color=color, thickness=thickness)
             if caption:
-                cx = int(self.x().mean())
-                cy = int(self.y().mean())
+                cx = int(np.round(self.x().mean()))
+                cy = int(np.round(self.y().mean()))
 
         # Отрисовываем эллипс:
         elif self.type == 'ellipse':
@@ -2198,13 +2198,14 @@ class CVATPoints:
             # Рисуем только если толщина больше нуля:
             if thickness > 0:
                 for ind in range(len(self)):
-                    img = cv2.circle(img, self.points[ind, :].astype(int),
+                    img = cv2.circle(img, 
+                                     np.round(self.points[ind, :]).astype(int),
                                      thickness, color=color, thickness=-1)
 
             # Определяем координаты центра надписи:
             if caption:
-                cx = int(self.x().mean())
-                cy = int(self.y().mean())
+                cx = int(np.round(self.x().mean()))
+                cy = int(np.round(self.y().mean()))
 
         else:
             raise ValueError(f'Неизвестный тип контура "{self.type}"!')
