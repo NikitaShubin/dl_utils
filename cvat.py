@@ -341,17 +341,19 @@ def cvat_backup_task_dir2task(task_dir, also_return_meta=False):
                 f'Найдено более одного размеченного файла: {file}!')
         '''
 
-    task_name = task_desc['name']                # Имя задачи
-    jobs      = task_desc['jobs']                # Список подзадач
-    data      = task_desc['data']                # Данные текущей задачи
-    start = int(data['start_frame' ]           ) # Номер    первого кадра
-    stop  = int(data[ 'stop_frame' ]           ) # Номер последнего кадра
-    step  = data.get('frame_filter', 'filter=1') # Шаг прореживания кадров
-    step  = int(step.split('=')[-1]            ) # Берём число после знака "="
+    task_name = task_desc['name']  # Имя задачи
+    jobs      = task_desc['jobs']  # Список подзадач
+    data      = task_desc['data']  # Данные текущей задачи
+    start = int(data['start_frame' ]           )  # Номер    первого кадра
+    stop  = int(data[ 'stop_frame' ]           )  # Номер последнего кадра
+    step  = data.get('frame_filter', 'filter=1')  # Шаг прореживания кадров
+    step  = int(step.split('=')[-1]            )  # Берём число после знака "="
+    deleted_frames = data.get('deleted_frames', [])  # Удалённые кадры
 
     # Номера используемых кадров:
     true_frames = np.arange(start, stop + 1, step)
-    true_frames = {key:val for key, val in enumerate(true_frames)}
+    true_frames = {key:val for key, val in enumerate(true_frames)
+                   if key not in deleted_frames}
 
     # Подготавливаем список размеченных фрагментов последовательности для
     # заполнения:
@@ -389,10 +391,15 @@ def cvat_backup_task_dir2task(task_dir, also_return_meta=False):
         start_frame = job['start_frame'] # Номер  первого   кадра текущего фрагмента
         stop_frame  = job['stop_frame']  # Номер последнего кадра текущего фрагмента
         status      = job['status']      # Статус                 текущего фрагмента
-        cur_true_frames = {frame: true_frames[frame] for frame in range(start_frame, stop_frame + 1)}
+        cur_true_frames = {frame: true_frames[frame]
+                           for frame in range(start_frame, stop_frame + 1)
+                           if frame not in deleted_frames}
 
         # Дополняем списки новым фрагментом данных:
         task.append((df, file, cur_true_frames))
+
+        # В удалённых кадрах разметки быть не должно:
+        assert not df['frame'].isin(deleted_frames).any()
 
     # Если метаданные тоже требуется вернуть:
     if also_return_meta:
