@@ -389,6 +389,9 @@ class CVATSRVBase:
         self.child_class = self._hier_lvl2class.get(self._hier_lvl + 1, None)
         self.parent_class = self._hier_lvl2class.get(self._hier_lvl - 1, None)
 
+        if self._hier_lvl in {1, 2}:
+            self.editor = None
+
     @classmethod
     def from_id(cls, client, id):
         '''
@@ -560,7 +563,6 @@ class CVATSRVBase:
                 'Восстанавливать можно лишь проекты и задачи!'
             )
 
-
     def restore_all(self,
                     paths: list | tuple | set,
                     desc='Восстановление из бекапов',
@@ -642,9 +644,19 @@ class CVATSRVBase:
 
     def __getattr__(self, attr):
         '''
-        Проброс атрибутов вложенного объекта наружу.
+        Проброс атрибутов вложенных объекта наружу.
         '''
-        return getattr(self.obj, attr)
+        # Сначала ищем атрибуты в низкоуровневом представителе объекта в CVAT:
+        if hasattr(self.obj, attr):
+            return getattr(self.obj, attr)
+
+        # Затем смотрим в локальной копии данных, если она создана:
+        elif self._hier_lvl in {1, 2} and hasattr(self.editor, attr):
+            return getattr(self.editor, attr)
+        # Создать её можно методом pull()
+
+        else:
+            raise NotImplementedError('')
 
     def keys(self):
         '''
@@ -761,6 +773,36 @@ class CVATSRVBase:
 
         return file
 
+    # Возвращает экземпляр класса, дочерего к CVATBase, позволяющего
+    # редактировать бекапы и отправлять изменённую версию обратно на сервер
+    # (аргументы соответствуют аргументам CVATBase):
+    def pull(self, *args, **kwargs):
+
+        # Если локальный представитель ещё не создан:
+        if self.editor is None:
+
+            # Если мы на урове проекта:
+            if self._hier_lvl == 1:
+                self.editor = CVATProject(self, *args, **kwargs)
+
+            # Если мы на урове задачи:
+            elif self._hier_lvl == 2:
+                self.editor = CVATTask(self, *args, **kwargs)
+
+            else:
+                raise NotImplementedError('Редактировть можно только '
+                                          'проекты и задачи')
+
+        return self.editor
+
+    # Деструктор класса:
+    def __del__(self):
+
+        # Явно удаляем редактор, т.к. он имеет кучу временных файлов,
+        # требующих удаления:
+        del self.editor
+        self.editor = None
+
 
 class CVATSRVJob(CVATSRVBase):
     '''
@@ -870,11 +912,6 @@ class CVATSRVTask(CVATSRVBase):
     def from_id(cls, client, id):
         return cls(client, client.tasks.retrieve(id))
 
-    # Позволяет редактировать задачу на сервере посредством редактирования
-    # локальной копии бекапа:
-    def local_editor(self, *args, **kwargs):
-        return CVATTask(self, *args, **kwargs)
-
 
 class CVATSRVProject(CVATSRVBase):
     '''
@@ -937,11 +974,6 @@ class CVATSRVProject(CVATSRVBase):
                 'status': self.status,
                 'labels': self.labels(),
                 'version': '1.0'}
-
-    # Позволяет редактировать проект на сервере посредством редактирования
-    # локальной копии бекапа:
-    def local_editor(self, *args, **kwargs):
-        return CVATProject(self, *args, **kwargs)
 
 
 class CVATSRV(CVATSRVBase):
@@ -1431,6 +1463,10 @@ class CVATProject(CVATBase):
                     # Выполняем Выгрузку бекапа и заменяем интерфейсный
                     # объект:
                     self.cvat_srv_obj = parent.restore(self.zipped_backup)
+
+            # Удаляем все архивы после успешной отправки их на сервер:
+            for zip_file in get_file_list(self.zipped_backup):
+                rmpath(zip_file)
 
 
 class CVATTask(CVATBase):
