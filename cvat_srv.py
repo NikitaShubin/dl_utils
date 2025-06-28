@@ -275,7 +275,7 @@ class Client:
         '''
         Восстанавливает задачу из бекапа.
         '''
-        # Запуск передачи бекапа:
+        # Запуск передачи бекапа на сервер:
         req_id = self._send_backup(backup_file, 'task')
 
         if hasattr(self.obj.api_client, 'requests_api'):
@@ -292,7 +292,7 @@ class Client:
         '''
         Восстанавливает проект из бекапа.
         '''
-        # Запуск передачи бекапа:
+        # Запуск передачи бекапа на сервер:
         req_id = self._send_backup(backup_file, 'project')
 
         if hasattr(self.obj.api_client, 'requests_api'):
@@ -351,6 +351,22 @@ class Client:
             return CVATSRVProject.from_id(self, parsed_url['project_id'])
         else:
             raise ValueError(f'Некорректный URL: "{url}", {parsed_url}')
+
+    # Возвращает список всех задач сервера вне зависимости от принадлежности
+    # проекту:
+    def all_tasks(self):
+        tasks = []
+        for task in self.obj.tasks.list():
+            tasks.append(CVATSRVTask(self, task))
+        return tasks
+
+    # Возвращает список всех подзадач вне зависимости от принадлежности
+    # проекту:
+    def all_jobs(self):
+        jobs = []
+        for job in self.obj.jobs.list():
+            jobs.append(CVATSRVJob(self, job))
+        return jobs
 
 
 def get_name(obj):
@@ -431,8 +447,13 @@ class CVATSRVBase:
         объектами.
         '''
         client = Client(**client_kwargs)
-        child = child_class.from_id(client, child_id)
-        return child.backup(path)
+        while True:
+            try:
+                child = child_class.from_id(client, child_id)
+                return child.backup(path)
+            except Exception as e:
+                print(e)
+                print(f'Перезапуск бекапа "{path}"')
 
     @staticmethod
     def _restore(client_kwargs, parent_class, parent_id, path):
@@ -442,11 +463,16 @@ class CVATSRVBase:
         объектами.
         '''
         client = Client(**client_kwargs)
-        if parent_id is None:
-            return client.restore_project(path, return_id_only=True)
-        else:
-            parent = parent_class.from_id(client, parent_id)
-            return parent.restore(path, return_id_only=True)
+        while True:
+            try:
+                if parent_id is None:
+                    return client.restore_project(path, return_id_only=True)
+                else:
+                    parent = parent_class.from_id(client, parent_id)
+                    return parent.restore(path, return_id_only=True)
+            except Exception as e:
+                print(e)
+                print(f'Перезапуск восстановления "{path}"')
 
     def backup(self,
                path='./',
@@ -655,8 +681,10 @@ class CVATSRVBase:
             return getattr(self.editor, attr)
         # Создать её можно методом pull()
 
+        '''
         else:
             raise NotImplementedError('')
+        '''
 
     def keys(self):
         '''
