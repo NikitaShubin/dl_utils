@@ -9,6 +9,7 @@ from cvat_sdk.api_client import models
 from getpass import getpass
 from zipfile import ZipFile
 from tqdm import tqdm
+from http.client import IncompleteRead
 
 from cvat import (
     add_row2df, concat_dfs, ergonomic_draw_df_frame, cvat_backups2raw_tasks,
@@ -451,6 +452,8 @@ class CVATSRVBase:
             try:
                 child = child_class.from_id(client, child_id)
                 return child.backup(path)
+            except IncompleteRead:
+                pass
             except Exception as e:
                 print(e)
                 print(f'Перезапуск бекапа "{path}"')
@@ -623,7 +626,7 @@ class CVATSRVBase:
         return len(self.values())
 
     @property
-    def parend_id(self):
+    def parent_id(self):
         '''
         Должен возвращать id объекта-предка.
         '''
@@ -637,11 +640,11 @@ class CVATSRVBase:
             raise NotImplementedError('Объект не имеет предков!')
 
         # Возвращаем None, если предка нет:
-        if self.parend_id is None:
+        if self.parent_id is None:
             return
 
         return self._hier_lvl2class[self._hier_lvl - 1].from_id(
-            self.client, self.parend_id
+            self.client, self.parent_id
         )
 
     def new(self):
@@ -842,7 +845,8 @@ class CVATSRVJob(CVATSRVBase):
     def values(self):
         raise NotImplementedError('У подзадачи нет составляющих!')
 
-    def parend_id(self):
+    @property
+    def parent_id(self):
         return self.obj.task_id
 
     @property
@@ -915,7 +919,7 @@ class CVATSRVJob(CVATSRVBase):
         '''
         Возвращает URL подзадачи.
         '''
-        task_substr = f'/tasks/{self.parend_id()}/jobs/'
+        task_substr = f'/tasks/{self.parent_id}/jobs/'
         return super().url.replace('/jobs/', task_substr)
 
     def __len__(self):
@@ -933,7 +937,7 @@ class CVATSRVTask(CVATSRVBase):
         return [CVATSRVJob(self.client, job) for job in self.obj.get_jobs()]
 
     @property
-    def parend_id(self):
+    def parent_id(self):
         return self.obj.project_id
 
     @classmethod
