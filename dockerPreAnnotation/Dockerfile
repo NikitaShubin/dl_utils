@@ -58,6 +58,7 @@ ARG PYTHONMODULES="                                                      \
     git+https://github.com/facebookresearch/sam2.git decord              \
                                                                          \
     # Grounding DINO:                                                    \
+    groundingdino-py                                                     \
     #git+https://github.com/IDEA-Research/GroundingDINO.git              \
 "
 # "jupyverse[jupyterlab,noauth]"
@@ -111,6 +112,9 @@ USER "${USERNAME}"
 ARG THEMEDIR="${HOMEDIR}"/.jupyter/lab/user-settings/\@jupyterlab/apputils-extension/
 RUN mkdir -p "${THEMEDIR}" && \
     echo '{ "theme":"JupyterLab Dark" }' > "${THEMEDIR}"themes.jupyterlab-settings
+
+# Доустановка мелочей для GroundingDINO:
+RUN python -c "import sys; sys.path.append('./src'); from dinoal import Dino; dino = Dino('./models/groundingdino_swinb_cogcoor.pth')"
 
 
 # Настраиваем соединение JupyterLab по-умолчанию:
