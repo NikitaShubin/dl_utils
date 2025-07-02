@@ -92,19 +92,8 @@ LIZA_RUNPARAMS=(
 )
 
 JUPYTER_PORT=14207
-MAXIM_RUNPARAMS=(
-    # Имя контейнера:
-    --name "MAXIM_${DOCKER_NAME}"
-
-    -e JUPYTER_PASS="Mk_\$uP5&a9"
-    -e JUPYTER_PORT=$JUPYTER_PORT
-
-    # Пробрасываем порт без изменений:
-    -p $JUPYTER_PORT:$JUPYTER_PORT
-)
 
 # Запускаем образ:
 #clear &&
 docker run  "${LIZA_RUNPARAMS[@]}" "${RUNPARAMS[@]}"
-# docker run "${MAXIM_RUNPARAMS[@]}" "${RUNPARAMS[@]}"
 #docker exec -u root -it $DOCKER_NAME bash

@@ -92,11 +92,13 @@ RUN chmod -R 777 .
 
 # Вносим нужные файлы в рабочую папку образа:
 ADD --chmod=777 https://dl.fbaipublicfiles.com/segment_anything_2/092824/sam2.1_hiera_large.pt ./models/
-# Самая большая модель SAM2.
+ADD --chmod=777 https://github.com/IDEA-Research/GroundingDINO/releases/download/v0.1.0-alpha2/groundingdino_swinb_cogcoor.pth ./models/
+ADD --chmod=777 https://github.com/IDEA-Research/GroundingDINO/blob/main/groundingdino/config/GroundingDINO_SwinB_cfg.py ./models/
+# Самые мощные модели SAM2 и DINO (вместе с конфигом).
 COPY --chown="${USERNAME}:${USERNAME}" --chmod=777 *.py ./src/
 # Модули.
-COPY --chown="${USERNAME}:${USERNAME}" --chmod=777 dockerPreAnnotation/PreAnnotation.ipynb ./
-# Интерфейсный юпитер-ноутбук.
+COPY --chown="${USERNAME}:${USERNAME}" --chmod=777 dockerPreAnnotation/*.ipynb ./
+# Интерфейсные юпитер-ноутбуки.
 
 
 # Создаём пользователя, даём ему право использовать sudo без пароля и устанавливаем его по умолчанию:
