@@ -138,6 +138,30 @@ def new_df():
     # предупреждения.
 
 
+def update_row(row, inplace=False, **kwargs):
+    '''
+    Возвращает новую строку датафрейма на базе старой, но с заменёнными
+    праметрами.
+    '''
+
+    # Создаём копию строки, если исходную нельзя менять:
+    if not inplace:
+        row = row.copy()
+
+    # Заменяем все сзначения:
+    for name, val in kwargs.items():
+        row[name] = val
+
+    return row
+
+
+def row2df(row):
+    '''
+    Превращает строку датафрейма в полноценный однострочный датафрейм.
+    '''
+    return pd.DataFrame(row).T.astype(df_columns_type)
+
+
 def add_row2df(df=None, **kwargs):
     '''
     Добавляет новую строку с заданнымии параметрами в датафрейм.
@@ -151,15 +175,14 @@ def add_row2df(df=None, **kwargs):
     row = pd.Series(df_default_vals)
 
     # Заменяем дефолтные значения на входные параметы:
-    for key, val in kwargs.items():
-        row[key] = val
+    update_row(row, **kwargs, inplace=True)
 
     # Превращаем строку в датафрейм с заданными типами столбцов
-    row = pd.DataFrame(row).T.astype(df_columns_type)
+    new_df = row2df(row)
 
     # Возвращаем объединённый (или только новый, если исходный не задан)
     # датафрейм:
-    return row if df is None else pd.concat([df, row])
+    return new_df if df is None else pd.concat([df, new_df])
 
 
 class DisableSettingWithCopyWarning:
@@ -410,7 +433,8 @@ def cvat_backup_task_dir2task(task_dir,
         task.append((df, file, cur_true_frames))
 
         # В удалённых кадрах разметки быть не должно:
-        assert not df['frame'].isin(deleted_frames).any()
+        # assert not df['frame'].isin(deleted_frames).any()
+        # К сожалению, они бывают, так что отключаем проверку.
 
     # Если метаданные тоже требуется вернуть:
     if also_return_meta:
@@ -1374,13 +1398,15 @@ class CVATPoints:
     # Используется так:
     # mask = Mask(**points.to_Mask_kwargs())
 
-    # Создаёт однострочный датафрейм, или добавляет новую строку к старому с
-    # даннымии о контуре:
-    def to_dfrow(self, df=None, **kwargs):
-        return add_row2df(type=self.type,
-                          points=self.flatten(),
-                          rotation=self.rotation,
-                          **kwargs)
+    # Создаёт однострочный датафрейм с даннымии о контуре:
+    def to_dfrow(self, dfrow=None, **kwargs):
+        if df is None:
+            return add_row2df(type=self.type,
+                              points=self.flatten(),
+                              rotation=self.rotation,
+                              **kwargs)
+        else:
+            dfrow = dfrow.copy()
 
     # Получить параметры для формирования cvat-разметки annotation.xml:
     def xmlparams(self):
@@ -2196,8 +2222,9 @@ class CVATPoints:
         # Отрисовываем прямоугольник:
         elif self.type == 'rectangle':
             xmin, ymin, xmax, ymax = np.round(self.flatten()).astype(int)
-            img = cv2.rectangle(img, (xmin, ymin), (xmax, ymax),
-                                color=color, thickness=thickness)
+            if thickness:
+                img = cv2.rectangle(img, (xmin, ymin), (xmax, ymax),
+                                    color=color, thickness=thickness)
             if caption:
                 cx = int(np.round(self.x().mean()))
                 cy = int(np.round(self.y().mean()))
@@ -2207,8 +2234,9 @@ class CVATPoints:
             cx, cy, rx, ry = self.flatten().astype(int)
             ax = abs(rx - cx)
             ay = abs(ry - cy)
-            img = cv2.ellipse(img, (cx, cy), (ax, ay), self.rotation,
-                              0, 360, color=color, thickness=thickness)
+            if thickness:
+                img = cv2.ellipse(img, (cx, cy), (ax, ay), self.rotation,
+                                  0, 360, color=color, thickness=thickness)
 
         # Отрисовываем точки:
         elif self.type == 'points':
@@ -2294,96 +2322,110 @@ class CVATLabels:
     # display(rb)
 
 
-def interpolate_df(df, true_frames):
+def interpolate_df(df, true_frames, interpolated_only=False):
     '''
     Дополняет датафрейм интерполированными контурами.
     '''
-    # Номер последнего кадра прореженной последовательности:
-    last_frame = np.max(list(true_frames.keys()))
+    # Формируем словари перехода номеров кадров полной и прореженной
+    # последовательностей к их порядковому номеру:
+    '''
+    frame_inds = {}
+    true_frame_inds = {}
+    for ind, frame in in enumerate(sorted(true_frames)):
+        frame_inds[frame] = true_frame_inds[true_frames[frame]] = ind
+    '''
+    ind2frame = sorted(true_frames)
+    frame2ind = {frame: ind for ind, frame in enumerate(ind2frame)}
 
-    # Список датафреймов с интерполированными кадрами:
-    interp_frame_dfs = []
+    # Получаем датафреймы для каждого трека:
+    _, *track_dfs = split_df_to_shapes_and_tracks(df)
 
-    # Перебор всех объектов:
-    for track_id in df['track_id'].unique():
+    # Номер последнего кадра и его индекс:
+    last_frame = max(true_frames)
+    last_ind = len(true_frames)
 
-        # Пропускаем объекты без идентификатора, ...
-        # ... т.к. обычно это означает, что объект  ...
-        # ... появляется лишь в одном кадре:
-        if track_id is None:
-            continue
+    # Инициируем список итоговых датафреймов:
+    dfs = [] if interpolated_only else [df]
 
-        # Берём ту часть датафрейма, в которой содержится инфомрация о текущем
-        # объекте:
-        object_df = df[df['track_id'] == track_id]
+    # Перебираем каждый трек:
+    for track_df in track_dfs:
 
-        # Определяем последний кадр и его :
-        last_key_frame =           object_df['frame'].max()              # Номер последнего ключевого кадра
-        last_key       = object_df[object_df['frame'] == last_key_frame] # Датафрейм с последним ключём
-        assert len(last_key) == 1                                        # Ключ должен быть только один
-        #last_key_row = last_key.iloc[0]                                  # Для более лёгкой адресации к полям
+        # Упорядоченный список ключевых кадров трека:
+        track_frames = sorted(track_df['frame'].unique())
 
-        # Если последний кадр не закрывает анимацию, то копируем ключ на
-        # последний кадр в оба датафрейма:
-        if last_key_frame < last_frame and not last_key['outside'].iloc[0]:
-            row = last_key.copy()
-            row[     'frame'] =             last_frame
-            row['true_frame'] = true_frames[last_frame]
-            df        = pd.concat([       df, row])
-            object_df = pd.concat([object_df, row])
+        # Перебираем все ключевые кадры:
+        prev_row = None
+        for cur_row in track_df.sort_values('frame').iloc:
 
-        # Инициируем первый кадр новой последовательности с объектом:
-        start_frame = None
+            # Первый кадр пропускаем:
+            if prev_row is None:
+                prev_row = cur_row
+                prev_ind = frame2ind[cur_row['frame']]
+                continue
 
-        # Перебор по всем кадрам, где отмечен объект:
-        for frame in sorted(object_df['frame'].unique()):
+            # Если предыдущий ключ не является скрытым, то выполняем
+            # интерполяцию:
+            if prev_row['outside'] == False:
 
-            # Строка, описывающая текущий объект в текущем кадре:
-            frame_row = object_df[object_df['frame'] == frame].iloc[0]
+                cur_ind = frame2ind[cur_row['frame']]
 
-            # Если предыдущий ключевой кадр был, и между ним и текущим есть ещё
-            # хоть один кадр:
-            if (start_frame is not None) and (frame > start_frame + 1):
+                ind_diff = cur_ind - prev_ind
 
-                # Строка, описывающая текущий объект в предыдущем ключевом
-                # кадре:
-                sart_frame = object_df[object_df['frame'] == start_frame]
-                assert len(sart_frame) == 1
-                sart_frame_row = sart_frame.iloc[0]
+                # Если между ключами нет кадров, то пропускаем:
+                if ind_diff == 1:
+                    prev_row = cur_row
+                    prev_ind = frame2ind[cur_row['frame']]
+                    continue
 
-                # Контуры предыдущего и текущего ключевых кадров
-                p1 = CVATPoints(sart_frame_row['points'], sart_frame_row['type'])
-                p2 = CVATPoints(     frame_row['points'],      frame_row['type'])
+                # Текущий и предыдущий наборы точек:
+                cp = CVATPoints.from_dfrow(cur_row)
+                pp = CVATPoints.from_dfrow(prev_row)
 
                 # Весовые коэффициенты для морфинга промежуточных кдаров:
-                alphas = np.linspace(0, 1,
-                                     frame - start_frame,
-                                     endpoint=False)[1:]
+                alphas = np.linspace(0, 1, ind_diff, endpoint=False)[1:]
 
-                # Контуры для промежуточных кадров:
-                points_list = p1.morph(p2, alphas)
+                # Сама интерполяция:
+                points_list = pp.morph(cp, alphas)
                 if isinstance(points_list, CVATPoints):
                     points_list = [points_list]
 
-                # Добавляем промежуточные кадры:
-                for interp_frame, points in enumerate(points_list,
-                                                      start_frame + 1):
-                    row = sart_frame.copy()
-                    row[    'points'] = [list(points.flatten())]
-                    row[     'frame'] =             interp_frame
-                    row['true_frame'] = true_frames[interp_frame]
-                    interp_frame_dfs.append(row)
+                # Перебираем каждый интерполированный набор точек:
+                for shif_ind, points in enumerate(points_list, 1):
 
-            # Если на этом кадре объект скрывается, то сбрасываем start_frame,
-            # иначе обновляем:
-            start_frame = None if frame_row['outside'] else frame
+                    # Преобразуем контур в строку датафрейма на базе исходной
+                    # строки:
+                    frame = ind2frame[prev_ind + shif_ind]
+                    kwargs = {'points': points.flatten(),
+                              'type': points.type,
+                              'frame': frame,
+                              'true_frame': true_frames[frame]}
+                    row = update_row(cur_row, **kwargs)
 
-    # Добавляем интерполированные кадры к датафрейму:
-    df = pd.concat([df] + interp_frame_dfs)
-    # Операция вынесена за пределы вложенных циклов ради производительности.
+                    # Вносим строку в общий список:
+                    dfs.append(row)
 
-    # Возвращаем отсортированный по кадрам проинтерполированный список:
-    return df.sort_values('frame')
+            # Делаем текущий ключ предыдущим:
+            prev_row = cur_row
+            prev_ind = frame2ind[cur_row['frame']]
+
+        # Если последний ключ не скрыт и не находится на последнем кадре,
+        # то необходимо достроить хвост:
+        if not cur_row['outside'] and cur_row['frame'] < last_frame:
+
+            ind = frame2ind(cur_row['frame']) + 1
+            while ind <= last_ind:
+
+                # Копируем строку, меняя лишь номера кадра:
+                frame = ind2frame[ind]
+                kwargs = {'frame': frame,
+                          'true_frame': true_frames[frame]}
+                row = update_row(cur_row, **kwargs)
+                dfs.append(row)
+
+                ind += 1
+
+    # Собираем результат в единый датафрейм и возвращаем:
+    return concat_dfs(dfs)
 
 
 def interpolate_task(task):
@@ -3286,6 +3328,32 @@ def split_df_by_visibility(df):
         invisible_df = new_df()
 
     return visible_df, invisible_df
+
+
+def split_df_to_shapes_and_tracks(df, separate_tracks=True):
+    '''
+    Расщепляет датафрейм на несколько по типу объектов (формы и треки).
+    Примеры вызова:
+        shapes_df, *track_dfs = split_df_to_shapes_and_tracks(df)
+        shapes_df, tracks_df = split_df_to_shapes_and_tracks(df, False)
+    '''
+    # Строим записи форм:
+    shapes_mask = df['track_id'].isna()
+    shapes_df = df[shapes_mask]
+
+    # Если датафреймы надо разделять по track_id:
+    if separate_tracks:
+
+        track_dfs = [df[df['track_id'] == track_id]
+                     for track_id in df['track_id'].unique()
+                     if track_id is not None]
+
+        return shapes_df, *track_dfs
+
+    # Если все треки надо поместить в один датафрейм:
+    else:
+        tracks_df = df[~shapes_df]
+        return shapes_df, tracks_df
 
 
 def apply_mask_processing2df(df, imsize, processing, mpmap_kwargs={}):
