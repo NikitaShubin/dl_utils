@@ -5,7 +5,6 @@ import json
 import time
 from PIL import Image
 from cvat_sdk import make_client, core
-from cvat_sdk.api_client import models
 from getpass import getpass
 from zipfile import ZipFile
 from tqdm import tqdm
@@ -20,6 +19,32 @@ from utils import (
     cv2_vid_exts, get_file_list, json2obj, get_empty_dir, Zipper, obj2json,
     get_video_info, split_dir_name_ext
 )
+
+
+class AccurateProgressReporter(core.progress.ProgressReporter):
+    '''
+    Прогрессбар для передачи файлов
+    '''
+
+    def __init__(self, desc=None):
+        self.progress_bar = None
+        self.desc = desc
+
+    def start(self, total, **kwargs):
+        self.progress_bar = tqdm(
+            total=total,
+            unit='B',
+            unit_scale=True,
+            desc=self.desc,
+        )
+
+    def advance(self, delta):
+        if self.progress_bar:
+            self.progress_bar.update(delta)
+
+    def finish(self):
+        if self.progress_bar:
+            self.progress_bar.close()
 
 
 class Client:
@@ -206,105 +231,119 @@ class Client:
             # Возвращаем обёрнутрый объект:
             return CVATSRVProject(self, project)
 
-    def _send_backup(self, backup_file: str, backup_type: str) -> str:
+    @staticmethod
+    def _backup(client,
+                path: str,
+                type: str,
+                id: int,
+                desc: None | str = None):
         '''
-        Отправляет бекап на CVAT-сервер.
+        Выполняет бекап объекта.
+        Поддерживает работу в mpmap, работающей только с сериализуемыми
+        объектами.
         '''
-        # Создаем объект запроса:
-        api_client = self.obj.api_client
-        if backup_type == 'task':
-            file_request = models.TaskFileRequest
-            restore_from_backup = api_client.tasks_api.create_backup
-            backup_request_name = 'task_file_request'
-        elif backup_type == 'project':
-            file_request = models.ProjectFileRequest
-            restore_from_backup = api_client.projects_api.create_backup
-            backup_request_name = 'backup_write_request'
+        # Собираем клиент сами, если переданы его параметры:
+        if isinstance(client, dict):
+            client = Client(**client)
+
+        # Определяем класс для объекта, который требуется бекапить:
+        if type == 'task':
+            CVATSRVClass = CVATSRVTask
+        elif type == 'project':
+            CVATSRVClass = CVATSRVProject
         else:
-            raise ValueError('Неверное значение "backup_type": '
-                             f'{backup_type}')
+            raise ValueError(f'Недопустимое значение "type": {type}')
 
-        # Формируем запрос на выгрузку бекапа:
-        with open(backup_file, 'rb') as f:
+        # Получаем доступ к объекту:
+        cvat_obj = CVATSRVClass.from_id(client, id)
 
-            # Создаем объект запроса:
-            backup_request = file_request(f)
+        # Создаём папки до файла, если надо:
+        mkdirs(os.path.abspath(os.path.dirname(path)))
 
-            # Отправляем запрос:
-            data, response = restore_from_backup(
-                **{backup_request_name: backup_request},
-                _content_type='multipart/form-data'  # Без этого не работает!
-            )
+        # Удаляем файл, если он уже существует:
+        if os.path.isfile(path):
+            rmpath(path)
 
-        # Выясняем rq_id, по которому отследить процесс закачки:
-        response_body = response.data.decode('utf-8')
-        response_data = json.loads(response_body)
-        return response_data['rq_id']
+        # Выполняем бекап до талого:
+        while True:
+            try:
+                pbar = AccurateProgressReporter(desc) if desc else None
+                cvat_obj.obj.download_backup(path, pbar=pbar)
+                break
+            except IncompleteRead:
+                pass
+            except Exception as e:
+                print(e)
+                print(f'Перезапуск бекапа "{path}"')
 
-    def _rq_id2id(self, rq_id: str, timeout=300, interval=5) -> int | None:
+        # Возвращаем путь до бекапа:
+        return path
+
+    @staticmethod
+    def _restore(client,
+                 path: str,
+                 type: str,
+                 parent_id: None | int = None,
+                 return_id_only: bool = False,
+                 desc: None | str = None):
         '''
-        Ожидает успешного выполнения CVAT-сервером запроса по его rq_id и
-        возвращает id полученного объекта.
-
-        :param rq_id: ID запроса на импорт
-        :param timeout: Максимальное время ожидания в секундах
-        :param interval: Интервал проверки статуса в секундах
-        :return: ID созданного объекта
+        Воссоздаёт объект из бекапа.
+        Поддерживает работу в mpmap, работающей только с сериализуемыми
+        объектами.
         '''
-        # Повторяем запросы пока не кончится время:
-        start_time = time.time()
-        while (time.time() - start_time) < timeout:
+        # Собираем клиент сами, если переданы его параметры:
+        if isinstance(client, dict):
+            client = Client(**client)
 
-            # Получаем статус запроса:
-            data, _ = self.api_client.requests_api.retrieve(rq_id)
-            status = data['status'].to_str()
+        # Определяем класс для объекта, который требуется бекапить:
+        if type == 'task':
+            create_from_backup = client.tasks.create_from_backup
+            CVATSRVClass = CVATSRVTask
+        elif type == 'project':
+            create_from_backup = client.projects.create_from_backup
+            CVATSRVClass = CVATSRVProject
+        else:
+            raise ValueError(f'Недопустимое значение "type": {type}')
 
-            # Если процесс завершён:
-            if status == 'finished':
-                return data['result_id']
+        # Выполняем восстановление до талого:
+        pbar = AccurateProgressReporter(desc) if desc else None
+        while True:
+            try:
+                cvat_obj = create_from_backup(
+                    filename=path,
+                    pbar=pbar
+                )
+                break
+            except Exception as e:
+                print(e)
+                print(f'Перезапуск восстановления "{path}"')
 
-            # Если процесс прерван:
-            elif status == "failed":
-                error_msg = data.get('message', '') or data.get('error', '')
-                raise RuntimeError(f"Ошибка импорта: {error_msg}")
+        # Если указан ID проекта, к которому задачу надо присовокупить:
+        if parent_id is not None:
+            assert type == 'task'
+            cvat_obj.update({'project_id': parent_id})
 
-            time.sleep(interval)  # Ждем перед следующей проверкой
+        # Возвращаем ID восстановленного объекта, или целый экземпляр класса:
+        if return_id_only:
+            return cvat_obj.id
+        else:
+            return CVATSRVClass.from_id(client, cvat_obj.id)
+        return cvat_obj
 
-        raise TimeoutError(f'Превышено время ожидания ({timeout} секунд)')
-
-    def restore_task(self, backup_file, return_id_only=False):
+    def restore_task(self, backup_file, proj_id=None,
+                     return_id_only=False, desc=None):
         '''
         Восстанавливает задачу из бекапа.
         '''
-        # Запуск передачи бекапа на сервер:
-        req_id = self._send_backup(backup_file, 'task')
+        return self._restore(self, backup_file, 'task',
+                             proj_id, return_id_only, desc)
 
-        if hasattr(self.obj.api_client, 'requests_api'):
-            # Ожидание результата:
-            task_id = self._rq_id2id(req_id)
-
-            # Возвращаем новую задачу, или только её ID:
-            if return_id_only:
-                return task_id
-            else:
-                return CVATSRVTask.from_id(self, task_id)
-
-    def restore_project(self, backup_file, return_id_only=False):
+    def restore_project(self, backup_file, return_id_only=False, desc=None):
         '''
         Восстанавливает проект из бекапа.
         '''
-        # Запуск передачи бекапа на сервер:
-        req_id = self._send_backup(backup_file, 'project')
-
-        if hasattr(self.obj.api_client, 'requests_api'):
-            # Ожидание результата:
-            proj_id = self._rq_id2id(req_id)
-
-            # Возвращаем новый проект, или только её ID:
-            if return_id_only:
-                return proj_id
-            else:
-                return CVATSRVProject.from_id(self, proj_id)
+        return self._restore(self, backup_file, 'project',
+                             None, return_id_only, desc)
 
     @staticmethod
     def parse_url(url):
@@ -393,6 +432,11 @@ class CVATSRVBase:
     # У каждого потомка будет свой номер.
 
     def __init__(self, client, obj=None):
+
+        # Собираем клиент сами, если переданы его параметры:
+        if isinstance(client, dict):
+            client = Client(**client)
+
         self.client = client
         self.obj = obj
 
@@ -440,47 +484,10 @@ class CVATSRVBase:
                 return val.id
         return None
 
-    @staticmethod
-    def _backup(client_kwargs, child_class, child_id, path):
-        '''
-        Создаёт бекап, предварительно пересоздавая клиент.
-        Нужно для использования mpmap, работающей только с сериализуемыми
-        объектами.
-        '''
-        client = Client(**client_kwargs)
-        while True:
-            try:
-                child = child_class.from_id(client, child_id)
-                return child.backup(path)
-            except IncompleteRead:
-                pass
-            except Exception as e:
-                print(e)
-                print(f'Перезапуск бекапа "{path}"')
-
-    @staticmethod
-    def _restore(client_kwargs, parent_class, parent_id, path):
-        '''
-        Воссоздаёт объект из бекапа, предварительно пересоздавая клиент.
-        Нужно для использования mpmap, работающей только с сериализуемыми
-        объектами.
-        '''
-        client = Client(**client_kwargs)
-        while True:
-            try:
-                if parent_id is None:
-                    return client.restore_project(path, return_id_only=True)
-                else:
-                    parent = parent_class.from_id(client, parent_id)
-                    return parent.restore(path, return_id_only=True)
-            except Exception as e:
-                print(e)
-                print(f'Перезапуск восстановления "{path}"')
-
     def backup(self,
                path='./',
                name=None,
-               desc='Загрузка бекапов',
+               desc=None,
                **mpmap_kwargs):
         '''
         Сохраняет бекап текущей сущности, либо набора его подобъектов.
@@ -505,42 +512,43 @@ class CVATSRVBase:
                 raise ValueError('Число имён и файлов должно совпадать!')
 
             # Бекапим все сущности:
-            client_kwargs = [self.client.kwargs4init()] * len(name)
-            child_classes = [self.child_class] * len(name)
-            child_ids = list(map(self.name2id, name))
-            return mpmap(self._backup, client_kwargs, child_classes,
-                         child_ids, path, **mpmap_kwargs)
+            clients = [self.client.kwargs4init()] * len(name)
+            types = ['task' if self._hier_lvl else 'project'] * len(name)
+            ids = list(map(self.name2id, name))
+            return mpmap(self.client._backup, clients, path, types, ids, **mpmap_kwargs)
 
         # Если бекапить надо всю текущую сущность:
         elif name is None:
 
-            # Если текущая сущность вообще бекапится:
-            if hasattr(self.obj, 'download_backup'):
+            # Если указан не путь до архива, считаем его папкой:
+            if path.lower()[-4:] != '.zip':
+                path = os.path.join(path, self.name + '.zip')
+                # Дополняем путь именем сущности.
 
-                # Если указан не путь до архива, считаем его папкой:
-                if path.lower()[-4:] != '.zip':
-                    path = os.path.join(path, self.name + '.zip')
-                    # Дополняем путь именем сущности.
-
-                # Создаём папки до файла, если надо:
-                mkdirs(os.path.abspath(os.path.dirname(path)))
-
-                # Удаляем файл, если он уже существует:
-                if os.path.isfile(path):
-                    rmpath(path)
-
-                # Качаем сам бекап:
-                self.obj.download_backup(path)
-
-                # Возвращаем путь до файла:
-                return path
-
-            else:
-                raise Exception('Объект не бекапится!')
+            # Качаем сам бекап и возвращаем путь до него:
+            type = 'task' if self._hier_lvl == 2 else 'project'
+            return self.client._backup(self.client,
+                                       path,
+                                       type,
+                                       self.id,
+                                       desc=mpmap_kwargs['desc'])
 
         # Если передано имя лишь одной подсущности:
         else:
-            return self[name].backup(path)
+            return self[name].backup(path, **mpmap_kwargs)
+
+    def restore(self, path, desc=None):
+        '''
+        Восстанавливает задачу или проект по его бекапу.
+        '''
+        # Восстанавливать можно только находясь на уровне сервера или
+        # проекта:
+        assert self._hier_lvl < 2
+
+        type = 'task' if self._hier_lvl else 'project'
+        parent_id = self.id if self._hier_lvl else None
+        return self.client._restore(self.client, path, type,
+                                    parent_id, None, desc)
 
     def backup_all(self,
                    path='./',
@@ -555,46 +563,18 @@ class CVATSRVBase:
         # Формируем список объектов, подлежащих бекапу:
         objs = self.values()
 
-        # Формируем список ID всех сущностей:
-        ids = [obj.id for obj in objs]
-
-        # Формируем список имён для бекапов из ID соответствующих сущностей:
-        paths = [os.path.join(path, f'{id}.zip') for id in ids]
-
         # Бекапим все сущности:
-        client_kwargs = [self.client.kwargs4init()] * len(objs)
-        child_classes = [self.child_class] * len(objs)
-        return mpmap(self._backup, client_kwargs, child_classes,
-                     ids, paths, **mpmap_kwargs)
-
-    def restore(self, backup_file, return_id_only=False):
-        '''
-        Восстанавливает задачу или проект по его бекапу.
-        '''
-        # Если сейчас мы на уровне сервера, то восстанавливаем проект:
-        if self._hier_lvl == 0:
-            return self.client.restore_project(
-                backup_file, return_id_only=return_id_only
-            )
-
-        # Если сейчас мы на уровне проекта, то восстанавливаем задачу:
-        elif self._hier_lvl == 1:
-            task = self.client.restore_task(backup_file)
-
-            # Привязываем задачу к текущему датасету:
-            task.update({'project_id': self.id})
-
-            # Возвращаем либо сам восстановленный объект, либо только его ID:
-            return task.id if return_id_only else task
-
-        else:
-            raise NotImplementedError(
-                'Восстанавливать можно лишь проекты и задачи!'
-            )
+        ids = [obj.id for obj in objs]  # Формируем список ID всех сущностей
+        paths = [os.path.join(path, f'{id}.zip') for id in ids]
+        clients = [self.client.kwargs4init()] * len(ids)
+        types = ['task' if self._hier_lvl else 'project'] * len(ids)
+        return mpmap(self.client._backup, clients, paths, types, ids,
+                     **mpmap_kwargs)
 
     def restore_all(self,
-                    paths: list | tuple | set,
+                    path: list | tuple | set | str,
                     desc='Восстановление из бекапов',
+                    return_id_only=False,
                     **mpmap_kwargs):
         '''
         Восстанавливает элементы текущего объекта из списка бекапов.
@@ -602,13 +582,24 @@ class CVATSRVBase:
         # Присовокупляем описание к остальным параметрам mpmap:
         mpmap_kwargs = mpmap_kwargs | {'desc': desc}
 
+        # Если передан лишь один путь, он должен быть дирректорией:
+        if isinstance(path, str):
+            assert os.path.isdir(path)
+            path = get_file_list(path, '.zip', False)
+
         # Восстанавливаем все сущности:
-        client_kwargs = [self.client.kwargs4init()] * len(paths)
-        parent_class = self._hier_lvl2class.get(self._hier_lvl)
-        parent_classes = [parent_class] * len(paths)
-        parent_ids = [self.id if self._hier_lvl else None] * len(paths)
-        return mpmap(self._restore, client_kwargs, parent_classes,
-                     parent_ids, paths, **mpmap_kwargs)
+        clients = [self.client.kwargs4init()] * len(path)
+        types = ['task' if self._hier_lvl else 'project'] * len(path)
+        parent_ids = [self.id if self._hier_lvl else None] * len(path)
+        return_id_onlys = [True] * len(path)
+        ids = mpmap(self.client._restore, clients, path, types, parent_ids,
+                    return_id_onlys, desc=mpmap_kwargs['desc'])
+
+        if return_id_only:
+            return ids
+        else:
+            return [self.child_class.from_id(self.client, id) for id in ids]
+
 
     def values(self):
         '''
@@ -1139,7 +1130,8 @@ class CVATBase:
                  zipped_backup: str | None = None,
                  unzipped_backup: str | None = None,
                  parted: bool = True,
-                 verbose: bool = True):
+                 verbose: bool = True,
+                 take_data_from: str = 'auto'):
         '''
         cvat_srv_obj    - объект-представитель задачи или проекта из CVAТ,
                           через который осуществляется доступ к серверу.
@@ -1150,54 +1142,96 @@ class CVATBase:
                           только для проектов, которые можро разрезать на
                           задачи).
         verbose         - флаг вывода информации о статусе процессов.
+        take_data_from  - источник, который считается первичным.
+                          Возможные значения:
+                            'cvat_srv_obj',
+                            'zipped_backup',
+                            'unzipped_backup',
+                            'auto'.
 
-        Исходная логика такова:
+        Общий алгоритм подготовки файлов (при инициализации экземпляра класса)
+        к работе следующий:
             1) посредством cvat_srv_obj закачиваем бекап в файл
                zipped_backup;
             2) распаковываем архив zipped_backup в папку unzipped_backup;
             3) парсим (загружаем в оперативную память) всю разметку из папки
                unzipped_backup.
 
-        Детали исходной логики и исценарии отхода от неё:
-                1) Если не задана unzipped_backup, то создаём в этом качестве
-            временную папку.
-                2) Если не задан zipped_backup, создаём временную папку и
-            задаём для него в ней файл bu.zip.
-                3) Если задана только unzipped_backup, то рассчитываем, что в
-            ней уже есть все необходимые данные и сразу парсим их.
-                4) Если задан только zipped_backup, то выполняем (1) и парсим
-            результат.
-                5) Если unzipped_backup уже не пуста, но так же существует
-            zipped_backup или задан cvat_srv_obj - возвращаем ошибку, чтобы не
-            перезаписывать данные в unzipped_backup, которые могут
-            представлять какую-то важность.
-                5) Если задан только cvat_srv_obj, то выполняем (1, 2),
-            закачку бекапа, распаковываем его и парсим результат.
+        Если take_data_from = 'cvat_srv_obj', то весь алгоритм воспроизводится
+        полностью. Если take_data_from = 'zipped_backup', то пропускается
+        первый пункт. Если take_data_from = 'unzipped_backup', то выполняется
+        только пункт 3.
+
+        Если take_data_from = 'auto', то:
+            Если папка unzipped_backup не пуста, то:
+                take_data_from = 'unzipped_backup'
+            Иначе, если zipped_backup существует:
+                take_data_from = 'zipped_backup'
+            Иначе, если cvat_srv_obj задан, то:
+                take_data_from = 'cvat_srv_obj'
+            Иначе:
+                Ошибка!
         '''
         # Доопределяет переменные:
         self.__prepare_variables(cvat_srv_obj,
                                  zipped_backup,
                                  unzipped_backup,
                                  parted,
-                                 verbose)
+                                 verbose,
+                                 take_data_from,
+                                 self)
+        # Это статический метод, поэтому self передаём явно.
 
         # Парсим распакованный бекап:
         self.__prepare_resources()
 
     # Приводит переменные к рабочему состоянию:
-    def __prepare_variables(self,
-                            cvat_srv_obj,
+    @staticmethod
+    def __prepare_variables(cvat_srv_obj,
                             zipped_backup,
                             unzipped_backup,
                             parted,
-                            verbose):
-        '''
-        if (cvat_srv_obj, zipped_backup, unzipped_backup) == (None,) * 3:
-            raise ValueError('Хотя бы один параметр должен быть задан!')
-        '''
+                            verbose,
+                            take_data_from,
+                            self=None):
+
+        # Проверяем существование нужного ресурса:
+        if take_data_from == 'cvat_srv_obj':
+            if cvat_srv_obj is None:
+                raise ValueError('Параметр "cvat_srv_obj" не задан!')
+        elif take_data_from == 'zipped_backup':
+            if zipped_backup is None:
+                raise ValueError('Параметр "zipped_backup" не задан!')
+            elif not os.path.isfile(zipped_backup):
+                raise FileNotFoundError(f'Файл "{zipped_backup}" не найден!')
+        elif take_data_from == 'unzipped_backup':
+            if unzipped_backup is None:
+                raise ValueError('Параметр "unzipped_backup" не задан!')
+            elif not os.path.isdir(unzipped_backup):
+                raise FileNotFoundError(f'Путь "{unzipped_backup}" не найден!')
+            elif len(os.listdir(unzipped_backup)) == 0:
+                raise FileNotFoundError(f'Папка "{unzipped_backup}" пуста!')
+
+        # Доопределяем источник автоматически:
+        elif take_data_from == 'auto':
+            if unzipped_backup is not None \
+                    and os.path.isdir(unzipped_backup) \
+                    and len(os.listdir(unzipped_backup)):
+                take_data_from = 'unzipped_backup'
+            elif zipped_backup is not None and os.path.isfile(zipped_backup):
+                take_data_from = 'zipped_backup'
+            elif cvat_srv_obj is not None:
+                take_data_from = 'cvat_srv_obj'
+            else:
+                raise ValueError('Не задан ни один существующий ресурс!')
+
+        else:
+            raise ValueError('Недопустимое значение "take_data_from": '
+                             f'{take_data_from}')
+
         # Инициируем список файлов, подлежащих удалению перед закрытием
         # объекта:
-        self.paths2remove = set()
+        paths2remove = set()
 
         # Если cvat_srv_obj не является представителем проекта, то
         # синхронизация по частям невозможноа:
@@ -1209,25 +1243,31 @@ class CVATBase:
             # Указываем его место во временной папке, которая потом будет
             # удалена:
             zipped_backup = get_empty_dir()
-            self.paths2remove.add(zipped_backup)
+            paths2remove.add(zipped_backup)
             zipped_backup = os.path.join(zipped_backup, 'bu.zip')
         else:
             # Даже если архив задан, он подлежит удалению перед деструкцией
             # экземлпяра класса:
-            self.paths2remove.add(zipped_backup)
+            paths2remove.add(zipped_backup)
 
         # Создаём папку для распакованных данных, если она не задана,
         # или не существует:
         if unzipped_backup is None or not os.path.isdir(unzipped_backup):
             unzipped_backup = get_empty_dir(unzipped_backup, False)
-            self.paths2remove.add(unzipped_backup)
+            paths2remove.add(unzipped_backup)
 
-        # Фиксируем объекты:
+        # Если объект для сохранения не указан, возвращаем сами параметры:
+        if store_to is None:
+            return (cvat_srv_obj, zipped_backup, unzipped_backup, parted,
+                    verbose, paths2remove)
+        
+        # Если объект для сохранения указан, фиксируем все параметры в нём:
         self.cvat_srv_obj = cvat_srv_obj
         self.zipped_backup = zipped_backup
         self.unzipped_backup = unzipped_backup
         self.parted = parted
         self.verbose = verbose
+        self.paths2remove = paths2remove
 
     # Выполнчет сжатие бекапа(ов):
     def compress(self):
@@ -1380,9 +1420,34 @@ class CVATBase:
     @classmethod
     def from_raw_data(cls,
                       data_path: str | list[str] | tuple[str],
-                      cvat_srv_obj: str | None = None,
-                      unzipped_backup: str | None = None,
-                      include_as_is: bool = False):
+                      include_as_is: bool = False,
+                      # Дальше параметры, аналогичные __init__:
+                      *init_args, **init_kwargs):
+
+        # Доопределяем входные переменные:
+        (cvat_srv_obj,
+         zipped_backup,
+         unzipped_backup,
+         parted,
+         verbose,
+         paths2remove) = cls.__prepare_variables(*init_args, **init_kwargs)
+
+        # Копируем файлы во папку с распакованным дадасетом:
+        cls._copy_files2unzipped_backup(data_path,
+                                        include_as_is,
+                                        unzipped_backup)
+
+        # Создаём новый экземпляр класса для уже подготовленной дирректории:
+        return cls(cvat_srv_obj,
+                   zipped_backup,
+                   unzipped_backup,
+                   parted,
+                   verbose,
+                   paths2remove)
+
+    # Копирует файлы в папку с распакованным бекапом:
+    @staticmethod
+    def _copy_files2unzipped_backup(data_path, include_as_is, unzipped_backup):
         raise NotImplementedError('Метод должен быть переопределён!')
 
     # Пишет текущее состояние разметки в папку с распакованным бекапом,
@@ -1694,7 +1759,7 @@ class CVATTask(CVATBase):
     # Создаёт список элементов типа CVATJob для неразмеченных данных:
     @classmethod
     def _init_annotations(cls, file_list):
-        return [CVATJob.from_raw_data(file_list)]
+        return [CVATJob._from_raw_data(file_list)]
 
     # Возвращает пути до распакованной задачи, папки с её данными и первый
     # из файлов:
@@ -1865,7 +1930,7 @@ class CVATJob:
 
     # Создаёт экземпляр класса с пустой разметкой:
     @classmethod
-    def from_raw_data(cls, file: str | list[str] | tuple[str]):
+    def _from_raw_data(cls, file: str | list[str] | tuple[str]):
 
         if isinstance(file, str):
             first_file = file
