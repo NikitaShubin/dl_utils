@@ -2422,8 +2422,8 @@ class AnnotateIt():
 
             # Дополняем символами из юникода если дан лишь базовый текст:
             else:
-                self.start_annotation = start_annotation + ' ⏳'
-                self.end_annotation = start_annotation + ' ✅'
+                self.start_annotation = '⏳ ' + start_annotation
+                self.end_annotation = '✅' + start_annotation
 
     def __enter__(self):
         if self.enable:
