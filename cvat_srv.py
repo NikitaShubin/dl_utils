@@ -1,8 +1,6 @@
 import os
 import numpy as np
 import shutil
-import json
-import time
 from PIL import Image
 from cvat_sdk import make_client, core
 from getpass import getpass
@@ -675,10 +673,9 @@ class CVATSRVBase:
             return getattr(self.editor, attr)
         # Создать её можно методом pull()
 
-        '''
         else:
-            raise NotImplementedError('')
-        '''
+            raise NotImplementedError('Метод не найден ни в одном '
+                                      'из подобъектов')
 
     def keys(self):
         '''

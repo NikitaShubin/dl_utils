@@ -6,7 +6,7 @@ DOCKERFILE_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pw
 
 # Задаём имя контейнера или берём его из входных параметров:
 if [ $# -eq 0 ]; then
-    DOCKER_NAME='video_pre_annotation'
+    DOCKER_NAME='pre_annotation'
 else
     DOCKER_NAME="$1"
     shift
@@ -26,7 +26,7 @@ cd "${DOCKERFILE_DIR}"/..
 
 # Пытаемся собирать образ каждый раз заново:
 #if ! docker build --progress=plain -t $IMAGE_NAME -f dockerPreAnnotation/Dockerfile . ; then
-if ! docker build -t $IMAGE_NAME -f dockerPreAnnotation/Dockerfile . ; then
+if ! docker build -t $IMAGE_NAME -f $DOCKERFILE_DIR/Dockerfile . ; then
     # Если образ собрать не удалось:
     RED='\033[0;31m'
     NC='\033[0m' # No Color (https://stackoverflow.com/a/5947802)
@@ -55,7 +55,17 @@ cd "${cur_dir}"
 nvidia-smi && nvidia_args='--runtime=nvidia --gpus 0' || nvidia_args=''
 
 # Параметры запуска контейнера:
+JUPYTER_PORT=573
 RUNPARAMS=(
+    # Имя контейнера:
+    --name "${DOCKER_NAME}"
+
+    -e JUPYTER_PASS=PreAnnotator
+    -e JUPYTER_PORT=$JUPYTER_PORT
+
+    # Пробрасываем порт без изменений:
+    -p $JUPYTER_PORT
+
     # Фоновый режим:
     -d
 
@@ -79,21 +89,6 @@ RUNPARAMS=(
     #-it $IMAGE_NAME bash
 )
 
-JUPYTER_PORT=60888
-LIZA_RUNPARAMS=(
-    # Имя контейнера:
-    --name "LIZA_${DOCKER_NAME}"
-
-    -e JUPYTER_PASS=Liza2080Kr
-    -e JUPYTER_PORT=$JUPYTER_PORT
-
-    # Пробрасываем порт без изменений:
-    -p $JUPYTER_PORT:$JUPYTER_PORT
-)
-
-JUPYTER_PORT=14207
-
 # Запускаем образ:
 #clear &&
-docker run  "${LIZA_RUNPARAMS[@]}" "${RUNPARAMS[@]}"
-#docker exec -u root -it $DOCKER_NAME bash
+docker run "${RUNPARAMS[@]}"
