@@ -98,7 +98,7 @@ ADD --chmod=777 https://github.com/IDEA-Research/GroundingDINO/blob/main/groundi
 # Самые мощные модели SAM2 и DINO (вместе с конфигом).
 COPY --chown="${USERNAME}:${USERNAME}" --chmod=777 *.py ./src/
 # Модули.
-COPY --chown="${USERNAME}:${USERNAME}" --chmod=777 dockerPreAnnotation/*.ipynb ./
+COPY --chown="${USERNAME}:${USERNAME}" --chmod=777 PreAnnotation/*.ipynb ./
 # Интерфейсные юпитер-ноутбуки.
 
 

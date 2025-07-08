@@ -6,7 +6,7 @@ DOCKERFILE_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pw
 
 # Задаём имя контейнера или берём его из входных параметров:
 if [ $# -eq 0 ]; then
-    DOCKER_NAME='pre_annotation'
+    DOCKER_NAME='video_pre_annotation'
 else
     DOCKER_NAME="$1"
     shift
@@ -57,15 +57,6 @@ nvidia-smi && nvidia_args='--runtime=nvidia --gpus 0' || nvidia_args=''
 # Параметры запуска контейнера:
 JUPYTER_PORT=573
 RUNPARAMS=(
-    # Имя контейнера:
-    --name "${DOCKER_NAME}"
-
-    -e JUPYTER_PASS=PreAnnotator
-    -e JUPYTER_PORT=$JUPYTER_PORT
-
-    # Пробрасываем порт без изменений:
-    -p $JUPYTER_PORT
-
     # Фоновый режим:
     -d
 
@@ -77,6 +68,15 @@ RUNPARAMS=(
     # к моменту перезапуска контейнер не был остановлен вручную:
     # --restart unless-stopped
     # Не совместим с --rm.
+
+    # Имя контейнера:
+    --name "${DOCKER_NAME}"
+
+    -e JUPYTER_PASS=PreAnnotator
+    -e JUPYTER_PORT=$JUPYTER_PORT
+
+    # Пробрасываем порт без изменений:
+    -p $JUPYTER_PORT:$JUPYTER_PORT
 
     # Монтируем папку проекта в докер:
     -v "${DOCKERFILE_DIR}/project/":/workspace/project
@@ -90,5 +90,4 @@ RUNPARAMS=(
 )
 
 # Запускаем образ:
-#clear &&
 docker run "${RUNPARAMS[@]}"

@@ -237,8 +237,10 @@ RUN jupyter lab --generate-config && \
 # Однако далее пароль будет взят из переменной окружения.
 
 # Другине настройки Jupyter-сервера:
-RUN echo "c.LatexConfig.run_times = 2" >> "${JPCONF}"
+RUN echo "c.LatexConfig.run_times = 2" >> "${JPCONF}" && \
+    echo "c.ContentsManager.allow_hidden = True" >> "${JPCONF}"
 # Двойной запуск компиляции LaTeX для проработки всяких ссылок.
+# Отображение скрытых файлов в файловом менеджере.
 
 #RUN export jupass=`python -c "from jupyter_server.auth import passwd; print(passwd('test'))"` && \
 #    echo "c.NotebookApp.password = '${jupass}'"     >> "${JPCONF}"
@@ -282,7 +284,7 @@ RUN git config --global --add safe.directory "$WORKSPACE"                     &&
     git config --global user.name "Никита Шубин"
 
 # Запуск Юпитер-сервера:
-CMD JP="jupyter-lab"; \
+CMD JP="jupyter lab"; \
     [[ -z "$JUPYTER_PORT" ]] || JP="$JP --port=$JUPYTER_PORT"; \
     [[ -z "$JUPYTER_PASS" ]] || JP="$JP --ServerApp.password="'"'"`echo ""$JUPYTER_PASS"" | python -c 'from jupyter_server.auth import passwd;print(passwd(input()))'`"'"'; \
     ${JP}
