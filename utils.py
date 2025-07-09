@@ -1989,11 +1989,20 @@ def json2obj(file='./cfg.json', encoding='utf-8'):
     return obj
 
 
-def get_file_list(path, extentions=[], recurcive=True):
+def get_file_list(path: str,
+                  extentions: str | list[str] | tuple[str] | set[str] = [],
+                  recurcive: bool = True):
     '''
     Возвращает список всех файлов, содержащихся по указанному пути,
     включая поддиректории.
+
+    Если extentions = 'dir', то выводиться будут дирректории.
     '''
+    # Переданный путь должен быть дирректорией:
+    if not os.path.isdir(path):
+        raise FileNotFoundError('Параметр `path` должен быть путём до '
+                                f'существующей папки. Получено {path}')
+
     # Обработка параметра extentions:
 
     # Если вместо списка/множества/кортежа расширений
@@ -2001,29 +2010,28 @@ def get_file_list(path, extentions=[], recurcive=True):
     if isinstance(extentions, str):
         extentions = {extentions}
 
-    # Если же это действительно список/множество/кортеж:
-    elif isinstance(extentions, (list, tuple, set)):
-
-        # Формируем список элементов, не являющихся строками:
-        exts = [ext for ext in extentions if not isinstance(ext, str)]
-
-        # Если список не пуст, выводим ошибку:
-        if exts:
-            raise ValueError('Найдены следующие некорректные объекты в ' +
-                             f'списка/множества/кортежа расширений: {exts}')
-
-    else:
-        raise ValueError('extentions должен быть строкой, или ' +
-                         'списком/кортежем/множеством строк. Получен ' +
-                         str(extentions))
-
     # Переводим все элементы списка в нижний регистр:
     extentions = {ext.lower() for ext in extentions}
+
+    # Список расширений только для файлов:
+    file_extentions = set(extentions)
+
+    # Если нужно выводить и дирректории:
+    if 'dir' in extentions:
+        get_dirs = True
+        file_extentions -= {'dir'}
+    else:
+        get_dirs = False
+
+    # Если в списках расширений есть '.*' или 'all',
+    # или исходный extentions оставлен по-умолчанию,
+    # то искать надо все файлы:
+    get_all_files = (file_extentions & {'.*', 'all'}) or len(extentions) == 0
 
     # Рекурсивное заполнение списка найденных файлов:
 
     # Инициализация списка найденных файлов:
-    file_list = []
+    file_list = [path] if get_dirs else []
 
     # Перебор всего содержимого заданной папки:
     for file in os.listdir(path):
@@ -2031,15 +2039,22 @@ def get_file_list(path, extentions=[], recurcive=True):
         # Уточняем путь до текущего файла:
         file = os.path.join(path, file)
 
-        # Если текущий файл - каталог, то добавляем всё его
-        # содержимое в список через рекурсивный вызов:
-        if os.path.isdir(file) and recurcive:
-            file_list += get_file_list(file, extentions)
+        # Если текущий файл - каталог:
+        if os.path.isdir(file):
 
-        # Если тип текущего файла соответствует искомому, либо
-        # типы искомых файлов не заданы, то вносим файл в список:
-        elif not len(extentions) or \
-                os.path.splitext(file)[1].lower() in extentions:
+            # Если нужна рекурсия, то включаем всё его содержимое:
+            if recurcive:
+                file_list += get_file_list(file, extentions, recurcive)
+
+            # Если рекурсия не нужна, но дирректории тоже надо добавлять,
+            # то добавляем текущую:
+            elif get_dirs:
+                file_list.append(file)
+
+        # Если это файл, и либо любой файл подходит, либо его расширение
+        # подходит, то добавляем в список:
+        elif get_all_files or \
+                os.path.splitext(file)[1].lower() in file_extentions:
             file_list.append(file)
 
     return file_list
@@ -2759,17 +2774,17 @@ class InternalRandomSeed:
     Декоратор и контекст.
     Выполняет вложенный код с собственным random.seed(), сохраняя
     внешнее состояние генератора псевдослучайных чисел (ГПСЧ) неизменным.
-    
+
     Позволяет отвязывать внутреннее и внешние состояния ГПСЧ, достигая,
     например, воспроисводимости результатов какого-то генератора.
-    
+
     Пример работы:
-        
+
         ```
         import random
-        
+
         irs = InternalRandomSeed()
-        
+
         # Декоратор:
         ri = irs(random.randint)
         print(ri(0, 100), random.randint(0, 100))
@@ -2777,14 +2792,14 @@ class InternalRandomSeed:
         ri.reset_seed()
         print(ri(0, 100), random.randint(0, 100))
         print(ri(0, 100), random.randint(0, 100))
-        
+
         # Контекст:
         irs.reset()
         with irs:
             print(random.randint(0, 100))
             print(random.randint(0, 100))
         ```
-        
+
         >>> 81 60
         >>> 14 32
         >>> 81 91
@@ -2792,41 +2807,43 @@ class InternalRandomSeed:
         >>> 81
         >>> 14
     '''
+
     def __init__(self, start_seed=42):
         self.start_seed = start_seed
         self.reset(start_seed)
-    
+
     # Установка стартового состояния генератора:
     def reset(self, start_seed=None):
         start_seed = start_seed or self.start_seed
         self.internal_seed = random.getstate()
         with self as s:
             random.seed(start_seed)
-    
+
     # Установка нового состояния и возвращение старого:
     @staticmethod
     def swap_random_python(new_seed):
         old_seed = random.getstate()
         random.setstate(new_seed)
         return old_seed
-    
+
     # Установка и снятие контекста:
     def __enter__(self):
         self.external_seed = self.swap_random_python(self.internal_seed)
-    def __exit__ (self, type, value, traceback):
+
+    def __exit__(self, type, value, traceback):
         self.internal_seed = self.swap_random_python(self.external_seed)
-    
+
     # Декорация через контекст:
     def __call__(self, func):
-        
+
         # Создаём декорированную функцию:
         def new_func(*args, **kwargs):
             with self:
                 return func(*args, **kwargs)
-        
+
         # Включаем возможность сбрасывать внутреннее состояние в исходное:
         new_func.reset_seed = self.reset
-        
+
         return new_func
 
 
@@ -2848,22 +2865,21 @@ def isfloat(a):
            isinstance(a, np.ndarray) and np.issubdtype(a.dtype, np.floating)
 
 
-# Работа с изображениями:
-__all__  = ['cv2_vid_exts', 'cv2_img_exts']
-__all__ += ['autocrop', 'df2img', 'fig2nparray', 'draw_contrast_text', 'resize_with_pad', 'img_dir2video', 'ImReadBuffer']
+__all__ = [
+    # Работа с изображениями:
+    'cv2_vid_exts', 'cv2_img_exts', 'autocrop', 'df2img', 'fig2nparray',
+    'draw_contrast_text', 'resize_with_pad', 'img_dir2video', 'ImReadBuffer',
 
-# Работа с файлами:
-__all__ += ['mkdirs', 'rmpath', 'emptydir', 'first_existed_path']
-__all__ += ['unzip_file', 'unzip_dir']
-__all__ += ['obj2yaml', 'yaml2obj']
+    # Работа с файлами:
+    'mkdirs', 'rmpath', 'emptydir', 'first_existed_path', 'unzip_file',
+    'unzip_dir', 'obj2yaml', 'yaml2obj',
 
+    # Работа с итерируемыми объектами:
+    'mpmap', 'invzip', 'flatten_list',
 
-# Работа с итерируемыми объектами:
-__all__ += ['mpmap', 'invzip', 'flatten_list']
+    # Украшательства:
+    'cls', 'TimeIt', 'AnnotateIt',
 
-# Украшательства:
-__all__ += ['cls', 'TimeIt', 'AnnotateIt']
-
-# Прочее:
-__all__ += ['rim2arabic', 'restart_kernel_and_run_all_cells']
-__all__ += ['isint', 'isfloat']
+    # Прочее:
+    'rim2arabic', 'restart_kernel_and_run_all_cells', 'isint', 'isfloat'
+]

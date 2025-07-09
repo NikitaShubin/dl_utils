@@ -167,10 +167,6 @@ def add_row2df(df=None, **kwargs):
     Добавляет новую строку с заданнымии параметрами в датафрейм.
     Значения незаданных параметров берутся из df_default_vals.
     '''
-    # Создаём датафремй, если он не задан:
-    if df is None:
-        df = new_df()
-
     # Создаём новую строку с параметрами по умолчанию:
     row = pd.Series(df_default_vals)
 
@@ -1400,7 +1396,7 @@ class CVATPoints:
 
     # Создаёт однострочный датафрейм с даннымии о контуре:
     def to_dfrow(self, dfrow=None, **kwargs):
-        if df is None:
+        if dfrow is None:
             return add_row2df(type=self.type,
                               points=self.flatten(),
                               rotation=self.rotation,
@@ -2962,7 +2958,31 @@ def file2unlabeled_subtask(file, check_frames=False):
     return None, file, true_frames
 
 
-def dir2unlabeled_tasks(path, check_frames=False):
+def dir2files(path):
+    '''
+    Парсит папкуи и составляет из найденных фото и видео список,
+    каждый элемент которого подходит для использования в качестве
+    данных в CVAT-задаче.
+    '''
+    assert os.path.isdir(path)
+
+    # Сначала помещаем каждое найденное видео в отдельную задачу:
+    files = get_file_list(path, cv2_vid_exts)
+
+    # А теперь все изображения группируем по папкам:
+    for imgs_dir in get_file_list(path, 'dir'):
+
+        # Ищем изображения в текущей дирректории:
+        images = get_file_list(imgs_dir, cv2_img_exts, False)
+
+        # Если нашли, то сортируем и вносим в общий список:
+        if images:
+            files.append(sorted(images))
+        
+    return files
+
+
+def dir2unlabeled_tasks(path, check_frames=False, **mpmap_kwargs):
     '''
     Перебирае все фото и видео из заданной папки и её подпапок,
     создавая из них список неразмеченных задач.
@@ -2972,34 +2992,19 @@ def dir2unlabeled_tasks(path, check_frames=False):
     Все изображения, находящиеся в одной дирректории размещаются в задаче,
     соответствующей этой дирректории.
     '''
+    # Получаем список файлов с разбивкой по подзадачам:
+    files = dir2files(path)
+
+    # Отключаем параллельность по-умолчанию:
+    if 'num_procs' not in mpmap_kwargs:
+        mpmap_kwargs['num_procs'] = 1
 
     # Инициируем список задач файлами из корневой дирректории:
-    tasks = []
-    img_files = []  # Список изображений текущей дирректории
-    for file in sorted(os.listdir(path)):
+    subtasks = mpmap(file2unlabeled_subtask, files,
+                     [check_frames] * len(files), **mpmap_kwargs)
 
-        ext = os.path.splitext(file)[1].lower()  # Расширение файла
-        file = os.path.join(path, file)          # Полный путь до файла
-
-        # Каждое найденное видео сразу заносится в отдельную задачу:
-        if ext in cv2_vid_exts:
-            subtask = file2unlabeled_subtask(file, check_frames)
-            tasks.append([subtask])
-
-        # Каждое найденное изображение заносится в список:
-        elif ext in cv2_img_exts:
-            img_files.append(file)
-
-        # Если это папка - делаем рекурсию:
-        elif os.path.isdir(file):
-            tasks += dir2unlabeled_tasks(file, check_frames)
-
-    # Все найденные изобржаения текущей папки собираем в одну подзадачу:
-    if img_files:
-        subtask = file2unlabeled_subtask(img_files, check_frames)
-        tasks.append([subtask])
-
-    return tasks
+    # Раскладываем каждую подзадачу в отдельную задачу:
+    return [[subtask] for subtask in subtasks]
 
 
 def task_auto_annottation(task,

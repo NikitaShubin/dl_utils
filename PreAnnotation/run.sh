@@ -6,7 +6,7 @@ DOCKERFILE_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pw
 
 # Задаём имя контейнера или берём его из входных параметров:
 if [ $# -eq 0 ]; then
-    DOCKER_NAME='video_pre_annotation'
+    DOCKER_NAME='pre_annotation'
 else
     DOCKER_NAME="$1"
     shift
@@ -80,6 +80,8 @@ RUNPARAMS=(
 
     # Монтируем папку проекта в докер:
     -v "${DOCKERFILE_DIR}/project/":/workspace/project
+    -v "/":"/outroot":ro
+    # Внешнюю файловую систему монтируем только для чтения в одну из корневых папок.
 
     # Включаем доступ к GPU, если возможно:
     $nvidia_args
