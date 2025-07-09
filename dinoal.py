@@ -4,7 +4,6 @@ import groundingdino
 import cv2
 import os
 import warnings
-import argparse
 from urllib.request import urlretrieve
 
 from pt_utils import AutoDevice
@@ -46,6 +45,14 @@ class Dino:
                 raise ValueError('Точка используется как ' +
                                  'разделитель запросов и ' +
                                  'не должна быть внутри одного класса!')
+
+        # Переводим все классы в нижний регистр:
+        prompt2label = {key.lower(): val for key, val in prompt2label.items()}
+        # Grounding DINO возвращает None для всех имён классов, в чъих
+        # названиях присутствуют символы верхнего регистра.
+        # (см. https://github.com/IDEA-Research/GroundingDINO/issues
+        #  /70#issuecomment-1642950663)
+
         return prompt2label
 
     # Фиксирует новый словарь запросов -> меток:
@@ -57,12 +64,12 @@ class Dino:
     def _build_caption(prompt2label):
         return '.'.join(prompt2label.keys())
 
-    def __init__(self                                                 ,
+    def __init__(self                                                ,
                  model_path     = './groundingdino_swinb_cogcoor.pth',
-                 box_threshold  = 0.35                                ,
-                 text_threshold = 0.25                                ,
-                 device         = 'auto'                              ,
-                 prompt2label   = {}                                  ):
+                 box_threshold  = 0.35                               ,
+                 text_threshold = 0.25                               ,
+                 device         = 'auto'                             ,
+                 prompt2label   = {}                                 ):
 
         # Если в пути не указано имя ни одной модели, то считаем это
         # именем папки, а моделью выберем groundingdino_swinb_cogcoor.pth:
@@ -220,9 +227,9 @@ class Dino:
 
         # Получаем кадр и результаты детекции:
         img, boxes, logits, labels = self._predict(img,
-                                                    prompt2label,
-                                                    box_threshold,
-                                                    text_threshold)
+                                                   prompt2label,
+                                                   box_threshold,
+                                                   text_threshold)
 
         # Определяем размер исходного изображения:
         imsize = img.shape[:2]
