@@ -2978,11 +2978,13 @@ def dir2files(path):
         # Если нашли, то сортируем и вносим в общий список:
         if images:
             files.append(sorted(images))
-        
+
     return files
 
 
-def dir2unlabeled_tasks(path, check_frames=False, **mpmap_kwargs):
+def dir2unlabeled_tasks(path: str | list[str] | tuple[str] | set[str],
+                        check_frames: bool = False,
+                        **mpmap_kwargs):
     '''
     Перебирае все фото и видео из заданной папки и её подпапок,
     создавая из них список неразмеченных задач.
@@ -2993,7 +2995,15 @@ def dir2unlabeled_tasks(path, check_frames=False, **mpmap_kwargs):
     соответствующей этой дирректории.
     '''
     # Получаем список файлов с разбивкой по подзадачам:
-    files = dir2files(path)
+    if isinstance(path, str):
+        if os.path.isdir(path):
+            files = dir2files(path)
+        elif os.path.isfile(path):
+            files = [path]
+        else:
+            raise FileNotFoundError(f'"{path}" не найден!')
+    else:
+        files = set(path)
 
     # Отключаем параллельность по-умолчанию:
     if 'num_procs' not in mpmap_kwargs:
@@ -4347,12 +4357,13 @@ def tasks2preview(tasks,
             f.write(f"file '{os.path.basename(sorted_out_file)}'\n")
 
     # Выполняем сборку без пересжатия:
-    os.system(f'ffmpeg -y -f concat -safe 0  -i "{file_list}" -c copy "{out_file}"')
+    os.system('ffmpeg -hide_banner -loglevel quiet -y -f concat -safe 0 '
+              f'-i "{file_list}" -c copy "{out_file}"')
 
     # Удаляем файл-список и файлы-фрагменты:
     os.remove(file_list)
     for file in sorted_out_files:
-        os.remove(file_list)
+        os.remove(file)
 
     return out_file
 
