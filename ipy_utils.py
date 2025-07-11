@@ -7,6 +7,49 @@ from cv_utils import Mask
 from cvat import CVATPoints
 from IPython.display import Video, clear_output, display
 import ipywidgets
+import os
+from urllib.parse import quote
+from IPython.display import HTML
+
+
+def path2link(path, link_file_name=None):
+    '''
+    Генерирует HTML-ссылку для скачивания файла в JupyterLab.
+
+    Параметры:
+    path (str): Абсолютный или относительный путь к файлу.
+    link_file_name (str, опционально): Текст ссылки. Если не указан,
+    используется имя файла.
+
+    Возвращает:
+    IPython.display.HTML: Объект, отображающий ссылку в Jupyter.
+
+    Примеры:
+    >>> path2link("data/file.txt")
+    >>> path2link("data/file.txt", "Скачать файл")
+    '''
+    # Проверка существования файла:
+    if not os.path.exists(path):
+        raise FileNotFoundError(f'Файл не найден: {path}')
+
+    # Получение абсолютного пути и нормализация разделителей:
+    abs_path = os.path.abspath(path).replace('\\', '/')
+
+    # Кодирование пути для URL:
+    encoded_path = quote(abs_path)
+
+    # Формирование URL для JupyterLab:
+    href = f'/files/{encoded_path}'
+
+    # Текст ссылки (имя файла, если не задано):
+    link_text = link_file_name or os.path.basename(path)
+
+    # Генерация HTML-кода ссылки с атрибутом download:
+    html = (f'<a href="{href}" '
+            f'download="{os.path.basename(path)}">'
+            f'{link_text}</a>')
+
+    return HTML(html)
 
 
 class IPYInteractiveSegmentation:
@@ -236,3 +279,32 @@ def show_video(file, clear=True, size=None):
         cls()
 
     return Video(file, embed=False, height=height, width=width)
+
+
+def concat(*cell_outs, sep='border-top: 1px solid #ccc; margin: 8px 0;'):
+    '''
+    Объединяет несколько элементов вывода, разделияя их линиями.
+
+    Параметры:
+    *cell_outs: элементы для отображения (HTML, текст, др.)
+    sep: CSS-стиль разделительной линии (None для отключения)
+    '''
+    html_content = '<div style="display:flex;flex-direction:column">'
+
+    for i, item in enumerate(cell_outs):
+
+        # Преобразуем элемент в HTML-строку:
+        if hasattr(item, '_repr_html_'):
+            item_html = item._repr_html_()
+        else:
+            item_html = f'<div>{str(item)}</div>'
+
+        # Добавляем элемент:
+        html_content += f'<div>{item_html}</div>'
+
+        # Добавляем разделитель после всех элементов кроме последнего:
+        if i < len(cell_outs) - 1 and sep:
+            html_content += f'<div style="{sep}"></div>'
+
+    html_content += '</div>'
+    return HTML(html_content)
