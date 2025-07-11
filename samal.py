@@ -1453,6 +1453,11 @@ class SAM:
         # Если в многоугольнике 1 точка, то это - точки:
         df.loc[df['points'].apply(len) == 2, 'type'] = 'points'
 
+        # SAM не различает объекты:
+        df['label'] = kwarg.get('label', None)
+        # Вынесено вне add_row2df, чтобы None не переводился в строку.
+        # Иначе потом task_auto_annottation её не заменит.
+
         return df
 
     # Формирование разметки в cvat-формате на основе полученного изображения:

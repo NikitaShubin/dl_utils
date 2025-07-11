@@ -53,6 +53,12 @@ class Dino:
         # (см. https://github.com/IDEA-Research/GroundingDINO/issues
         #  /70#issuecomment-1642950663)
 
+        for key, val in prompt2label.items():
+            if key == 'none' or val == 'None':
+                raise ValueError('Использование метки "none" запрещено!')
+        # Использовать метку None в любом регистре нельзя, т.к. она
+        # используется самим GroundingDINO.
+
         return prompt2label
 
     # Фиксирует новый словарь запросов -> меток:
@@ -196,6 +202,7 @@ class Dino:
                df_as_list_of_dfs=False,
                source='GroundingDINO',
                **kwargs):
+
         # Получаем кадр и результаты детекции:
         img, boxes, logits, labels = self._predict(
             img, prompt2label, box_threshold, text_threshold
@@ -207,9 +214,11 @@ class Dino:
         dfs = []
         for box, logit, label in zip(boxes, logits, labels):
             points = CVATPoints.from_yolobbox(*box, imsize)
-            dfs.append(points.to_dfrow(
-                source='GroundingDINO', label=label,  **kwargs
-            ))
+            df_row = points.to_dfrow(source='GroundingDINO', **kwargs)
+            df_row['label'] = label
+            dfs.append(df_row)
+            # Метка присвоена вне to_dfrow, чтобы не переводить None в str.
+            # Иначе потом task_auto_annottation её не заменит.
 
         if df_as_list_of_dfs:
             return dfs

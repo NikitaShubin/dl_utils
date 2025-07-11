@@ -35,8 +35,6 @@
 '''
 
 import os
-import cv2
-import sys
 
 import tensorflow  as tf
 layers       = tf.keras.layers
@@ -47,6 +45,7 @@ models       = tf.keras.models
 
 from utils import TimeIt, mpmap, obj2yaml, yaml2obj, cls, a2hw
 from alb_utils import AlbTransforms
+
 
 class TFInit:
     '''

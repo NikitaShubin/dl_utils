@@ -43,7 +43,8 @@ ARG PYTHONMODULES="                                                      \
                                                                          \
     # IDE:                                                               \
     jupyterlab voila                                                     \
-    jupyterlab_nvdashboard jupyter-collaboration                         \
+    jupyterlab_nvdashboard                                               \
+    # jupyter-collaboration                                              \
     ipympl mpl_point_clicker mpl_interactions[jupyter] matplotlib==3.9.4 \
                                                                          \
     # Базовые модули:                                                    \

@@ -106,14 +106,14 @@ ARG PYTHONMODULES="                                                      \
                                                                          \
                                                                          \
     # Для работы с CVAT:                                                 \
-    cvat-sdk[masks,pytorch]==2.4.7                                       \
+    cvat-sdk[masks,pytorch]                                              \
                                                                          \
     # IDE (JupyterLab\Jupyverse и PyCharm):                              \
     jupyterlab voila xeus-python                                         \
     jupyterlab_nvdashboard jupyter-resource-usage                        \
     jupyterlab-latex jupyterlab-git                                      \
     ipympl mpl_point_clicker mpl_interactions[jupyter] matplotlib        \
-    jupyter-collaboration jupyterlab_autoscrollcelloutput                \
+    # jupyter-collaboration jupyterlab_autoscrollcelloutput              \
     # pydevd-pycharm jupyverse[jupyterlab,auth]                          \
     # ipympl, mpl_point_clicker и mpl_interactions для интерактивного    \
     # matplotlib в ноутбуках. С их помощью можно, например, выполнять    \
@@ -136,7 +136,7 @@ com/PublicPackages/_packaging/onnxruntime-cuda-12/pypi/simple/           \
                                                                          \
     # Линтеры, стайлчекеры, тестеры и прочие утилиты работы с кодом:     \
     cookiecutter-data-science pytest pycodestyle pycodestyle_magic       \
-    python-lsp-server[all] jupyterlab-lsp black[jupyter]                 \
+    python-lsp-server[all] jupyterlab-lsp black[jupyter] ruff            \
     isort[requirements_deprecated_finder,pipfile_deprecated_finder]      \
     flake8 nbqa pylint wemake-python-styleguide ondivi                   \
                                                                          \
@@ -241,6 +241,10 @@ RUN echo "c.LatexConfig.run_times = 2" >> "${JPCONF}" && \
     echo "c.ContentsManager.allow_hidden = True" >> "${JPCONF}"
 # Двойной запуск компиляции LaTeX для проработки всяких ссылок.
 # Отображение скрытых файлов в файловом менеджере.
+
+
+
+# Взято с https://gist.github.com/jbwhit/eecdd1cac2756df85ad165f437445b0b.
 
 #RUN export jupass=`python -c "from jupyter_server.auth import passwd; print(passwd('test'))"` && \
 #    echo "c.NotebookApp.password = '${jupass}'"     >> "${JPCONF}"
