@@ -1,4 +1,4 @@
-FROM pytorch/pytorch:2.5.1-cuda12.4-cudnn9-runtime
+FROM pytorch/pytorch:2.7.1-cuda11.8-cudnn9-runtime
 
 ARG WORKSPACE='/workspace'       # Рабочая папка
 ARG USERNAME='user'              # Имя пользователя
@@ -39,13 +39,13 @@ ARG PYTHONMODULES="                                                      \
     torch==2.5.1                                                         \
                                                                          \
     # Для работы с CVAT:                                                 \
-    cvat-sdk==2.4.7                                                      \
+    cvat-sdk                                                             \
                                                                          \
     # IDE:                                                               \
     jupyterlab voila                                                     \
     jupyterlab_nvdashboard                                               \
     # jupyter-collaboration                                              \
-    ipympl mpl_point_clicker mpl_interactions[jupyter] matplotlib==3.9.4 \
+    ipympl mpl_point_clicker mpl_interactions[jupyter] matplotlib        \
                                                                          \
     # Базовые модули:                                                    \
     opencv-python scikit-learn pandas numba scikit-image                 \
@@ -60,16 +60,13 @@ ARG PYTHONMODULES="                                                      \
                                                                          \
     # Grounding DINO:                                                    \
     groundingdino-py                                                     \
-    #git+https://github.com/IDEA-Research/GroundingDINO.git              \
 "
 # "jupyverse[jupyterlab,noauth]"
 RUN ${PIP} install $PIPPARAMS --upgrade pip && \
-    ${PIP} install $PIPPARAMS $PYTHONMODULES --upgrade -vvv
+    ${PIP} install $PIPPARAMS $PYTHONMODULES -vvv
 
 
 # Исправляем баг SAM2 с недоступностью конфигурационных файлов:
-# RUN wget https://github.com/facebookresearch/sam2/archive/refs/heads/main.zip && \
-#     7z x ./main.zip && ls -laht && cd sam2-main && pip install -e ".[notebooks]" && cd .. && rm -rf sam2-main
 RUN pypackagesdir=`${PIP} show sam-2 | grep Location | cut -d' ' -f2` && \
     cp -R "$pypackagesdir/sam2/configs/sam2.1/." "$pypackagesdir/sam2/" && \
     wget -P "$pypackagesdir/sam2/" \
@@ -79,9 +76,6 @@ RUN pypackagesdir=`${PIP} show sam-2 | grep Location | cut -d' ' -f2` && \
 # выключаем поддержку voila, т.к. внтури JupyterLab она всё равно не работает:
 RUN jupyter labextension disable '@jupyterlab/apputils-extension:announcements' && \
     jupyter server extension disable voila
-#RUN jupyter labextension install @voila-dashboards/jupyterlab-preview
-#RUN jupyter serverextension enable voila &&
-#RUN 
 
 
 # Точка монтирования внутри контейнера:
@@ -92,11 +86,6 @@ WORKDIR "${WORKSPACE}"
 RUN chmod -R 777 .
 
 
-# Вносим нужные файлы в рабочую папку образа:
-ADD --chmod=777 https://dl.fbaipublicfiles.com/segment_anything_2/092824/sam2.1_hiera_large.pt ./models/
-ADD --chmod=777 https://github.com/IDEA-Research/GroundingDINO/releases/download/v0.1.0-alpha2/groundingdino_swinb_cogcoor.pth ./models/
-ADD --chmod=777 https://github.com/IDEA-Research/GroundingDINO/blob/main/groundingdino/config/GroundingDINO_SwinB_cfg.py ./models/
-# Самые мощные модели SAM2 и DINO (вместе с конфигом).
 COPY --chown="${USERNAME}:${USERNAME}" --chmod=777 *.py ./src/
 # Модули.
 COPY --chown="${USERNAME}:${USERNAME}" --chmod=777 PreAnnotation/*.ipynb ./
@@ -108,6 +97,14 @@ RUN useradd -ms "${SHELL_PATH}" "${USERNAME}"         && \
     adduser "${USERNAME}" sudo                        && \
     echo "${USERNAME}" ALL = NOPASSWD: ALL >> /etc/sudoers
 USER "${USERNAME}"
+
+# Вносим нужные файлы в рабочую папку образа:
+ARG WGET='wget -c --retry-connrefused --tries=0 --timeout=5 -P ./models/'
+RUN wget -c --retry-connrefused --tries=0 --timeout=5 -P ./models/ \
+    https://dl.fbaipublicfiles.com/segment_anything_2/092824/sam2.1_hiera_large.pt \
+    https://github.com/IDEA-Research/GroundingDINO/releases/download/v0.1.0-alpha2/groundingdino_swinb_cogcoor.pth \
+    https://github.com/IDEA-Research/GroundingDINO/blob/main/groundingdino/config/GroundingDINO_SwinB_cfg.py
+# Самые мощные модели SAM2 и DINO (вместе с конфигом).
 
 # Установка тёмной темы в JupyterLab:
 ARG THEMEDIR="${HOMEDIR}"/.jupyter/lab/user-settings/\@jupyterlab/apputils-extension/
@@ -137,8 +134,3 @@ CMD JP="jupyter-lab"; \
     [[ -z "$JUPYTER_PASS" ]] || JP="$JP --ServerApp.password="'"'"`echo ""$JUPYTER_PASS"" | python -c 'from jupyter_server.auth import passwd;print(passwd(input()))'`"'"'; \
     ${JP}
 # Если в переменных окружения заданы пароль и порт, то они используются как параметры запуска.
-
-
-# Запуск JupyterLab с указанным в переменных окружения паролем и портом:
-#CMD jupyter-lab --notebook-dir="${WORKSPACE}" --port="$JUPYTER_PORT" --collaborative \
-#    --NotebookApp.password="$(echo $JUPYTER_PASSWORD | python -c 'from jupyter_server.auth import passwd;print(passwd(input()))')" "${JPPARAMS}"

@@ -25,7 +25,7 @@ cd "${DOCKERFILE_DIR}"/..
 
 
 # Пытаемся собирать образ каждый раз заново:
-#if ! docker build --progress=plain -t $IMAGE_NAME -f dockerPreAnnotation/Dockerfile . ; then
+#if ! docker build --progress=plain -t $IMAGE_NAME -f $DOCKERFILE_DIR/Dockerfile . ; then
 if ! docker build -t $IMAGE_NAME -f $DOCKERFILE_DIR/Dockerfile . ; then
     # Если образ собрать не удалось:
     RED='\033[0;31m'
