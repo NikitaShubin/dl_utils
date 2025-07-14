@@ -52,7 +52,7 @@ cd "${cur_dir}"
 
 #docker pull $IMAGE_NAME
 # Включаем доступ к Nvidia, если установлен nvidia-smi:
-nvidia-smi && nvidia_args='--runtime=nvidia --gpus 0' || nvidia_args=''
+nvidia-smi && nvidia_args='--runtime=nvidia --gpus all' || nvidia_args=''
 
 # Параметры запуска контейнера:
 JUPYTER_PORT=573

@@ -1,4 +1,4 @@
-FROM pytorch/pytorch:2.7.1-cuda11.8-cudnn9-runtime
+FROM pytorch/pytorch:2.5.1-cuda11.8-cudnn9-runtime
 
 ARG WORKSPACE='/workspace'       # Рабочая папка
 ARG USERNAME='user'              # Имя пользователя
@@ -98,21 +98,20 @@ RUN useradd -ms "${SHELL_PATH}" "${USERNAME}"         && \
     echo "${USERNAME}" ALL = NOPASSWD: ALL >> /etc/sudoers
 USER "${USERNAME}"
 
-# Вносим нужные файлы в рабочую папку образа:
-ARG WGET='wget -c --retry-connrefused --tries=0 --timeout=5 -P ./models/'
-RUN wget -c --retry-connrefused --tries=0 --timeout=5 -P ./models/ \
+
+# Скачиваем самые мощные модели SAM2 и DINO:
+RUN wget -c --retry-connrefused --tries=0 --timeout=5 -P "${HOMEDIR}"/models/ \
     https://dl.fbaipublicfiles.com/segment_anything_2/092824/sam2.1_hiera_large.pt \
-    https://github.com/IDEA-Research/GroundingDINO/releases/download/v0.1.0-alpha2/groundingdino_swinb_cogcoor.pth \
-    https://github.com/IDEA-Research/GroundingDINO/blob/main/groundingdino/config/GroundingDINO_SwinB_cfg.py
-# Самые мощные модели SAM2 и DINO (вместе с конфигом).
+    https://github.com/IDEA-Research/GroundingDINO/releases/download/v0.1.0-alpha2/groundingdino_swinb_cogcoor.pth
+
+# Доустановка мелочей для GroundingDINO:
+RUN python -c "import os; import groundingdino; from groundingdino.util.inference import load_model; load_model(os.path.join(os.path.dirname(os.path.abspath(groundingdino.__file__)), 'config', 'GroundingDINO_SwinB_cfg.py'), '${HOMEDIR}/models/groundingdino_swinb_cogcoor.pth')"
+
 
 # Установка тёмной темы в JupyterLab:
 ARG THEMEDIR="${HOMEDIR}"/.jupyter/lab/user-settings/\@jupyterlab/apputils-extension/
 RUN mkdir -p "${THEMEDIR}" && \
     echo '{ "theme":"JupyterLab Dark" }' > "${THEMEDIR}"themes.jupyterlab-settings
-
-# Доустановка мелочей для GroundingDINO:
-RUN python -c "import sys; sys.path.append('./src'); from dinoal import Dino; dino = Dino('./models/groundingdino_swinb_cogcoor.pth')"
 
 
 # Настраиваем соединение JupyterLab по-умолчанию:

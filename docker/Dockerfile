@@ -206,6 +206,16 @@ RUN useradd -ms "${SHELL_PATH}" "${USERNAME}"         && \
     echo "${USERNAME}" ALL = NOPASSWD: ALL >> /etc/sudoers
 USER "${USERNAME}"
 
+
+# Скачиваем самые мощные модели SAM2 и DINO:
+RUN wget -c --retry-connrefused --tries=0 --timeout=5 -P "${HOMEDIR}"/models/ \
+    https://dl.fbaipublicfiles.com/segment_anything_2/092824/sam2.1_hiera_large.pt \
+    https://github.com/IDEA-Research/GroundingDINO/releases/download/v0.1.0-alpha2/groundingdino_swinb_cogcoor.pth
+
+# Доустановка мелочей для GroundingDINO:
+RUN python -c "import os; import groundingdino; from groundingdino.util.inference import load_model; load_model(os.path.join(os.path.dirname(os.path.abspath(groundingdino.__file__)), 'config', 'GroundingDINO_SwinB_cfg.py'), '${HOMEDIR}/models/groundingdino_swinb_cogcoor.pth')"
+
+
 # Установка тёмной темы в JupyterLab:
 ARG THEMEDIR="${HOMEDIR}"/.jupyter/lab/user-settings/\@jupyterlab/apputils-extension/
 RUN mkdir -p "${THEMEDIR}" && \
