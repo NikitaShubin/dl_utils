@@ -671,7 +671,7 @@ class CVATSRVBase:
         # Затем смотрим в локальной копии данных, если она создана:
         elif self._hier_lvl in {1, 2} and hasattr(self.editor, attr):
             return getattr(self.editor, attr)
-        # Создать её можно методом pull()
+        # Создать её можно методом edit()
 
         else:
             raise NotImplementedError('Метод не найден ни в одном '
@@ -795,7 +795,7 @@ class CVATSRVBase:
     # Возвращает экземпляр класса, дочерего к CVATBase, позволяющего
     # редактировать бекапы и отправлять изменённую версию обратно на сервер
     # (аргументы соответствуют аргументам CVATBase):
-    def pull(self, *args, **kwargs):
+    def edit(self, *args, **kwargs):
 
         # Если локальный представитель ещё не создан:
         if self.editor is None:
@@ -1182,16 +1182,17 @@ class CVATBase:
         # Парсим распакованный бекап:
         self.__prepare_resources()
 
-    # Приводит переменные к рабочему состоянию:
     @staticmethod
-    def __prepare_variables(cvat_srv_obj,
-                            zipped_backup,
-                            unzipped_backup,
-                            parted,
-                            verbose,
-                            take_data_from,
-                            self=None):
-
+    def __check_soruce(cvat_srv_obj,
+                       zipped_backup,
+                       unzipped_backup,
+                       verbose,
+                       take_data_from):
+        '''
+        Проверяет существование нужного ресурса и доопределяет take_data_from.
+        Вынесено из __prepare_variables в отдельную функцию для упрощения
+        последней.
+        '''
         # Проверяем существование нужного ресурса:
         if take_data_from == 'cvat_srv_obj':
             if cvat_srv_obj is None:
@@ -1226,6 +1227,27 @@ class CVATBase:
             raise ValueError('Недопустимое значение "take_data_from": '
                              f'{take_data_from}')
 
+        return take_data_from
+
+    # Приводит переменные к рабочему состоянию:
+    @classmethod
+    def __prepare_variables(cls,
+                            cvat_srv_obj,
+                            zipped_backup,
+                            unzipped_backup,
+                            parted,
+                            verbose,
+                            take_data_from,
+                            self=None):
+
+        # Проверяем существование нужного ресурса и доопределяем
+        # take_data_from:
+        take_data_from = cls.__check_soruce(cvat_srv_obj,
+                                            zipped_backup,
+                                            unzipped_backup,
+                                            verbose,
+                                            take_data_from)
+
         # Инициируем список файлов, подлежащих удалению перед закрытием
         # объекта:
         paths2remove = set()
@@ -1253,18 +1275,17 @@ class CVATBase:
             unzipped_backup = get_empty_dir(unzipped_backup, False)
             paths2remove.add(unzipped_backup)
 
-        # Если объект для сохранения не указан, возвращаем сами параметры:
-        if store_to is None:
-            return (cvat_srv_obj, zipped_backup, unzipped_backup, parted,
-                    verbose, paths2remove)
-        
-        # Если объект для сохранения указан, фиксируем все параметры в нём:
-        self.cvat_srv_obj = cvat_srv_obj
-        self.zipped_backup = zipped_backup
-        self.unzipped_backup = unzipped_backup
-        self.parted = parted
-        self.verbose = verbose
-        self.paths2remove = paths2remove
+        # Возвращаем полученные параметры:
+        if self is None:
+            return (cvat_srv_obj, zipped_backup, unzipped_backup,
+                    parted, verbose, paths2remove)
+        else:
+            self.cvat_srv_obj = cvat_srv_obj
+            self.zipped_backup = zipped_backup
+            self.unzipped_backup = unzipped_backup
+            self.parted = parted
+            self.verbose = verbose
+            self.paths2remove = paths2remove
 
     # Выполнчет сжатие бекапа(ов):
     def compress(self):
@@ -1519,15 +1540,57 @@ class CVATProject(CVATBase):
             else:
                 raise FileExistsError(f'Неожиданный файл "{subdir}"!')
 
+    # Пишет файл описания проекта project.json:
+    @staticmethod
+    def _write_info(info, unzipped_backup):
+
+        # Путь до файла:
+        info_file = os.path.join(unzipped_backup, 'project.json')
+
+        # Пишем содержимое файла:
+        return obj2json(info, info_file)
+
+    # Пишет текстовое описания (гайд) проекта annotation_guide.md:
+    @staticmethod
+    def _write_guide(guide, unzipped_backup):
+
+        # Путь до файла:
+        guide_file = os.path.join(unzipped_backup, 'annotation_guide.md')
+
+        # Если гайд не пустой, пишем его в файл:
+        if guide:
+            with open(guide_file, 'w') as f:
+                f.write(guide)
+
+        # Если гайд пустой - удаляем файл:
+        else:
+            rmpath(guide_file)
+
+    # Пишет метаданные проекта в папкус распакованным бекапом
+    # (данные для отдельных задач не входят):
+    @classmethod
+    def _write_annotations2unzipped_backup(cls,
+                                           unzipped_backup,
+                                           info,
+                                           guide=''):
+
+        # Создаём необъодимые файлы:
+        cls._write_info(info, unzipped_backup)    # project.json
+        cls._write_guide(guide, unzipped_backup)  # annotation_guide.md
+
     # Пишет текущее состояние разметки в папку с распакованным бекапом,
     # а при необходимости собирает архив и отправляет его на CVAT-сервер.
     def push(self, local_only=False):
 
-        # Вызываем синхронизацю каждого из подобъектов:
+        # Вызываем синхронизацю каждого из подобъектов (задач):
         for task_data in tqdm(self.data,
                               desc='Обновление локальной копии',
                               disable=not self.verbose):
-            task_data.push(True)
+            task_data.push(local_only=True)
+
+        # Добавляем описание проекта в целом:
+        self._write_annotations2unzipped_backup(self.unzipped_backup,
+                                                self.info, self.guide)
 
         # Если надо отправлять результат на CVAT-сервер:
         if not local_only:
@@ -1576,7 +1639,7 @@ class CVATTask(CVATBase):
                                                     True)
 
         # Создаём для каждой подзадачи экземпляр класса CVATJob:
-        self.data = mpmap(CVATJob.from_subtask, task, num_procs=0)
+        self.data = mpmap(CVATJob.from_subtask, task, num_procs=1)
 
     @staticmethod
     def __prepare_single_raw_file(data_path: str,
@@ -1794,7 +1857,7 @@ class CVATTask(CVATBase):
         # Пишем файлы описания сырых данных:
         cls._write_manifest(jobs, task_dir, task_data_dir,
                             file, first_file)  # manifest.json
-        cls._write_index(jobs, task_data_dir)   # index.json
+        cls._write_index(jobs, task_data_dir)  # index.json
 
         # Пишем файлы описания задачи и разметки:
         cls._write_info(jobs, info, task_data_dir)  # task.json
@@ -1845,7 +1908,7 @@ class CVATTask(CVATBase):
         # Пишем результат в файл и возвращаем путь до него:
         return obj2json(manifest, manifest_file)
 
-    # Пишет файл index.json (на самом деле удаляет его, т.к. он не обязателен):
+    # Пишет файл index.json (на самом деле удаляет его, т.к. он необязателен):
     @staticmethod
     def _write_index(jobs, task_data_dir):
 
