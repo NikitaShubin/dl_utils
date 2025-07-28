@@ -19,6 +19,7 @@ IMAGE_NAME=kitbrain/$DOCKER_NAME
 DOCKER_HOSTNAME="${DOCKER_NAME}_`hostname`"
 
 # Пытаемся собирать образ каждый раз заново:
+
 #if ! docker build --progress=plain -t $IMAGE_NAME "${DOCKERFILE_DIR}"; then
 if ! docker build -t $IMAGE_NAME "${DOCKERFILE_DIR}"; then
     # Если образ собрать не удалось:

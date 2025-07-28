@@ -1,9 +1,5 @@
 #ARG TFVER='2.17.0'
 #FROM tensorflow/tensorflow:${TFVER}-gpu
-#FROM tensorflow/tensorflow:2.14.0-gpu
-#FROM tensorflow/tensorflow:2.15.0-gpu
-#FROM tensorflow/tensorflow:2.16.1-gpu
-#FROM tensorflow/tensorflow:2.17.0-gpu
 
 FROM tensorflow/tensorflow:latest-gpu
 #FROM tensorflow/tensorflow:nightly-gpu
@@ -76,7 +72,6 @@ RUN apt-get update                                           && \
 
 # See http://bugs.python.org/issue19846
 ENV LANG C.UTF-8
-
 
 # Устанавливаем необходимые python-библиотеки:
 #ARG PIPPARAMS="--root-user-action=ignore --no-cache-dir"
@@ -177,7 +172,6 @@ RUN ${PIP} install $PIPPARAMS --upgrade pip && \
     ${PIP} install $PIPPARAMS tensorflow==${TFVER} $PYTHONMODULES --upgrade
 # Установка всех необходимых пакетов при фиксации версии уже установленного Tensorflow.
 
-#RUN pip install $PIPPARAMS $PYTHONMODULES
 
 # Исправляем баг SAM2 с недоступностью конфигурационных файлов:
 # RUN wget https://github.com/facebookresearch/sam2/archive/refs/heads/main.zip && \
@@ -188,17 +182,8 @@ RUN pypackagesdir=`${PIP} show sam2 | grep Location | cut -d' ' -f2` && \
     wget -P "$pypackagesdir/sam2/" \
     "https://github.com/SysCV/sam-hq/blob/main/sam-hq2/sam2/configs/sam2.1/sam2.1_hq_hiera_l.yaml"
 
-# Отключаем у JupyterLab надоедливый вопрос об обновлении и
-# выключаем поддержку voila, т.к. внтури JupyterLab она всё равно не работает:
-RUN jupyter labextension disable '@jupyterlab/apputils-extension:announcements' && \
-    jupyter server extension disable voila
-#RUN jupyter labextension install @voila-dashboards/jupyterlab-preview
-#RUN jupyter serverextension enable voila &&
-#RUN 
-
-# Грязно отключаем support_message, используемый в silence-tensorflow, т.к. он работает некорректно без root-a:
-#RUN echo 'def support_message(*args, **kwargs): pass' > `python -c \
-#    'import inspect, support_developer; print(inspect.getfile(support_developer.support_message))'`
+# Отключаем у JupyterLab надоедливый вопрос об обновлении
+RUN jupyter labextension disable '@jupyterlab/apputils-extension:announcements'
 
 # Создаём пользователя, даём ему право использовать sudo без пароля и устанавливаем его по умолчанию:
 RUN useradd -ms "${SHELL_PATH}" "${USERNAME}"         && \
@@ -207,10 +192,22 @@ RUN useradd -ms "${SHELL_PATH}" "${USERNAME}"         && \
 USER "${USERNAME}"
 
 
+# Выключаем поддержку voila, т.к. внтури JupyterLab она всё равно не работает:
+#RUN jupyter server extension disable voila
+#RUN jupyter labextension install @voila-dashboards/jupyterlab-preview
+#RUN jupyter serverextension enable voila &&
+
+# Грязно отключаем support_message, используемый в silence-tensorflow, т.к. он работает некорректно без root-a:
+#RUN echo 'def support_message(*args, **kwargs): pass' > `python -c \
+#    'import inspect, support_developer; print(inspect.getfile(support_developer.support_message))'`
+
 # Скачиваем самые мощные модели SAM2 и DINO:
-RUN wget -c --retry-connrefused --tries=0 --timeout=5 -P "${HOMEDIR}"/models/ \
-    https://dl.fbaipublicfiles.com/segment_anything_2/092824/sam2.1_hiera_large.pt \
-    https://github.com/IDEA-Research/GroundingDINO/releases/download/v0.1.0-alpha2/groundingdino_swinb_cogcoor.pth
+#RUN wget -c --retry-connrefused -t 10 -T 900 -P "${HOMEDIR}"/models/ \
+#    https://dl.fbaipublicfiles.com/segment_anything_2/092824/sam2.1_hiera_large.pt \
+#    https://github.com/IDEA-Research/GroundingDINO/releases/download/v0.1.0-alpha2/groundingdino_swinb_cogcoor.pth
+ADD https://dl.fbaipublicfiles.com/segment_anything_2/092824/sam2.1_hiera_large.pt "${HOMEDIR}"/models/
+ADD https://github.com/IDEA-Research/GroundingDINO/releases/download/v0.1.0-alpha2/groundingdino_swinb_cogcoor.pth "${HOMEDIR}"/models/
+RUN sudo chmod -R 777 "${HOMEDIR}"/models/
 
 # Доустановка мелочей для GroundingDINO:
 RUN python -c "import os; import groundingdino; from groundingdino.util.inference import load_model; load_model(os.path.join(os.path.dirname(os.path.abspath(groundingdino.__file__)), 'config', 'GroundingDINO_SwinB_cfg.py'), '${HOMEDIR}/models/groundingdino_swinb_cogcoor.pth')"
@@ -247,7 +244,7 @@ RUN jupyter lab --generate-config && \
 # Однако далее пароль будет взят из переменной окружения.
 
 # Другине настройки Jupyter-сервера:
-RUN echo "c.LatexConfig.run_times = 2" >> "${JPCONF}" && \
+RUN echo "c.LatexConfig.run_times = 2"           >> "${JPCONF}" && \
     echo "c.ContentsManager.allow_hidden = True" >> "${JPCONF}"
 # Двойной запуск компиляции LaTeX для проработки всяких ссылок.
 # Отображение скрытых файлов в файловом менеджере.
