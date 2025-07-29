@@ -2,7 +2,7 @@ import os
 import numpy as np
 import shutil
 from PIL import Image
-from cvat_sdk import make_client, core
+from cvat_sdk import make_client, core, api_client
 from getpass import getpass
 from zipfile import ZipFile
 from tqdm import tqdm
@@ -64,11 +64,13 @@ class Client:
     # client = Client(...)
     # client2 = Client(**client.kwargs4init())
 
+    """
     def __getattr__(self, attr):
         '''
         Проброс атрибутов вложенного объекта наружу.
         '''
         return getattr(self.obj, attr)
+    """
 
     @staticmethod
     def _adapt_labels(labels):
@@ -148,7 +150,7 @@ class Client:
         # Проверяем наличие каждого файла из списка:
         for file_ in file:
             if not os.path.isfile(file_):
-                raise FileNotFoundError(f'Не найден файл "file_"!')
+                raise FileNotFoundError(f'Не найден файл "{file_}"!')
 
         return file
 
@@ -165,7 +167,7 @@ class Client:
         if (file, labels, annotation_path) == (None,) * 3:
 
             # Создаём пустую задачу:
-            data, response = self.api_client.tasks_api.create(
+            data, response = self.obj.api_client.tasks_api.create(
                 api_client.models.TaskWriteRequest(
                     name=name,
                     labels=[
@@ -406,6 +408,76 @@ class Client:
             jobs.append(CVATSRVJob(self, job))
         return jobs
 
+    def get_guide(self, obj):
+        '''
+        Возвращает строку описания объекта (guide) в формате Markdown.
+        '''
+        if obj.obj.guide_id is None:
+            return ''
+        else:
+            return self.obj.api_client.guides_api.retrieve(
+                id=obj.obj.guide_id
+            )[0].markdown
+
+    def set_guide(self, obj, guide: str = ''):
+        '''
+        Переписывает строку описания объекта (guide) в формате Markdown.
+        '''
+        # Интерфейс возаимодействия со всеми гайдами:
+        guides_api = self.obj.api_client.guides_api
+
+        # Если строка не пуста:
+        if guide:
+
+            # Иницируем параметры запроса:
+            kwargs = {'markdown': guide}
+
+            # Получаем доступ к существующему guide или создаём новый:
+            if obj.obj.guide_id is None:
+
+                # Дополняем параметры запроса:
+                if obj._hier_lvl == 1:
+                    kwargs['project_id'] = obj.obj.id
+                elif obj._hier_lvl == 2:
+                    kwargs['task_id'] = obj.obj.id
+                else:
+                    raise ValueError('Описание можно добавлять только '
+                                     'проектам и задачам!')
+
+                # Создаём сам запрос на создание описания:
+                request = api_client.models.AnnotationGuideWriteRequest(
+                    **kwargs
+                )
+
+                # Отправляем запрос на исполнение:
+                guides_api.create(
+                    annotation_guide_write_request=request
+                )
+
+            else:
+                # Создаём сам запрос на редактирование описания:
+                request = api_client.models.PatchedAnnotationGuideWriteRequest(
+                    **kwargs
+                )
+
+                # Отправляем запрос на исполнение:
+                guides_api.partial_update(
+                    id=obj.obj.guide_id,
+                    patched_annotation_guide_write_request=request
+                )
+
+        # Если строка пуста, а сам гайд не пустой - очищаем:
+        elif obj.obj.guide_id is not None:
+            guides_api.destroy(obj.obj.guide_id)
+
+        # Сам объект лучше обновить после таких изменений:
+        obj._update_obj()
+        # Иначе его obj.obj.guide_id будет неактуален при следующем
+        # использовании.
+
+        # Возвращаем id Описания:
+        return obj.obj.guide_id
+
 
 def get_name(obj):
     '''
@@ -429,6 +501,19 @@ class CVATSRVBase:
     _hier_lvl = None
     # У каждого потомка будет свой номер.
 
+    # В качестве имени объекта берётся:
+    #    - его имя в cvat (для проектов и задач);
+    #    - его id (для подзадач);
+    #    - адрес сервера (для сервера).
+    @property
+    def name(self):
+        if self.obj is None:
+            return self.client.host
+        elif hasattr(self.obj, 'name'):
+            return self.obj.name
+        else:
+            return self.obj.id
+
     def __init__(self, client, obj=None):
 
         # Собираем клиент сами, если переданы его параметры:
@@ -448,8 +533,16 @@ class CVATSRVBase:
         self.child_class = self._hier_lvl2class.get(self._hier_lvl + 1, None)
         self.parent_class = self._hier_lvl2class.get(self._hier_lvl - 1, None)
 
-        if self._hier_lvl in {1, 2}:
-            self.editor = None
+        # Инициируем редактор (актуален только для проектов и задач):
+        self.editor = None
+
+    def _update_obj(self):
+        if self._hier_lvl == 1:  # Если это проект
+            self.obj = self.client.obj.projects.retrieve(self.obj.id)
+        if self._hier_lvl == 2:  # Если это задача
+            self.obj = self.client.obj.tasks.retrieve(self.obj.id)
+        if self._hier_lvl == 3:  # Если это подзадача
+            self.obj = self.client.obj.jobs.retrieve(self.obj.id)
 
     @classmethod
     def from_id(cls, client, id):
@@ -479,7 +572,7 @@ class CVATSRVBase:
         '''
         for key, val in self.items():
             if key == name:
-                return val.id
+                return val.obj.id
         return None
 
     def backup(self,
@@ -528,7 +621,7 @@ class CVATSRVBase:
             return self.client._backup(self.client,
                                        path,
                                        type,
-                                       self.id,
+                                       self.obj.id,
                                        desc=mpmap_kwargs['desc'])
 
         # Если передано имя лишь одной подсущности:
@@ -544,7 +637,7 @@ class CVATSRVBase:
         assert self._hier_lvl < 2
 
         type = 'task' if self._hier_lvl else 'project'
-        parent_id = self.id if self._hier_lvl else None
+        parent_id = self.obj.id if self._hier_lvl else None
         return self.client._restore(self.client, path, type,
                                     parent_id, None, desc)
 
@@ -562,7 +655,7 @@ class CVATSRVBase:
         objs = self.values()
 
         # Бекапим все сущности:
-        ids = [obj.id for obj in objs]  # Формируем список ID всех сущностей
+        ids = [obj.obj.id for obj in objs]  # Формируем список ID всех сущностей
         paths = [os.path.join(path, f'{id}.zip') for id in ids]
         clients = [self.client.kwargs4init()] * len(ids)
         types = ['task' if self._hier_lvl else 'project'] * len(ids)
@@ -588,7 +681,7 @@ class CVATSRVBase:
         # Восстанавливаем все сущности:
         clients = [self.client.kwargs4init()] * len(path)
         types = ['task' if self._hier_lvl else 'project'] * len(path)
-        parent_ids = [self.id if self._hier_lvl else None] * len(path)
+        parent_ids = [self.obj.id if self._hier_lvl else None] * len(path)
         return_id_onlys = [True] * len(path)
         ids = mpmap(self.client._restore, clients, path, types, parent_ids,
                     return_id_onlys, desc=mpmap_kwargs['desc'])
@@ -597,7 +690,6 @@ class CVATSRVBase:
             return ids
         else:
             return [self.child_class.from_id(self.client, id) for id in ids]
-
 
     def values(self):
         '''
@@ -649,7 +741,7 @@ class CVATSRVBase:
         if self._hier_lvl:
 
             # Запускаем удаление и получаем ответ:
-            _, response = self.get_api().destroy(self.id)
+            _, response = self.get_api().destroy(self.obj.id)
 
             # Удаление прошло успешно, если статус = 204:
             if response.status == 204:
@@ -660,34 +752,18 @@ class CVATSRVBase:
         else:
             raise Exception('Невозможно удалить сам сервер!')
 
-    def __getattr__(self, attr):
-        '''
-        Проброс атрибутов вложенных объекта наружу.
-        '''
-        # Сначала ищем атрибуты в низкоуровневом представителе объекта в CVAT:
-        if hasattr(self.obj, attr):
-            return getattr(self.obj, attr)
-
-        # Затем смотрим в локальной копии данных, если она создана:
-        elif self._hier_lvl in {1, 2} and hasattr(self.editor, attr):
-            return getattr(self.editor, attr)
-        # Создать её можно методом edit()
-
-        else:
-            raise NotImplementedError('Метод не найден ни в одном '
-                                      'из подобъектов')
-
     def keys(self):
         '''
         Возвращает список имён входящих в объект подобъектов.
         '''
-        return [subobject.name for subobject in self.values()]
+        return [get_name(subobject) for subobject in self.values()]
 
     def items(self):
         '''
         Возращает список кортежей из пар (имя_подобъекта, подобъект).
         '''
-        return [(subobject.name, subobject) for subobject in self.values()]
+        return [(get_name(subobject), subobject)
+                for subobject in self.values()]
 
     def __getitem__(self, key):
         '''
@@ -814,6 +890,15 @@ class CVATSRVBase:
 
         return self.editor
 
+    # Чтение и запись описания проектов и задач:
+    @property
+    def guide(self):
+        return self.client.get_guide(self)
+
+    @guide.setter
+    def guide(self, guide: str = ''):
+        return self.client.set_guide(self, guide)
+
     # Деструктор класса:
     def __del__(self):
 
@@ -842,7 +927,7 @@ class CVATSRVJob(CVATSRVBase):
         '''
         У поздазач нет имён, поэтому используем их ID.
         '''
-        return self.id
+        return self.obj.id
 
     # Создаёт датафрейм всех проблем:
     def issues2df(self):
@@ -907,7 +992,7 @@ class CVATSRVJob(CVATSRVBase):
         '''
         Возвращает URL подзадачи.
         '''
-        task_substr = f'/tasks/{self.parent_id}/jobs/'
+        task_substr = f'/tasks/{self.obj.parent_id}/jobs/'
         return super().url.replace('/jobs/', task_substr)
 
     def __len__(self):
@@ -975,7 +1060,7 @@ class CVATSRVProject(CVATSRVBase):
                                     annotation_path=annotation_file)
 
         # Привязываем задачу к текущему датасету:
-        task.update({'project_id': self.id})
+        task.update({'project_id': self.obj.id})
 
         # Даём задаче законченное имя:
         task.update({'name': name})
@@ -990,9 +1075,9 @@ class CVATSRVProject(CVATSRVBase):
         Бекапы проектов содержат файл project.json с подобным описанием.
         '''
         return {'name': self.name,
-                'bug_tracker': self.bug_tracker,
-                'status': self.status,
-                'labels': self.labels(),
+                'bug_tracker': self.obj.bug_tracker,
+                'status': self.obj.status,
+                'labels': self.obj.labels(),
                 'version': '1.0'}
 
 
@@ -1008,7 +1093,7 @@ class CVATSRV(CVATSRVBase):
 
     def values(self):
         return [CVATSRVProject(self.client, project)
-                for project in self.client.projects.list()]
+                for project in self.client.obj.projects.list()]
 
     def parent(self):
         raise NotImplementedError('У сервера нет предков!')
@@ -1018,7 +1103,7 @@ class CVATSRV(CVATSRVBase):
         username = username or input(f'{host} логин: ')
         password = password or getpass(f'{host} пароль: ')
 
-        self.name = host
+        # self.name = host
         client = Client(host, username, password)
 
         super().__init__(client)
@@ -1418,8 +1503,8 @@ class CVATBase:
 
                 # Собираем общее описание:
                 info = {'name': self.cvat_srv_obj.name,
-                        'bug_tracker': self.cvat_srv_obj.bug_tracker,
-                        'status': self.cvat_srv_obj.status,
+                        'bug_tracker': self.cvat_srv_obj.obj.bug_tracker,
+                        'status': self.cvat_srv_obj.obj.status,
                         'labels': labels,
                         'version': '1.0'}
 
@@ -1506,7 +1591,7 @@ class CVATProject(CVATBase):
         # Список файлов в распакованном датасете:
         base_names = os.listdir(self.unzipped_backup)
 
-        # Загружаем основную инфу о датасете:
+        # Загружаем основную инфу о датасете из project.json:
         if 'project.json' not in base_names:
             raise Exception('"project.json" не найден!')
         self.info = json2obj(
@@ -1514,7 +1599,7 @@ class CVATProject(CVATBase):
         )
         base_names.remove('project.json')  # Выкидываем файл из списка
 
-        # Читаем гайд датасета, если он есть:
+        # Читаем гайд датасета annotation_guide.md, если он есть:
         guide_name = 'annotation_guide.md'
         if guide_name in base_names:
             guide_file = os.path.join(self.unzipped_backup, guide_name)
