@@ -297,10 +297,10 @@ class Client:
 
         # Определяем класс для объекта, который требуется бекапить:
         if type == 'task':
-            create_from_backup = client.tasks.create_from_backup
+            create_from_backup = client.obj.tasks.create_from_backup
             CVATSRVClass = CVATSRVTask
         elif type == 'project':
-            create_from_backup = client.projects.create_from_backup
+            create_from_backup = client.obj.projects.create_from_backup
             CVATSRVClass = CVATSRVProject
         else:
             raise ValueError(f'Недопустимое значение "type": {type}')
@@ -769,10 +769,23 @@ class CVATSRVBase:
         '''
         Возвращает нужный подобъект по его имени.
         '''
-        for name, subobject in self.items():
-            if name == key:
-                return subobject
-        raise IndexError(f'Не найден "{key}"!')
+        # Получаем все элементы с заданным имененм:
+        if isinstance(key, str):
+            items = [item for name, item in self.items() if name == key]
+        elif isinstance(key, int):
+            items = [item for name, item in enumerate(self.values())
+                     if name == key]
+        else:
+            raise IndexError('Элемент ищется по имени (str) '
+                             'или номеру (int)!')
+
+        if len(items) > 1:
+            raise IndexError('Найдено более одного элемента '
+                             f'с именем "{key}"!')
+        elif len(items) == 0:
+            raise IndexError(f'Не найден элемент "{key}"!')
+        else:
+            return items.pop()
 
     def __str__(self):
         '''
@@ -985,7 +998,7 @@ class CVATSRVJob(CVATSRVBase):
 
     @classmethod
     def from_id(cls, client, id):
-        return cls(client, client.jobs.retrieve(id))
+        return cls(client, client.obj.jobs.retrieve(id))
 
     @property
     def url(self):
@@ -1015,7 +1028,7 @@ class CVATSRVTask(CVATSRVBase):
 
     @classmethod
     def from_id(cls, client, id):
-        return cls(client, client.tasks.retrieve(id))
+        return cls(client, client.obj.tasks.retrieve(id))
 
 
 class CVATSRVProject(CVATSRVBase):
@@ -1034,7 +1047,7 @@ class CVATSRVProject(CVATSRVBase):
 
     @classmethod
     def from_id(cls, client, id):
-        return cls(client, client.projects.retrieve(id))
+        return cls(client, client.obj.projects.retrieve(id))
 
     def labels(self):
         '''
@@ -1497,8 +1510,7 @@ class CVATBase:
                 # Составляем список меток:
                 keys = {'name', 'color', 'attributes', 'type', 'sublabels'}
                 labels = []
-                for label in self.cvat_srv_obj.get_labels():
-                    label = label.to_dict()
+                for label in self.cvat_srv_obj.labels():
                     labels.append({k: label[k] for k in label.keys() & keys})
 
                 # Собираем общее описание:
@@ -1696,6 +1708,10 @@ class CVATProject(CVATBase):
                 # Отправляем все архивы на сервер:
                 self.cvat_srv_obj.restore_all(paths, desc=desc)
 
+                # Удаляем все архивы после успешной отправки их на сервер:
+                for zip_file in get_file_list(self.zipped_backup):
+                    rmpath(zip_file)
+
             else:  # Если отправлять надо один архив целиком
                 with AnnotateIt(desc):
 
@@ -1706,9 +1722,8 @@ class CVATProject(CVATBase):
                     # объект:
                     self.cvat_srv_obj = parent.restore(self.zipped_backup)
 
-            # Удаляем все архивы после успешной отправки их на сервер:
-            for zip_file in get_file_list(self.zipped_backup):
-                rmpath(zip_file)
+                # Удаляем архив после успешной отправки его на сервер:
+                rmpath(self.zipped_backup)
 
 
 class CVATTask(CVATBase):
