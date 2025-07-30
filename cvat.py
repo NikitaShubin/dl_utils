@@ -3372,7 +3372,7 @@ def split_df_to_tags_shapes_and_tracks(df, separate_tracks=True):
     # Выделяем теги в отдельный датафрейм:
     tags_mask = df['type'] == 'tag'
     tags_df = df[tags_mask]
-    df = df[~tags_df]
+    df = df[~tags_mask]
 
     # Строим записи форм:
     shapes_mask = df['track_id'].isna()
@@ -3385,7 +3385,7 @@ def split_df_to_tags_shapes_and_tracks(df, separate_tracks=True):
                      for track_id in df['track_id'].unique()
                      if track_id is not None]
 
-        return shapes_df, *track_dfs
+        return tags_df, shapes_df, *track_dfs
 
     # Если все треки надо поместить в один датафрейм:
     else:
