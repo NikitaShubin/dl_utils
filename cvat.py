@@ -201,6 +201,13 @@ class DisableSettingWithCopyWarning:
         pd.options.mode.chained_assignment = self.chained_assignment
 
 
+def tag2df(tag):
+    '''
+    Создаёт датафрейм, описывающий текущий тэг.
+    '''
+    return add_row2df(type='tag', **tag)
+
+
 def shape2df(shape    : 'Объект, из которого считываются данные в  первую очередь'       ,
              parent   : 'Объект, из которого считываются данные во вторую очередь' = {}  ,
              track_id : 'ID объекта'                                               = None,
@@ -234,6 +241,8 @@ def shape2df(shape    : 'Объект, из которого считывают�
 
 
 # Столбцы датафрейма для ...
+# ... тега:
+tag_columns = ['frame', 'group', 'source', 'attributes', 'label']
 # ... трека вцелом (без учёта кадров):
 per_track_columns = ['group', 'source', 'attributes', 'elements', 'label']
 # ... трека в отдельном кадре:
@@ -243,14 +252,19 @@ per_frame_columns = ['type', 'occluded', 'outside', 'z_order', 'rotation',
 per_shape_columns = per_track_columns + per_frame_columns
 # Всё это используется в df2annotations.
 
+
 def df2annotations(df):
     '''
     Формирует из датафрейма словарь разметки в формате annotations.json.
     '''
-    # Разделяем датафрейм на формы и треки:
-    shapes_mask = df['track_id'].isna()
-    shapes_df = df[shapes_mask]
-    tracks_df = df[~shapes_mask]
+    # Разделяем датафрейм на теги, формы и треки:
+    tags_df, shapes_df, tracks_df = \
+        split_df_to_tags_shapes_and_tracks(df, False)
+
+    # Перебираем каждый тег:
+    tags = []
+    for dfrow in tags_df.iloc:
+        tags.append({column: dfrow[column] for column in tag_columns})
 
     # Перебираем каждую форму:
     shapes = []
@@ -295,7 +309,7 @@ def df2annotations(df):
 
     # Собираем и возвращаем итоговый словарь:
     return {'version': 0,
-            'tags': [],
+            'tags': tags,
             'shapes': shapes,
             'tracks': tracks}
 
@@ -389,6 +403,9 @@ def cvat_backup_task_dir2task(task_dir,
         # Инициируем список датафреймов для каждой метки перед цилками чтения
         # данных:
         dfs = [new_df()]
+
+        # Пополняем список всеми тегами текущего описания:
+        dfs += [tag2df(tag) for tag in annotation['tags']]
 
         # Пополняем список всеми формами текущего описания:
         dfs += [shape2df(shape) for shape in annotation['shapes']]
@@ -2334,7 +2351,7 @@ def interpolate_df(df, true_frames, interpolated_only=False):
     frame2ind = {frame: ind for ind, frame in enumerate(ind2frame)}
 
     # Получаем датафреймы для каждого трека:
-    _, *track_dfs = split_df_to_shapes_and_tracks(df)
+    _, _, *track_dfs = split_df_to_tags_shapes_and_tracks(df)
 
     # Номер последнего кадра и его индекс:
     last_frame = max(true_frames)
@@ -2831,9 +2848,9 @@ def subtask2xml(subtask, xml_file=None):
     # Расщепление подзадачи на составляющие:
     df, file, true_frames = subtask
 
-    # Датафрейм разметки на:
-    df_tracks = df[df['track_id'].notna()]  # Треки
-    df_shapes = df[df['track_id']. isna()]  # Формы
+    # Разделяем датафрейм на теги, формы и треки:
+    tags_df, shapes_df, tracks_df = \
+        split_df_to_tags_shapes_and_tracks(df, False)
 
     # Инициализируем XML-структуру:
     annotations = ET.Element('annotations')
@@ -3345,13 +3362,18 @@ def split_df_by_visibility(df):
     return visible_df, invisible_df
 
 
-def split_df_to_shapes_and_tracks(df, separate_tracks=True):
+def split_df_to_tags_shapes_and_tracks(df, separate_tracks=True):
     '''
     Расщепляет датафрейм на несколько по типу объектов (формы и треки).
     Примеры вызова:
-        shapes_df, *track_dfs = split_df_to_shapes_and_tracks(df)
-        shapes_df, tracks_df = split_df_to_shapes_and_tracks(df, False)
+        shapes_df, *track_dfs = split_df_to_tags_shapes_and_tracks(df)
+        shapes_df, tracks_df = split_df_to_tags_shapes_and_tracks(df, False)
     '''
+    # Выделяем теги в отдельный датафрейм:
+    tags_mask = df['type'] == 'tag'
+    tags_df = df[tags_mask]
+    df = df[~tags_df]
+
     # Строим записи форм:
     shapes_mask = df['track_id'].isna()
     shapes_df = df[shapes_mask]
@@ -3368,7 +3390,7 @@ def split_df_to_shapes_and_tracks(df, separate_tracks=True):
     # Если все треки надо поместить в один датафрейм:
     else:
         tracks_df = df[~shapes_df]
-        return shapes_df, tracks_df
+        return tags_df, shapes_df, tracks_df
 
 
 def apply_mask_processing2df(df, imsize, processing, mpmap_kwargs={}):
