@@ -1456,6 +1456,10 @@ class CVATPoints:
             kwargs['points'] = ';'.join(['%f,%f' % tuple(point)
                                          for point in self.points])
 
+        # Тип тэга:
+        elif self.type == 'tag':
+            args.append(self.type)
+
         else:
             raise ValueError('Неизвестный тип сегмента: %s' % self.type)
 
@@ -2856,15 +2860,15 @@ def subtask2xml(subtask, xml_file=None):
     annotations = ET.Element('annotations')
 
     # Сохраняем треки (tracks):
-    for track_id in df_tracks['track_id'].unique():
+    for track_id in tracks_df['track_id'].unique():
 
         # Весь датафрейм для текущего трека:
-        df_track = df_tracks[df_tracks['track_id'] == track_id]
+        track_df = tracks_df[tracks_df['track_id'] == track_id]
 
         # Получаем метку и группу объекта:
-        label = get_single_val_in_df(df_track, 'label')
-        group = str(int(get_single_val_in_df(df_track, 'group')))
-        source = get_single_val_in_df(df_track, 'source')
+        label = get_single_val_in_df(track_df, 'label')
+        group = str(int(get_single_val_in_df(track_df, 'group')))
+        source = get_single_val_in_df(track_df, 'source')
 
         # Инициируем аннотацию изображения:
         track = ET.SubElement(annotations, 'track', id=str(track_id),
@@ -2872,21 +2876,22 @@ def subtask2xml(subtask, xml_file=None):
 
         # Перебор всех вхождений объекта текущего трека в
         # видеопоследотвательность:
-        for dfrow in df_track.iloc:
+        for dfrow in track_df.iloc:
 
             # Получаем XML-параметры трека в текущем кадре:
             args, kwargs = CVATPoints.from_dfrow(dfrow).xmlparams()
 
-            # Вносим описание трека в текущем кадре в XML-структуру:
-            ET.SubElement(track                                 ,
-                          frame    = str(    dfrow['frame'   ] ),
-                          outside  = str(int(dfrow['outside' ])),
-                          occluded = str(int(dfrow['occluded'])),
-                          keyframe = "1"                        ,
-                          z_order  = str(int(dfrow['z_order' ])),
-                          *args, **kwargs)
+            # Дополняем параметры:
+            kwargs['frame'] = str(dfrow['frame'])
+            kwargs['outside'] = str(int(dfrow['outside']))
+            kwargs['occluded'] = str(int(dfrow['occluded']))
+            kwargs['keyframe'] = '1'
+            kwargs['z_order'] = str(int(dfrow['z_order']))
 
-    # Сохраняем формы (shapes):
+            # Вносим описание трека в текущем кадре в XML-структуру:
+            ET.SubElement(track, *args, **kwargs)
+
+    # Сохраняем формы (shapes) и теги (tags):
     for frame, true_frame in true_frames.items():
 
         # Определяем имя кадра:
@@ -2897,19 +2902,33 @@ def subtask2xml(subtask, xml_file=None):
         image = ET.SubElement(annotations, 'image', id=str(frame), name=name)
 
         # Проходим по всем строкам датафрейма:
-        for dfrow in df_shapes[df_shapes['frame'] == frame].iloc:
+        for dfrow in shapes_df[shapes_df['frame'] == frame].iloc:
 
             # Получаем XML-параметры контуров:
             args, kwargs = CVATPoints.from_dfrow(dfrow).xmlparams()
 
+            # Дополняем параметры:
+            kwargs['label'] = dfrow['label']
+            kwargs['occluded'] = str(int(dfrow['occluded']))
+            kwargs['source'] = dfrow['source']
+            kwargs['z_order'] = str(int(dfrow['z_order']))
+            kwargs['group_id'] = str(int(dfrow['group']))
+
             # Вносим описание контура в XML-структуру:
-            ET.SubElement(image                                 ,
-                          label    =         dfrow['label'   ]  ,
-                          occluded = str(int(dfrow['occluded'])),
-                          source   =         dfrow['source'  ]  ,
-                          z_order  = str(int(dfrow['z_order' ])),
-                          group_id = str(int(dfrow['group'   ])),
-                          *args, **kwargs)
+            ET.SubElement(image, *args, **kwargs)
+
+        # Проходим по всем тегам датафрейма:
+        for dfrow in tags_df[tags_df['frame'] == frame].iloc:
+
+            # Получаем XML-параметры контуров:
+            args, kwargs = CVATPoints.from_dfrow(dfrow).xmlparams()
+
+            # Дополняем параметры:
+            kwargs['label'] = dfrow['label']
+            kwargs['source'] = dfrow['source']
+
+            # Вносим описание контура в XML-структуру:
+            ET.SubElement(image, *args, **kwargs)
 
     # Возвращаем XML-структуру, если файл для записи не указан:
     if xml_file is None:
@@ -3366,10 +3385,11 @@ def split_df_to_tags_shapes_and_tracks(df, separate_tracks=True):
     '''
     Расщепляет датафрейм на несколько по типу объектов (формы и треки).
     Примеры вызова:
-        shapes_df, *track_dfs = split_df_to_tags_shapes_and_tracks(df)
-        shapes_df, tracks_df = split_df_to_tags_shapes_and_tracks(df, False)
+        tags_df, shapes_df, *track_dfs = split_df_to_tags_shapes_and_tracks(df)
+        tags_df, shapes_df, tracks_df = \
+            split_df_to_tags_shapes_and_tracks(df, False)
     '''
-    # Выделяем теги в отдельный датафрейм:
+    # Выделяем тэги в отдельный датафрейм:
     tags_mask = df['type'] == 'tag'
     tags_df = df[tags_mask]
     df = df[~tags_mask]
@@ -3389,7 +3409,7 @@ def split_df_to_tags_shapes_and_tracks(df, separate_tracks=True):
 
     # Если все треки надо поместить в один датафрейм:
     else:
-        tracks_df = df[~shapes_df]
+        tracks_df = df[~shapes_mask]
         return tags_df, shapes_df, tracks_df
 
 
