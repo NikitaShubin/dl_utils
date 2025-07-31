@@ -9,7 +9,7 @@
 * активно используются в других парсерах.  *
 *                                          *
 * Сам CVAT-формат задач, который создают   *
-* сейчас все используемые в проекте        *
+* сейчас все используемые в датасете       *
 * парсеры датасетов представляет собой     *
 * список задач. Каждая задача так же       *
 * представляет собой список уже подзачач,  *
@@ -28,7 +28,7 @@
 * Задача разбивается на подзадачи,         *
 * например, когда подзадачи являются       *
 * фрагментами одного видеофайла, либо      *
-* серия фотографий одного проекта/полёта.  *
+* серия фотографий одного видео.           *
 * Т.е. подзадачи каким-либо образом имеют  *
 * высокую общность фоноцелевых обстановок, *
 * и не должны быть разбиты на обучающую и  *
@@ -555,7 +555,7 @@ def get_related_files(file, images_only=False, as_manifest=False):
 
 def cvat_backup_task_dir2info(task_dir):
     '''
-    Определяет имя задачи и проекта по папке с задачей
+    Определяет имя задачи и датасета по папке с задачей
     '''
     # Если передан список файлов, то берём первый:
     if isinstance(task_dir, (list, tuple)):
@@ -570,7 +570,7 @@ def cvat_backup_task_dir2info(task_dir):
     if os.path.basename(task_dir) == 'data':
         task_dir = os.path.split(task_dir)[0]
 
-    # Папка уровнем выше должна иметь имя проекта:
+    # Папка уровнем выше должна иметь имя датасета:
     proj_dir = os.path.abspath(os.path.join(task_dir, '..'))
     proj_name = os.path.basename(proj_dir)
 
@@ -1313,6 +1313,16 @@ class CVATPoints:
             xmax = x.max()
             ymax = y.max()
 
+        elif self.type == 'tag':
+            if self.im_size is None:
+                raise ValueError('Для конвертации тэга в прямоугольник '
+                                 'необходимы размеры изображения!')
+            xmin = 0
+            ymin = 0
+            ymax, xmax,  = self.imsize
+            # Тэг конвертируется как прямоугольник, занимающий всё
+            # изображение.
+
         else:
             raise ValueError('Неизвестный тип сегмента: %s' % self.type)
 
@@ -1384,6 +1394,23 @@ class CVATPoints:
 
         elif self.type == 'polygon':
             return type(self)(self.points, 'polygon',
+                              self.rotation * apply_rot, imsize=self.imsize,
+                              rotate_immediately=apply_rot)
+
+        elif self.type == 'tag':
+            if self.im_size is None:
+                raise ValueError('Для конвертации тэга в многоугольник '
+                                 'необходимы размеры изображения!')
+            xmin = 0
+            ymin = 0
+            ymax, xmax,  = self.imsize
+            # Тэг конвертируется как прямоугольник, занимающий всё
+            # изображение.
+
+            x = np.array([xmin, xmax, xmax, xmin])
+            y = np.array([ymin, ymin, ymax, ymax])
+
+            return type(self)(np.vstack([x, y]).T, 'polygon',
                               self.rotation * apply_rot, imsize=self.imsize,
                               rotate_immediately=apply_rot)
 
@@ -1516,7 +1543,7 @@ class CVATPoints:
                               rotation=rotation, imsize=(height, width),
                               rotate_immediately=False)
 
-        elif self.type == 'polygon':
+        elif self.type in {'polygon', 'polyline'}:
             points = self.points.copy()
             if 0 in axis:
                 points[:, 1] = height - points[:, 1]
@@ -1525,6 +1552,9 @@ class CVATPoints:
 
             return type(self)(points, self.type, rotation=rotation,
                               imsize=(height, width), rotate_immediately=False)
+
+        elif self.type == 'tag':
+            pass
 
         else:
             raise ValueError('Неизвестный тип сегмента: %s' % self.type)
@@ -2292,7 +2322,7 @@ class CVATPoints:
 
 class CVATLabels:
     '''
-    Класс, хранящий все типы меток CVAT-проекта (классы)
+    Класс, хранящий все типы меток CVAT-датасета (классы)
     '''
     def __init__(self, cvat_raw_labels):
 
@@ -2471,7 +2501,7 @@ def split_subtask_by_labels(subtask                           ,
     # Расщипляем задачу на составляющие:
     full_df, file_path, true_frames = subtask
 
-    # Определяем имя проекта и задачи для отладки:
+    # Определяем имя датасета и задачи для отладки:
     task_dir = os.path.dirname(file_path) if isinstance(file_path, str) \
         else os.path.dirname(file_path[0])
     task_info = cvat_backup_task_dir2info(task_dir)
@@ -2534,7 +2564,7 @@ def split_subtask_by_labels(subtask                           ,
             if start_frame is not None:
                 debug_str += ' <- Два начала последовательности в метках'
                 debug_str += ' подряд в кадре №%d(%d)' % (frame, true_frame)
-                debug_str += ' проекта "%s"' % proj_name
+                debug_str += ' датасета "%s"' % proj_name
                 debug_str += ' задачи "%s"!\n' % task_name
                 if debug_mode:
                     print(debug_str)
@@ -2572,7 +2602,7 @@ def split_subtask_by_labels(subtask                           ,
             else:
                 debug_str += ' <- Конец последовательности в метках без'
                 debug_str += ' начала в кадре №%d(%d)' % (frame, true_frame)
-                debug_str += ' проекта "%s"' % proj_name
+                debug_str += ' датасета "%s"' % proj_name
                 debug_str += ' задачи "%s"!\n' % task_name
                 if debug_mode:
                     print(debug_str)
@@ -2584,7 +2614,7 @@ def split_subtask_by_labels(subtask                           ,
     else:
         if start_frame is not None:
             debug_str += ' <- Ненайден конец последовательности'
-            debug_str += ' проекта "%s"' % proj_name
+            debug_str += ' датасета "%s"' % proj_name
             debug_str += ' задачи "%s"!\n' % task_name
             if debug_mode:
                 print(debug_str)

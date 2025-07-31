@@ -115,8 +115,8 @@ class Client:
             # Заменяем старый список новым:
             labels = labels_
 
-        # Полезно в случае дублирования меток из проекта в задачу,
-        # т.к. не все поля проекта соответствуют полям задач.
+        # Полезно в случае дублирования меток из датасета в задачу,
+        # т.к. не все поля датасета соответствуют полям задач.
 
         # Дополняем названия цветами, если переданы только строки:
         elif is_str and not is_dict:
@@ -223,7 +223,7 @@ class Client:
             # Добавляет классам цвета, если надо:
             labels = self._adapt_labels(labels)
 
-            # Создаём проект:
+            # Создаём датасет:
             proj_spec = {'name': name,
                          'labels': labels}
             project = self.projects.create_from_dataset(proj_spec)
@@ -318,7 +318,7 @@ class Client:
                 print(e)
                 print(f'Перезапуск восстановления "{path}"')
 
-        # Если указан ID проекта, к которому задачу надо присовокупить:
+        # Если указан ID датасета, к которому задачу надо присовокупить:
         if parent_id is not None:
             assert type == 'task'
             cvat_obj.update({'project_id': parent_id})
@@ -340,7 +340,7 @@ class Client:
 
     def restore_project(self, backup_file, return_id_only=False, desc=None):
         '''
-        Восстанавливает проект из бекапа.
+        Восстанавливает датасет из бекапа.
         '''
         return self._restore(self, backup_file, 'project',
                              None, return_id_only, desc)
@@ -393,7 +393,7 @@ class Client:
             raise ValueError(f'Некорректный URL: "{url}", {parsed_url}')
 
     # Возвращает список всех задач сервера вне зависимости от принадлежности
-    # проекту:
+    # датасету:
     def all_tasks(self):
         tasks = []
         for task in self.obj.tasks.list():
@@ -401,7 +401,7 @@ class Client:
         return tasks
 
     # Возвращает список всех подзадач вне зависимости от принадлежности
-    # проекту:
+    # датасету:
     def all_jobs(self):
         jobs = []
         for job in self.obj.jobs.list():
@@ -442,7 +442,7 @@ class Client:
                     kwargs['task_id'] = obj.obj.id
                 else:
                     raise ValueError('Описание можно добавлять только '
-                                     'проектам и задачам!')
+                                     'датасетам и задачам!')
 
                 # Создаём сам запрос на создание описания:
                 request = api_client.models.AnnotationGuideWriteRequest(
@@ -489,9 +489,9 @@ def get_name(obj):
 
 class CVATSRVBase:
     '''
-    Абстрактный класс для проектов, задач, подзадач и прочих сущностей из
+    Абстрактный класс для датасетов, задач, подзадач и прочих сущностей из
     cvat_sdk. Составляет основу древовидной структуру данных:
-    Сервер > Проекты > Задачи > Подзадачи ...
+    Сервер > Датасеты > Задачи > Подзадачи ...
 
     Объект ведёт себя как словарь, ключами к которому являются имена
     подобъектов и самими подобъектами в качестве значений. Т.е. реализованы
@@ -502,7 +502,7 @@ class CVATSRVBase:
     # У каждого потомка будет свой номер.
 
     # В качестве имени объекта берётся:
-    #    - его имя в cvat (для проектов и задач);
+    #    - его имя в cvat (для ов и задач);
     #    - его id (для подзадач);
     #    - адрес сервера (для сервера).
     @property
@@ -533,16 +533,18 @@ class CVATSRVBase:
         self.child_class = self._hier_lvl2class.get(self._hier_lvl + 1, None)
         self.parent_class = self._hier_lvl2class.get(self._hier_lvl - 1, None)
 
-        # Инициируем редактор (актуален только для проектов и задач):
+        # Инициируем редактор (актуален только для датасетов и задач):
         self.editor = None
 
-    def _update_obj(self):
-        if self._hier_lvl == 1:  # Если это проект
-            self.obj = self.client.obj.projects.retrieve(self.obj.id)
+    def _update_obj(self, new_id: None | int = None):
+        if new_id is None:
+            new_id = self.obj.id
+        if self._hier_lvl == 1:  # Если это датасет
+            self.obj = self.client.obj.projects.retrieve(new_id)
         if self._hier_lvl == 2:  # Если это задача
-            self.obj = self.client.obj.tasks.retrieve(self.obj.id)
+            self.obj = self.client.obj.tasks.retrieve(new_id)
         if self._hier_lvl == 3:  # Если это подзадача
-            self.obj = self.client.obj.jobs.retrieve(self.obj.id)
+            self.obj = self.client.obj.jobs.retrieve(new_id)
 
     @classmethod
     def from_id(cls, client, id):
@@ -630,10 +632,10 @@ class CVATSRVBase:
 
     def restore(self, path, desc=None):
         '''
-        Восстанавливает задачу или проект по его бекапу.
+        Восстанавливает задачу или датасет по его бекапу.
         '''
         # Восстанавливать можно только находясь на уровне сервера или
-        # проекта:
+        # датасета:
         assert self._hier_lvl < 2
 
         type = 'task' if self._hier_lvl else 'project'
@@ -881,15 +883,16 @@ class CVATSRVBase:
 
         return file
 
-    # Возвращает экземпляр класса, дочерего к CVATBase, позволяющего
-    # редактировать бекапы и отправлять изменённую версию обратно на сервер
-    # (аргументы соответствуют аргументам CVATBase):
-    def edit(self, *args, **kwargs):
+    # Возвращает экземпляр класса, дочерего к CVATBase, создающего локальную
+    # копию бекапа исходного объекта, который можно редактировать и отправлять
+    # изменённую версию обратно на сервер (аргументы соответствуют аргументам
+    # CVATBase):
+    def clone(self, *args, **kwargs):
 
         # Если локальный представитель ещё не создан:
         if self.editor is None:
 
-            # Если мы на урове проекта:
+            # Если мы на урове датасета:
             if self._hier_lvl == 1:
                 self.editor = CVATProject(self, *args, **kwargs)
 
@@ -899,11 +902,11 @@ class CVATSRVBase:
 
             else:
                 raise NotImplementedError('Редактировть можно только '
-                                          'проекты и задачи')
+                                          'датасеты и задачи')
 
         return self.editor
 
-    # Чтение и запись описания проектов и задач:
+    # Чтение и запись описания датасетов и задач:
     @property
     def guide(self):
         return self.client.get_guide(self)
@@ -912,6 +915,7 @@ class CVATSRVBase:
     def guide(self, guide: str = ''):
         return self.client.set_guide(self, guide)
 
+    '''
     # Деструктор класса:
     def __del__(self):
 
@@ -919,6 +923,7 @@ class CVATSRVBase:
         # требующих удаления:
         del self.editor
         self.editor = None
+    '''
 
 
 class CVATSRVJob(CVATSRVBase):
@@ -1085,7 +1090,7 @@ class CVATSRVProject(CVATSRVBase):
     def project_json(self):
         '''
         Возвращает словарь, описывающий весь датасет.
-        Бекапы проектов содержат файл project.json с подобным описанием.
+        Бекапы датасетов содержат файл project.json с подобным описанием.
         '''
         return {'name': self.name,
                 'bug_tracker': self.obj.bug_tracker,
@@ -1228,13 +1233,13 @@ class CVATBase:
                  verbose: bool = True,
                  take_data_from: str = 'auto'):
         '''
-        cvat_srv_obj    - объект-представитель задачи или проекта из CVAТ,
+        cvat_srv_obj    - объект-представитель задачи или датасета из CVAТ,
                           через который осуществляется доступ к серверу.
         zipped_backup   - путь до zip-архива, содержащего бекап CVAT-объекта.
         unzipped_backup - путь до папки, содержащей распакованную версию
                           zipped_backup.
         parted          - флаг экспорта/импорта бекапа по частям (работает
-                          только для проектов, которые можро разрезать на
+                          только для датасетов, которые можро разрезать на
                           задачи).
         verbose         - флаг вывода информации о статусе процессов.
         take_data_from  - источник, который считается первичным.
@@ -1350,7 +1355,7 @@ class CVATBase:
         # объекта:
         paths2remove = set()
 
-        # Если cvat_srv_obj не является представителем проекта, то
+        # Если cvat_srv_obj не является представителем датасета, то
         # синхронизация по частям невозможноа:
         if not isinstance(cvat_srv_obj, CVATSRVProject):
             parted = False
@@ -1524,6 +1529,9 @@ class CVATBase:
                 json_file = os.path.join(self.unzipped_backup, 'project.json')
                 obj2json(info, file=json_file)
 
+                # Отдельно сохраняем описание датасета:
+                self._write_guide(self.cvat_srv_obj.guide, self.unzipped_backup)
+
         # Должен создавать поля data и info:
         self._parse_unzipped_backup()
 
@@ -1577,15 +1585,14 @@ class CVATBase:
     # Удаляет все файлы и папки, подлежащие удалению:
     def rm_all_paths2remove(self):
         for path in self.paths2remove:
-
+            rmpath(path)
+            '''
             if self.verbose:
                 print(f'"{path}" удалён!')
-
-            rmpath(path)
+            '''
 
     # Перед закрытием объекта надо удалять все файлы/папки из списка:
     def __del__(self):
-        print('Base Del')
         self.rm_all_paths2remove()
 
 
@@ -1637,7 +1644,7 @@ class CVATProject(CVATBase):
             else:
                 raise FileExistsError(f'Неожиданный файл "{subdir}"!')
 
-    # Пишет файл описания проекта project.json:
+    # Пишет файл описания датасета project.json:
     @staticmethod
     def _write_info(info, unzipped_backup):
 
@@ -1647,7 +1654,7 @@ class CVATProject(CVATBase):
         # Пишем содержимое файла:
         return obj2json(info, info_file)
 
-    # Пишет текстовое описания (гайд) проекта annotation_guide.md:
+    # Пишет текстовое описания (гайд) датасета annotation_guide.md:
     @staticmethod
     def _write_guide(guide, unzipped_backup):
 
@@ -1663,7 +1670,7 @@ class CVATProject(CVATBase):
         else:
             rmpath(guide_file)
 
-    # Пишет метаданные проекта в папкус распакованным бекапом
+    # Пишет метаданные датасета в папкус распакованным бекапом
     # (данные для отдельных задач не входят):
     @classmethod
     def _write_annotations2unzipped_backup(cls,
@@ -1685,7 +1692,7 @@ class CVATProject(CVATBase):
                               disable=not self.verbose):
             task_data.push(local_only=True)
 
-        # Добавляем описание проекта в целом:
+        # Добавляем описание датасета в целом:
         self._write_annotations2unzipped_backup(self.unzipped_backup,
                                                 self.info, self.guide)
 
@@ -1705,8 +1712,23 @@ class CVATProject(CVATBase):
                 # Составляем список архивов:
                 paths = get_file_list(self.zipped_backup, '.zip')
 
+                # Фиксируем список задач, которые уже находятся в датасета:
+                old_tasks = self.cvat_srv_obj.values()
+
                 # Отправляем все архивы на сервер:
                 self.cvat_srv_obj.restore_all(paths, desc=desc)
+
+                # Обновляем описание датасета:
+                self.cvat_srv_obj.guide = self.guide
+
+                # После успешного восстановления новых задач все старые
+                # удаляются:
+                for old_task in old_tasks:
+                    old_task.delete()
+
+                # На всякий случай актуализируем объект, представляющий
+                # датасет в CVAT:
+                self.cvat_srv_obj._update_obj()
 
                 # Удаляем все архивы после успешной отправки их на сервер:
                 for zip_file in get_file_list(self.zipped_backup):
@@ -1718,12 +1740,23 @@ class CVATProject(CVATBase):
                     # Переходим в CVAT на один уровень выше:
                     parent = self.cvat_srv_obj.parent()
 
+                    # Фиксируем исходный датасет:
+                    old_cvat_srv_obj = self.cvat_srv_obj
+
                     # Выполняем Выгрузку бекапа и заменяем интерфейсный
                     # объект:
                     self.cvat_srv_obj = parent.restore(self.zipped_backup)
 
-                # Удаляем архив после успешной отправки его на сервер:
-                rmpath(self.zipped_backup)
+                    # После успешного восстановления нового датасета старый
+                    # удаляется:
+                    old_cvat_srv_obj.delete()
+
+                    # На всякий случай обновляем представителя старого
+                    # датасета в CVAT новым:
+                    old_cvat_srv_obj._update_obj(self.cvat_srv_obj.obj.id)
+
+                    # Удаляем архив после успешной отправки его на сервер:
+                    rmpath(self.zipped_backup)
 
 
 class CVATTask(CVATBase):
@@ -2064,9 +2097,10 @@ class CVATTask(CVATBase):
                 # Отправка архива на CVAT-сервер:
                 self.cvat_srv_obj.parent().restore(self.zipped_backup)
 
+    '''
     def __del__(self):
-        print('Task Del')
         self.rm_all_paths2remove()
+    '''
 
 
 class CVATJob:
