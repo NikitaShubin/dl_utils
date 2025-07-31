@@ -51,9 +51,9 @@ class YOLOLabels:
     формате YOLO.
     '''
     def __init__(self                                                         ,
-                 df      : 'Датафрейм, содержащий сегменты для текущего кадра',
-                 mode    : 'Режим ("box" или "seg")'                   = 'box',
-                 im_size : 'Размер изображения'                        = None ):
+                 df     : 'Датафрейм, содержащий сегменты для текущего кадра',
+                 mode   : 'Режим ("box" или "seg")'                   = 'box',
+                 imsize : 'Размер изображения'                        = None ):
 
         self.mode = mode
         self.im_size = im_size
@@ -79,7 +79,7 @@ class YOLOLabels:
                 assert len(points) >= 6
 
             # Получаем параметры фигуры вокруг объекта:
-            points = CVATPoints(points, type_, rotation)
+            points = CVATPoints(points, type_, rotation, imsize=imsize)
 
             # Приводим фигуру к нужному формату:
             attr = 'yoloseg' if mode == 'seg' else 'yolobbox'
