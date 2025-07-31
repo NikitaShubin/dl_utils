@@ -203,7 +203,7 @@ class DisableSettingWithCopyWarning:
 
 def tag2df(tag):
     '''
-    Создаёт датафрейм, описывающий текущий тэг.
+    Создаёт датафрейм, описывающий текущий тег.
     '''
     return add_row2df(type='tag', **tag)
 
@@ -1314,13 +1314,13 @@ class CVATPoints:
             ymax = y.max()
 
         elif self.type == 'tag':
-            if self.im_size is None:
-                raise ValueError('Для конвертации тэга в прямоугольник '
+            if self.imsize is None:
+                raise ValueError('Для конвертации тега в прямоугольник '
                                  'необходимы размеры изображения!')
             xmin = 0
             ymin = 0
             ymax, xmax,  = self.imsize
-            # Тэг конвертируется как прямоугольник, занимающий всё
+            # Тег конвертируется как прямоугольник, занимающий всё
             # изображение.
 
         else:
@@ -1398,13 +1398,13 @@ class CVATPoints:
                               rotate_immediately=apply_rot)
 
         elif self.type == 'tag':
-            if self.im_size is None:
-                raise ValueError('Для конвертации тэга в многоугольник '
+            if self.imsize is None:
+                raise ValueError('Для конвертации тега в многоугольник '
                                  'необходимы размеры изображения!')
             xmin = 0
             ymin = 0
             ymax, xmax,  = self.imsize
-            # Тэг конвертируется как прямоугольник, занимающий всё
+            # Тег конвертируется как прямоугольник, занимающий всё
             # изображение.
 
             x = np.array([xmin, xmax, xmax, xmin])
@@ -1483,7 +1483,7 @@ class CVATPoints:
             kwargs['points'] = ';'.join(['%f,%f' % tuple(point)
                                          for point in self.points])
 
-        # Тип тэга:
+        # Тип тега:
         elif self.type == 'tag':
             args.append(self.type)
 
@@ -3419,7 +3419,7 @@ def split_df_to_tags_shapes_and_tracks(df, separate_tracks=True):
         tags_df, shapes_df, tracks_df = \
             split_df_to_tags_shapes_and_tracks(df, False)
     '''
-    # Выделяем тэги в отдельный датафрейм:
+    # Выделяем теги в отдельный датафрейм:
     tags_mask = df['type'] == 'tag'
     tags_df = df[tags_mask]
     df = df[~tags_mask]
