@@ -50,7 +50,7 @@ class YOLOLabels:
     Формирует объект, содержащий описание разметки одного изображения в
     формате YOLO.
     '''
-    def __init__(self                                                         ,
+    def __init__(self                                                        ,
                  df     : 'Датафрейм, содержащий сегменты для текущего кадра',
                  mode   : 'Режим ("box" или "seg")'                   = 'box',
                  imsize : 'Размер изображения'                        = None ):
@@ -193,9 +193,12 @@ def df2statistic(df              : 'Анализируемый датафрей�
     Подсчитывает статистику датафрейма подзадачи.
     '''
     # Создаём датафреймы-счётчики:
-    img_stat = labels_convertor.init_df_counter(source_type, shapes_col_name)  # Статистика по каждому кадру в отдельности
-    vid_stat = labels_convertor.init_df_counter(source_type, tracks_col_name)  # Статистика по видеопоследовательностям ("уникальные объекты")
-    stat     = pd.concat([img_stat, vid_stat], axis=1)                         # Объединённый датафрейм
+    img_stat = labels_convertor.init_df_counter(source_type, shapes_col_name)
+    # Статистика по каждому кадру в отдельности.
+    vid_stat = labels_convertor.init_df_counter(source_type, tracks_col_name)
+    # Статистика по видеопоследовательностям ("уникальные объекты").
+    stat = pd.concat([img_stat, vid_stat], axis=1)
+    # Объединённый датафрейм.
 
     unique_track_ids = set()  # Множество индексов уже учтённых объектов
 
@@ -213,7 +216,8 @@ def df2statistic(df              : 'Анализируемый датафрей�
         # Инкриментируем счётчик объектов в кадрах:
         stat.loc[meaning, shapes_col_name] += 1
 
-        # Если объект следует добавить в статистику по видеопоследовательностям:
+        # Если объект следует добавить в статистику по
+        # видеопоследовательностям:
         if track_id is None or track_id not in unique_track_ids:
 
             # Добавляем в статистику:
@@ -249,7 +253,8 @@ def tasks2statistic(tasks           : 'Анализируемый датафре
                   [tracks_col_name ] * len(dfs), desc=desc)
 
     if len(stats) == 0:
-        stats = [df2statistic(pd.DataFrame(), source_type, labels_convertor, shapes_col_name, tracks_col_name)]
+        stats = [df2statistic(pd.DataFrame(), source_type, labels_convertor,
+                              shapes_col_name, tracks_col_name)]
 
     # Возвращаем объединённую статистику:
     return sum(stats)
@@ -260,9 +265,11 @@ def class_statistic2superclass_statistic(stat, labels_convertor):
     Схлопывает статистику классов в статистику суперклассов.
     '''
     # Целевая статистика-датафрейм:
-    super_stat = [labels_convertor.init_df_counter('superclasses', column) \
-                  for column in stat.columns]   # Список инициированных столбцов
-    super_stat = pd.concat(super_stat, axis=1)  # Собираем отдельные столбцы в датафрейм
+    super_stat = [labels_convertor.init_df_counter('superclasses', column)
+                  for column in stat.columns]
+    # Список инициированных столбцов.
+    super_stat = pd.concat(super_stat, axis=1)
+    # Собираем отдельные столбцы в датафрейм.
 
     # Перебираем все строки исходного датафрейма:
     for row in stat.iloc:
@@ -271,7 +278,10 @@ def class_statistic2superclass_statistic(stat, labels_convertor):
         class_meaning = row.name
 
         # Расшифровка соответствующего суперкласса:
-        superclass_meaning = labels_convertor.class_meaning2superclass_meaning.get(class_meaning.lower(), None)
+        superclass_meaning = \
+            labels_convertor.class_meaning2superclass_meaning.get(
+                class_meaning.lower(), None
+            )
 
         # Если текущему классу соответствует суперкласс, то добавляем
         # статистику:
@@ -291,9 +301,12 @@ def fill_skipped_rows_in_statistic(df, index):
     return df.astype(int)
 
 
-def sources2statistic_and_train_val_test_tasks(source_name2tasks, yolo_ds_dir, labels_convertor, val_size=0.2, test_size=0, random_state=0):
+def sources2statistic_and_train_val_test_tasks(source_name2tasks, yolo_ds_dir,
+                                               labels_convertor, val_size=0.2,
+                                               test_size=0, random_state=0):
     '''
-    Формирует статистику исходных данных и расщепляет на train/val/test составляющие итогового датасета.
+    Формирует статистику исходных данных и расщепляет на train/val/test
+    # составляющие итогового датасета.
     '''
     # Путь к файлам статистики:
     stat_dir = os.path.join(yolo_ds_dir, 'statistics')
@@ -306,15 +319,21 @@ def sources2statistic_and_train_val_test_tasks(source_name2tasks, yolo_ds_dir, l
 
     '''
     # Формируем полный список имён классов:
-    meaning_list = sorted(list(set(labels_convertor.cvat_meanings_list + labels_convertor.gg_meanings_list)))
+    meaning_list = sorted(list(set(
+        labels_convertor.cvat_meanings_list + labels_convertor.gg_meanings_list
+    )))
     '''
 
     # Инициируем train/val/test составляющие датасета
     train_tasks, val_tasks, test_tasks = [], [], []
 
     # Инициируем общую статистику:
-    full_class_train_stat     ,      full_class_val_stat,      full_class_test_stat = [], [], []
-    full_superclass_train_stat, full_superclass_val_stat, full_superclass_test_stat = [], [], []
+    full_class_train_stat = []
+    full_class_val_stat = []
+    full_class_test_stat = []
+    full_superclass_train_stat = []
+    full_superclass_val_stat = []
+    full_superclass_test_stat = []
 
     # Перебираем все источники данных:
     for source_name, tasks in source_name2tasks.items():
@@ -330,21 +349,28 @@ def sources2statistic_and_train_val_test_tasks(source_name2tasks, yolo_ds_dir, l
             # Перебираем все задачи:
             for task in tasks:
 
-                # Инициируем флаг принадлежности текущей задачи обучающей выборке:
+                # Инициируем флаг принадлежности текущей задачи обучающей
+                # выборке:
                 is_train = None
 
                 # Перебираем все подзадачи:
                 for _, file, _ in task:
 
                     # Определяем имя бекапа для текущей подзадачи:
-                    backup_dir_name = os.path.basename(os.path.dirname(os.path.dirname(os.path.dirname(file))))
+                    backup_dir_name = os.path.basename(os.path.dirname(
+                        os.path.dirname(os.path.dirname(file))
+                    ))
 
                     # Если вторым словом имени бекапа является "test":
                     if backup_dir_name[8:12].lower() == 'test':
 
-                        # Если не для всех подзадач этой задачи имя бекапа содержит "test":
-                        if is_train == True:
-                            raise ValueError(f'Именя бекапов отличаются в пределах одной задачи! Текущий файл: "{backup_dir_name}"')
+                        # Если не для всех подзадач этой задачи имя бекапа
+                        # содержит "test":
+                        if is_train:
+                            raise ValueError(
+                                'Именя бекапов отличаются в пределах одной '
+                                f'задачи! Текущий файл: "{backup_dir_name}"'
+                            )
 
                         # Флагом помечаем текущую задачу как val:
                         is_train = False
@@ -352,56 +378,94 @@ def sources2statistic_and_train_val_test_tasks(source_name2tasks, yolo_ds_dir, l
                     # Если вторым словом имени бекапа НЕ является "test":
                     else:
 
-                        # Если не для всех подзадач этой задачи имя бекапа НЕ содержит "test":
-                        if is_train == False:
-                            raise ValueError(f'Именя бекапов отличаются в пределах одной задачи! Текущий файл: "{backup_dir_name}"')
+                        # Если не для всех подзадач этой задачи имя бекапа
+                        # НЕ содержит "test":
+                        if is_train is False:
+                            raise ValueError(
+                                'Именя бекапов отличаются в пределах одной '
+                                f'задачи! Текущий файл: "{backup_dir_name}"'
+                            )
 
                         # Флагом помечаем текущую задачу как train:
                         is_train = True
 
-                # В зависимости от значения флага вносим текующую задачу в train- или val-список.
+                # В зависимости от значения флага вносим текующую задачу
+                # в train- или val-список.
                 (cur_train_tasks if is_train else cur_val_tasks).append(task)
 
         # Для CG-датасета всё уходит в обучающую выборку:
         elif source_name == 'cg':
             cur_train_tasks, cur_val_tasks, cur_test_tasks = tasks, [], []
 
-        # Для остальных источников (включая GG) деление ведётся классическим способом:
+        # Для остальных источников (включая GG) деление ведётся классическим
+        # способом:
         else:
-            cur_train_tasks, cur_val_tasks, cur_test_tasks = train_val_test_split(tasks, val_size=val_size, test_size=test_size, random_state=random_state)
+            cur_train_tasks, cur_val_tasks, cur_test_tasks = \
+                train_val_test_split(tasks, val_size=val_size,
+                                     test_size=test_size,
+                                     random_state=random_state)
 
         # Расфасовывающие текущие составляющие в общий train/val/test:
         train_tasks += cur_train_tasks
-        val_tasks   += cur_val_tasks
-        test_tasks  += cur_test_tasks
+        val_tasks += cur_val_tasks
+        test_tasks += cur_test_tasks
 
         # Подсчёт статистики классов:
-        class_train_stat = tasks2statistic(cur_train_tasks, source_name, labels_convertor, desc=desc_template % (' обучающей ', source_name))
-        class_val_stat   = tasks2statistic(  cur_val_tasks, source_name, labels_convertor, desc=desc_template % ('проверочной', source_name))
-        class_test_stat  = tasks2statistic( cur_test_tasks, source_name, labels_convertor, desc=desc_template % (' тестовой  ', source_name))
+        class_train_stat = tasks2statistic(cur_train_tasks, source_name,
+                                           labels_convertor,
+                                           desc=desc_template % (' обучающей ',
+                                                                 source_name))
+        class_val_stat = tasks2statistic(cur_val_tasks, source_name,
+                                         labels_convertor,
+                                         desc=desc_template % ('проверочной',
+                                                               source_name))
+        class_test_stat = tasks2statistic(cur_test_tasks, source_name,
+                                          labels_convertor,
+                                          desc=desc_template % (' тестовой  ',
+                                                                source_name))
 
         class_total_stat = class_train_stat + class_val_stat + class_test_stat
 
         full_class_train_stat.append(class_train_stat)
-        full_class_val_stat  .append(class_val_stat  )
-        full_class_test_stat .append(class_test_stat )
+        full_class_val_stat.append(class_val_stat)
+        full_class_test_stat.append(class_test_stat)
 
         # Схлопывание статистики в суперклассы:
-        superclass_train_stat = class_statistic2superclass_statistic(class_train_stat, labels_convertor)
-        superclass_val_stat   = class_statistic2superclass_statistic(class_val_stat  , labels_convertor)
-        superclass_test_stat  = class_statistic2superclass_statistic(class_test_stat , labels_convertor)
-        superclass_total_stat = class_statistic2superclass_statistic(class_total_stat, labels_convertor)
+        superclass_train_stat = \
+            class_statistic2superclass_statistic(class_train_stat,
+                                                 labels_convertor)
+        superclass_val_stat = \
+            class_statistic2superclass_statistic(class_val_stat,
+                                                 labels_convertor)
+        superclass_test_stat = \
+            class_statistic2superclass_statistic(class_test_stat,
+                                                 labels_convertor)
+        superclass_total_stat = \
+            class_statistic2superclass_statistic(class_total_stat,
+                                                 labels_convertor)
 
         full_superclass_train_stat.append(superclass_train_stat)
-        full_superclass_val_stat  .append(superclass_val_stat  )
-        full_superclass_test_stat .append(superclass_test_stat )
+        full_superclass_val_stat  .append(superclass_val_stat)
+        full_superclass_test_stat .append(superclass_test_stat)
 
         '''
         total = []
-        total.append(superclass_train_stat.rename({'shapes':f'train_{source_name}_shapes', 'tracks':f'train_{source_name}_tracks'}, axis='columns'))
-        total.append(superclass_val_stat  .rename({'shapes':  f'val_{source_name}_shapes', 'tracks':  f'val_{source_name}_tracks'}, axis='columns'))
-        total.append(superclass_test_stat .rename({'shapes': f'test_{source_name}_shapes', 'tracks': f'test_{source_name}_tracks'}, axis='columns'))
-        total.append(superclass_total_stat.rename({'shapes':f'total_{source_name}_shapes', 'tracks':f'total_{source_name}_tracks'}, axis='columns'))
+        total.append(superclass_train_stat.rename({
+            'shapes':f'train_{source_name}_shapes',
+            'tracks':f'train_{source_name}_tracks'
+        }, axis='columns'))
+        total.append(superclass_val_stat  .rename({
+            'shapes':  f'val_{source_name}_shapes',
+            'tracks':  f'val_{source_name}_tracks'
+        }, axis='columns'))
+        total.append(superclass_test_stat .rename({
+            'shapes': f'test_{source_name}_shapes',
+            'tracks': f'test_{source_name}_tracks'
+        }, axis='columns'))
+        total.append(superclass_total_stat.rename({
+            'shapes':f'total_{source_name}_shapes',
+            'tracks':f'total_{source_name}_tracks'
+        }, axis='columns'))
         general.append(pd.concat(total, axis=1))
         '''
 
