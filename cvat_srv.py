@@ -429,6 +429,11 @@ class Client:
         # Если строка не пуста:
         if guide:
 
+            # Если передано не описание, а путь к файлу, то читаем его:
+            if os.path.isfile(guide):
+                with open(guide, 'r') as f:
+                    guide = f.read()
+
             # Иницируем параметры запроса:
             kwargs = {'markdown': guide}
 
