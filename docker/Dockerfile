@@ -47,6 +47,7 @@ ARG APPLICATIONS="                                    \
                                                       \
     # Дополнительные консольные утилиты:              \
     bsdmainutils pv net-tools psmisc iputils-ping     \
+    tree                                              \
                                                       \
     # Для PyCUDA:                                     \
     nvidia-cuda-toolkit                               \
