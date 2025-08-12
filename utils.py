@@ -2718,22 +2718,6 @@ def reorder_lists(ordered_inds, *args):
     return sorted_args
 
 
-def extend_list_in_dict_value(d: dict,
-                              key,
-                              value: list,
-                              filo=True) -> dict:
-    '''
-    Значения в словаре являются списками, которые можно дополнять.
-    Это используется если нужно чтобы по одному ключу были доступны сразу
-    несколько значений, которые могут добавляться постепенно.
-    '''
-    if key in d:
-        d[key] = d[key] + value if filo else value + d[key]
-    else:
-        d[key] = list(value)
-    return d
-
-
 class CircleInd:
     """
     Целое число с замкнутым инкриментом/декриментом.

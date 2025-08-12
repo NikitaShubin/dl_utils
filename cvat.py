@@ -78,12 +78,13 @@ from tqdm import tqdm
 from PIL import ImageColor
 from matplotlib import pyplot as plt
 from scipy.optimize import linear_sum_assignment
+from collections import defaultdict
 
 from utils import (mpmap, ImReadBuffer, reorder_lists, mkdirs, CircleInd,
-                   apply_on_cartesian_product, extend_list_in_dict_value,
-                   DelayedInit, color_float_hsv_to_uint8_rgb,
-                   draw_contrast_text, put_text_carefully, cv2_vid_exts,
-                   cv2_img_exts, split_dir_name_ext, get_file_list, cv2_exts)
+                   apply_on_cartesian_product, DelayedInit,
+                   color_float_hsv_to_uint8_rgb, draw_contrast_text,
+                   put_text_carefully, cv2_vid_exts, cv2_img_exts,
+                   split_dir_name_ext, get_file_list, cv2_exts)
 from cv_utils import Mask, build_masks_IoU_matrix
 from video_utils import VideoGenerator, ViSave, recomp2mp4
 
@@ -1904,16 +1905,17 @@ class CVATPoints:
             used_pts_inds |= new_used_pts_ids
 
         # Формируем словарь перемычек:
-        bridges = {}
+        bridges = defaultdict(list)
         for dists_dfrow in dists_df.iloc:
             # Используем только задействованные перемычки:
             if dists_dfrow['status'] == 'unused':
                 continue
 
+            # Заносим перемычки в словарь:
             key1 = (dists_dfrow['pts_ind1'], dists_dfrow['pt1_ind'])
             key2 = (dists_dfrow['pts_ind2'], dists_dfrow['pt2_ind'])
-            extend_list_in_dict_value(bridges, key1, [key2])
-            extend_list_in_dict_value(bridges, key2, [key1])
+            bridges[key1].append(key2)
+            bridges[key2].append(key1)
 
         ##################################
         # Строим контур с "перемычками": #

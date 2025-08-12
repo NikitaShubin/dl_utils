@@ -27,9 +27,9 @@ from numba import jit
 from tqdm import tqdm
 from segment_anything import SamAutomaticMaskGenerator, sam_model_registry
 from urllib.request import urlretrieve
+from collections import defaultdict
 
-from utils import (mkdirs, AnnotateIt, mpmap, reorder_lists, isint,
-                   extend_list_in_dict_value)
+from utils import (mkdirs, AnnotateIt, mpmap, reorder_lists, isint)
 from cvat import (CVATPoints, add_row2df, df2masks,
                   smart_fuse_multipoly_in_df, split_df_by_visibility,
                   concat_dfs, get_column_ind, DisableSettingWithCopyWarning)
@@ -787,7 +787,8 @@ class FitMasks:
             return self.nn_table
 
         self.nn_imsize = imsize
-        nn_dict = {0.: [(0, 0)]}
+        nn_dict = defaultdict(list)
+        nn_dict[0.].append((0, 0))
 
         max_size = max(self.nn_imsize[:2])
         min_size = min(self.nn_imsize[:2])
@@ -804,13 +805,13 @@ class FitMasks:
                 add_flag = True
             if add_flag:
                 dist = float(i)
-                extend_list_in_dict_value(nn_dict, dist, new_neighbors)
+                nn_dict[dist] += new_neighbors
 
             # Пиксели на диагоналях (ход слоном):
             if i < min_size:
                 new_neighbors = [(i, i), (i, -i), (-i, i), (-i, -i)]
                 dist = i * np.sqrt(2)
-                extend_list_in_dict_value(nn_dict, dist, new_neighbors)
+                nn_dict[dist] += new_neighbors
 
             # Осталные пиксели (обобщённый ход конём):
             for j in range(i + 1, self.nn_imsize[1]):
@@ -825,7 +826,7 @@ class FitMasks:
                     add_flag = True
                 if add_flag:
                     dist = np.sqrt(i ** 2 + j ** 2)
-                    extend_list_in_dict_value(nn_dict, dist, new_neighbors)
+                    nn_dict[dist] += new_neighbors
 
         # Переводим словарь в таблицу для совместимости с JIT:
         nn_list = [nn_dict[dist] for dist in sorted(nn_dict.keys())]
@@ -965,7 +966,7 @@ def _build_groups4fuse(df):
     получается набор кластеров, объекты внутри каждого из которых подлежат
     слиянию, если они в одном кадре.
     '''
-    groups = {}
+    groups = defaultdict(list)
     for ind, df_row in enumerate(df.iloc):
         label = df_row['label']
         group = df_row['group']
@@ -973,7 +974,7 @@ def _build_groups4fuse(df):
 
         # Нулевая группа - это отсутствие группы:
         if group:
-            groups = extend_list_in_dict_value(groups, key, [ind])
+            groups[key].append(ind)
 
     return groups
 
