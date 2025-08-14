@@ -2389,7 +2389,7 @@ def interpolate_df(df, true_frames, interpolated_only=False):
 
     # Номер последнего кадра и его индекс:
     last_frame = max(true_frames)
-    last_ind = len(true_frames)
+    last_ind = len(true_frames) - 1
 
     # Инициируем список итоговых датафреймов:
     dfs = [] if interpolated_only else [df]
@@ -2459,7 +2459,7 @@ def interpolate_df(df, true_frames, interpolated_only=False):
         # то необходимо достроить хвост:
         if not cur_row['outside'] and cur_row['frame'] < last_frame:
 
-            ind = frame2ind(cur_row['frame']) + 1
+            ind = frame2ind[cur_row['frame']] + 1
             while ind <= last_ind:
 
                 # Копируем строку, меняя лишь номера кадра:
