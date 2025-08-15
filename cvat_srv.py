@@ -15,7 +15,7 @@ from cvat import (
 from utils import (
     mkdirs, rmpath, mpmap, get_n_colors, unzip_dir, AnnotateIt, cv2_exts,
     cv2_vid_exts, get_file_list, json2obj, get_empty_dir, Zipper, obj2json,
-    get_video_info, split_dir_name_ext
+    get_video_info, split_dir_name_ext, invert_index_vector
 )
 
 
@@ -1600,6 +1600,21 @@ class CVATBase:
     def __del__(self):
         self.rm_all_paths2remove()
 
+    # Запускает метод с заданными параметрами для каждой подзадачи объекта:
+    def apply2all_jobs(self, method, *args, **kwargs):
+
+        # Для проектов перебираются задачи, а для задач - поздазачи:
+        if hasattr(self, 'data'):
+            for subobj in self.data:
+                subobj.apply2all_jobs(method, *args, **kwargs)
+
+        # Для подзадач вызывается сам метод:
+        elif hasattr(self, method):
+            self.method(*args, **kwargs)
+
+        else:
+            raise NotImplementedError('Метод {method} не объявлен!')
+
 
 class CVATProject(CVATBase):
     '''
@@ -2099,13 +2114,132 @@ class CVATTask(CVATBase):
                 # Создаём архив(ы):
                 self.compress()
 
-                # Отправка архива на CVAT-сервер:
-                self.cvat_srv_obj.parent().restore(self.zipped_backup)
+                # Фиксируем исходную задачу:
+                old_cvat_srv_obj = self.cvat_srv_obj
+
+                # Получаем представителя предка объекта на CVAT:
+                parent = old_cvat_srv_obj.parent()
+
+                # Определяем способ восстановления из бекапа:
+                if parent is None:
+                    restore = old_cvat_srv_obj.client.restore_task
+                else:
+                    restore = parent.restore
+                # Если у задачи есть проект - то восстанавливаем в нём, а если
+                # нет - делаем её свободной.
+
+                # Выполняем Выгрузку бекапа и заменяем интерфейсный
+                # объект:
+                self.cvat_srv_obj = restore(self.zipped_backup)
+
+                # После успешного восстановления нового датасета старый
+                # удаляется:
+                old_cvat_srv_obj.delete()
 
     '''
     def __del__(self):
         self.rm_all_paths2remove()
     '''
+
+    def reorder_frames(self, new_order_inds: tuple | list | None = None):
+        '''
+        Меняет во всех подзадачах очерёдность кадров, если они представлены
+        отдельными файлами. Если new_order_inds не указан - сортирует по
+        номерам в именах файлов.
+        '''
+        # Если подзадач не одна (0 или > 1):
+        if len(self.data) != 1:
+
+            # Ничего не меняем, если новый порядок не указан:
+            if new_order_inds is None:
+                return
+
+            # Возвращаем ошибку если указан новый порядок:
+            else:
+                raise ValueError('Перестановка доступна только для задач с '
+                                 'единственной подзадачей, а имеется '
+                                 f'{self.data[0]} подзадач!')
+
+        # Получаем список файлов:
+        files = self.data[0].file
+
+        # Число файлов (конечно, если это не строка, а список):
+        num_files = len(files)
+
+        # Если указан единственный файл, то сортировка тоже не возможна:
+        if isinstance(files, str) or num_files == 1:
+            if new_order_inds is None:
+                return
+            else:
+                raise ValueError('Перестановка доступна только для задач с '
+                                 'несколькими кадрами в отдельных файлах!')
+
+        # Если индексы нового порядка не указаны - доопределяем его для
+        # сортировки по номерам в именах кадров:
+        if new_order_inds is None:
+
+            # Интерпретируем имена файлов как номера кадров:
+            nums = [int(split_dir_name_ext(file)[1]) for file in files]
+
+            # Получаем индексы упорядочивания:
+            new_order_inds = np.argsort(nums)
+
+        # Если индексы указаны, убеждаемся, что их число соответствует общему
+        # числу кадров:
+        elif num_files != len(new_order_inds):
+            raise ValueError(f'Общее число кадров {num_files}, '
+                             f'а не {len(new_order_inds)}!')
+
+        # Определяем начальный и конечный кадры задачи и поздазачи, а так же
+        # шаг прореживания:
+        data = self.info['data']
+        job = self.info['jobs'][0]
+        task_start_frame = data['start_frame']
+        task_stop_frame = data['stop_frame']
+        job_start_frame = job['start_frame']
+        job_stop_frame = job['stop_frame']
+        step_frame = int(data.get('frame_filter', 'filter=1').split('=')[-1])
+
+        if task_start_frame != 0:
+            raise ValueError('Первый кадр задачи должен == 0, '
+                             f'а не {task_start_frame}')
+        if task_stop_frame != num_files - 1:
+            raise ValueError('Последний кадр подзадачи должен == '
+                             f'{num_files - 1}, а не {task_stop_frame}')
+        if job_start_frame != 0:
+            raise ValueError('Первый кадр задачи должен == 0, '
+                             f'а не {job_start_frame}')
+        if job_stop_frame != num_files - 1:
+            raise ValueError('Последний кадр подзадачи должен == '
+                             f'{num_files - 1}, а не {job_stop_frame}')
+        if step_frame != 1:
+            print(step_frame)
+            raise ValueError('Последовательность не должна быть прореженной!')
+
+        ################################
+        # Выполняем саму перестановку: #
+        ################################
+
+        # Меняем очерёдность файлов:
+        files = [files[ind] for ind in new_order_inds]
+
+        # Строим вектор индексов перехода:
+        frame_reind = invert_index_vector(new_order_inds)
+
+        # Обновляем номера удалённых кадров:
+        deleted_frames = []
+        for deleted_frame in self.info['data']['deleted_frames']:
+            deleted_frames.append(frame_reind[deleted_frame])
+        self.info['data']['deleted_frames'] = deleted_frames
+
+        # Меняем метод сортировки:
+        self.info['data']['sorting_method'] = 'predefined'
+
+        # Перебираем все подзадачи:
+        for cvat_subtask in self.data:
+            cvat_subtask._reorder_frames(files, frame_reind.__getitem__)
+
+        return new_order_inds
 
 
 class CVATJob:
@@ -2150,3 +2284,22 @@ class CVATJob:
     # Строит словарь разметки формата annotations.json:
     def _build_annotations(self):
         return df2annotations(self.df)
+
+    def _reorder_frames(self, files, df_frame_func):
+        '''
+        Меняет очерёдность кадров, если они представлены отдельными файлами.
+        Используется в методе reorder_frames для задач.
+        '''
+        # Если номера кадров исходной и прореженной последовательности не
+        # совпадают - возвращаем ошибку:
+        if (self.df['frame'] != self.df['true_frame']).any():
+            raise ValueError('Последовательность не должна '
+                             'быть прореженной!')
+
+        # Обновляем номера кадров прореженной и исходной последовательности
+        # кадров:
+        self.df['frame'] = self.df['frame'].apply(df_frame_func)
+        self.df['true_frame'] = self.df['true_frame'].apply(df_frame_func)
+
+        # Обновляем сам список файлов с кадрами:
+        self.file = files
