@@ -1,7 +1,7 @@
-#ARG TFVER='2.17.0'
-#FROM tensorflow/tensorflow:${TFVER}-gpu
+ARG TFVER='2.19.0'
+FROM tensorflow/tensorflow:${TFVER}-gpu
 
-FROM tensorflow/tensorflow:latest-gpu
+#FROM tensorflow/tensorflow:latest-gpu
 #FROM tensorflow/tensorflow:nightly-gpu
 
 
@@ -102,7 +102,7 @@ ARG PYTHONMODULES="                                                      \
                                                                          \
                                                                          \
     # Для работы с CVAT:                                                 \
-    cvat-sdk[masks,pytorch]                                              \
+    cvat-sdk[masks,pytorch]==2.41                                        \
                                                                          \
     # IDE (JupyterLab\Jupyverse и PyCharm):                              \
     jupyterlab voila xeus-python                                         \
