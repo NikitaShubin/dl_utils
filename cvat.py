@@ -512,7 +512,6 @@ def get_related_files(file, images_only=False, as_manifest=False):
     Подробнее об этих возможностях здесь:
     https://docs.cvat.ai/docs/manual/advanced/contextual-images/
     '''
-
     # Из единственного файла всё равно делаем список:
     files = [file] if isinstance(file, str) else file
 

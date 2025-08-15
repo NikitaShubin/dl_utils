@@ -39,7 +39,7 @@ else
     # Если образ успешно собран:
 
     # Отправляем образ на hub.docker.com:
-    docker push $IMAGE_NAME
+    nohup docker push $IMAGE_NAME > /dev/null &
 fi
 
 #docker pull $IMAGE_NAME

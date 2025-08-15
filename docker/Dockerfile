@@ -266,16 +266,22 @@ RUN echo "c.LatexConfig.run_times = 2"           >> "${JPCONF}" && \
 #ARG JP="${HOMEDIR}"/.local/bin/jupyter-lab
 ARG JP=jupyter-lab
 ARG JPPARAMS="--notebook-dir '${WORKSPACE}'"
-RUN echo 'alias jp="'"cd '${WORKSPACE}' && '${JP}' ${JPPARAMS} > /dev/null &"'"' >> "${BRC}" && \
-    echo 'alias jl="'${JP}' list"'                                               >> "${BRC}" && \
-    echo 'alias js="killall jupyter-lab"'                                        >> "${BRC}" && \
-    echo 'alias ds="js"'                                                         >> "${BRC}" && \
-    echo 'alias nv="nvidia-smi -l 1"'                                            >> "${BRC}" && \
-    echo 'alias brc="nano '"${BRC}"' && source '"${BRC}"'"'                      >> "${BRC}" && \
-    echo 'alias yt="yt-dlp"'                                                     >> "${BRC}" && \
-    echo 'alias ffmpeg=/usr/bin/ffmpeg'                                          >> "${BRC}" && \
-    echo 'alias ffprobe=/usr/bin/ffprobe'                                        >> "${BRC}" && \
-    echo 'alias ffplay=/usr/bin/ffplay'                                          >> "${BRC}"
+RUN echo 'alias jp="'"cd '${WORKSPACE}' && '${JP}' ${JPPARAMS} > /dev/null &"'"'      >> "${BRC}" && \
+    echo 'alias jl="'${JP}' list"'                                                    >> "${BRC}" && \
+    echo 'alias js="killall jupyter-lab"'                                             >> "${BRC}" && \
+    echo 'alias ds="js"'                                                              >> "${BRC}" && \
+
+    echo 'alias checkcrc="md5sum -c crc.md5'                                          >> "${BRC}" && \
+    echo 'alias makecrc="find . -type f ! -name crc.md5 -exec md5sum {} + > crc.md5"' >> "${BRC}" && \
+
+    echo 'alias yt="yt-dlp"'                                                          >> "${BRC}" && \
+    echo 'alias ffmpeg=/usr/bin/ffmpeg'                                               >> "${BRC}" && \
+    echo 'alias ffprobe=/usr/bin/ffprobe'                                             >> "${BRC}" && \
+    echo 'alias ffplay=/usr/bin/ffplay'                                               >> "${BRC}" && \
+
+    echo 'alias nv="nvidia-smi -l 1"'                                                 >> "${BRC}" && \
+
+    echo 'alias brc="nano '"${BRC}"' && source '"${BRC}"'"'                           >> "${BRC}"
 
 
 # Используемые порты:

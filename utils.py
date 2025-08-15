@@ -226,6 +226,7 @@ cv2_img_exts = {'.bmp', '.jpg', '.jpeg', '.tif', '.tiff', '.png'}
 
 cv2_exts = cv2_vid_exts | cv2_img_exts
 
+
 def dtype_like(val):
     '''
     Берёт dtype заданной переменной, даже если она не класса np.ndarray.
@@ -1780,7 +1781,7 @@ class ImportVisitor(ast.NodeVisitor):
     def to_mermaid(self, graph, filename=None):
         """
         Конвертирует граф в формат Mermaid с выравниванием стоков (модулей без зависимостей).
-        
+
         Параметры:
             graph (dict): Граф зависимостей
             filename (str, optional): Файл для сохранения
@@ -1799,9 +1800,9 @@ class ImportVisitor(ast.NodeVisitor):
         safe_names = {}
         for i, node in enumerate(graph.keys()):
             safe_names[node] = f"node_{i}"
-        
+
         lines = ["graph RL;"]
-        
+
         # Определение стоков (модулей без исходящих зависимостей)
         all_nodes = set(graph.keys())
         sink_nodes = set()
@@ -1809,17 +1810,17 @@ class ImportVisitor(ast.NodeVisitor):
             # Проверяем отсутствие исходящих зависимостей
             if not graph[node]['unconditional'] and not graph[node]['conditional']:
                 sink_nodes.add(node)
-        
+
         # Создаем множество безусловных рёбер для проверки
         unconditional_set = set()
         for source, data in graph.items():
             for target in data['unconditional']:
                 unconditional_set.add((source, target))
-        
+
         # Добавление всех узлов
         for node in all_nodes:
             lines.append(f"    {safe_names[node]}[{node}];")
-        
+
         # Создание подграфа для стоков (горизонтальное выравнивание)
         if sink_nodes:
             lines.append("    %% Выравнивание стоков на одном уровне")
@@ -1829,7 +1830,7 @@ class ImportVisitor(ast.NodeVisitor):
                 lines.append(f"        {safe_names[node]}")
             lines.append("    end")
             lines.append("    style SinkGroup fill:none,stroke:none;")
-        
+
         # Добавление рёбер с приоритетом безусловных
         for source, data in graph.items():
             # Безусловные зависимости
@@ -1837,7 +1838,7 @@ class ImportVisitor(ast.NodeVisitor):
                 if target in safe_names:  # Проверка существования узла
                     line = f"    {safe_names[source]} --> {safe_names[target]};"
                     lines.append(line)
-            
+
             # Условные зависимости (только если нет безусловной)
             for target in data['conditional']:
                 if target in safe_names:  # Проверка существования узла
@@ -1846,9 +1847,9 @@ class ImportVisitor(ast.NodeVisitor):
                         continue
                     line = f"    {safe_names[source]} -.-> {safe_names[target]};"
                     lines.append(line)
-        
+
         mermaid_content = "\n".join(lines)
-        
+
         # Сохранение в файл или возврат строки
         if filename:
             with open(filename, 'w', encoding='utf-8') as f:
@@ -1885,6 +1886,7 @@ class ImportVisitor(ast.NodeVisitor):
         Чтобы создать граф для модулей dl_utils достаточно выполнить:
         py_files = sorted(get_file_list(os.path.dirname(__file__), '.py', False))
         '''
+
 
 def _dl_utils_dependency_graph():
     '''
@@ -1929,6 +1931,7 @@ class NpEncoder(json.JSONEncoder):
     Взято из:
     https://stackoverflow.com/a/57915246/14474616
     '''
+
     def default(self, obj):
         if isinstance(obj, np.integer):
             return int(obj)
@@ -2279,6 +2282,24 @@ def rim2arabic(rim):
             arabic -= cur
 
     return arabic
+
+
+def invert_index_vector(vector: list[int] | tuple[int]):
+    '''
+    Инвертирует вектор индексов.
+    Т.е.:
+        [1, 3, 0, 2] -> [2, 0, 3, 1]
+        [1, 5, 0, 4] -> [2, 0, None, None, 3, 1]
+    Используется для перестановок элементов в списках.
+
+    Если вектор a состоит из неповторяющихся натуральных чисел от 0 до len(a),
+    то invert_index_vector(invert_index_vector(a)) == a.
+    '''
+    new_vector = [None] * (max(vector) + 1)
+    for ind, val in enumerate(vector):
+        new_vector[val] = ind
+
+    return new_vector
 
 
 def flatten_list(list_of_lists, depth=np.inf):
