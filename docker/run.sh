@@ -1,5 +1,9 @@
 #!/usr/bin/env bash
 
+#####################
+# Запуск контейнера #
+#####################
+
 # Определяем положение текущего скрипта:
 DOCKERFILE_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 # Запускаемый докерфайл должен распологаться в той же дирректории.
@@ -20,8 +24,8 @@ DOCKER_HOSTNAME="${DOCKER_NAME}_`hostname`"
 
 # Пытаемся собирать образ каждый раз заново:
 
-#if ! docker build --progress=plain -t $IMAGE_NAME "${DOCKERFILE_DIR}"; then
-if ! docker build -t $IMAGE_NAME "${DOCKERFILE_DIR}"; then
+if ! docker build --progress=plain -t $IMAGE_NAME "${DOCKERFILE_DIR}"; then
+#if ! docker build -t $IMAGE_NAME "${DOCKERFILE_DIR}"; then
     # Если образ собрать не удалось:
     RED='\033[0;31m'
     NC='\033[0m'  # No Color (https://stackoverflow.com/a/5947802)
