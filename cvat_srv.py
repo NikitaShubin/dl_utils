@@ -930,6 +930,24 @@ class CVATSRVBase:
         self.editor = None
     '''
 
+    def export(self,
+               file='ds.zip',
+               format='YOLO 1.1',
+               include_images=True,
+               desc=None):
+        '''
+        Экспорт данных в заданный формат
+        '''
+        if self._hier_lvl not in {1, 2}:
+            raise NotImplementedError('Экспорт возможен только для '
+                                      'датасетов и задач!')
+        pbar = AccurateProgressReporter(desc) if desc else None
+        self.obj.export_dataset(format_name=format,
+                                filename=file,
+                                include_images=include_images,
+                                pbar=pbar)
+        return file
+
 
 class CVATSRVJob(CVATSRVBase):
     '''
