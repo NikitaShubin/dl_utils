@@ -6,14 +6,14 @@ DOCKERFILE_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pw
 
 # Задаём имя контейнера или берём его из входных параметров:
 if [ $# -eq 0 ]; then
-    DOCKER_NAME='dl_cv'
+    DOCKER_NAME="dl_cv_$USER"
 else
     DOCKER_NAME="$1"
     shift
 fi
 
 # Определяем имя образа:
-IMAGE_NAME=kitbrain/$DOCKER_NAME
+IMAGE_NAME=kitbrain/dl_cv
 
 # Определяем имя хоста внутри докера:
 DOCKER_HOSTNAME="${DOCKER_NAME}_`hostname`"
@@ -106,6 +106,7 @@ RUNPARAMS=(
 
 # Запускаем образ:
 #clear && 
+echo "${RUNPARAMS[@]}"
 docker run "${RUNPARAMS[@]}"
 #docker exec -u root -it $DOCKER_NAME bash
 
