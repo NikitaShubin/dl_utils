@@ -102,7 +102,8 @@ ARG PYTHONMODULES="                                                      \
                                                                          \
                                                                          \
     # Для работы с CVAT:                                                 \
-    cvat-sdk[masks,pytorch]==2.41                                        \
+    cvat_sdk==2.41                                                       \
+    #cvat-sdk[masks,pytorch]                                             \
                                                                          \
     # IDE (JupyterLab\Jupyverse и PyCharm):                              \
     jupyterlab voila xeus-python                                         \
