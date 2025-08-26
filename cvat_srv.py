@@ -2031,8 +2031,8 @@ class CVATTask(CVATBase):
         cls._write_index(jobs, task_data_dir)  # index.json
 
         # Пишем файлы описания задачи и разметки:
-        cls._write_info(jobs, info, task_data_dir)  # task.json
-        cls._write_annotanions(jobs, task_dir)      # annotations.json
+        cls._write_info(info, unzipped_backup)  # task.json
+        cls._write_annotanions(jobs, task_dir)  # annotations.json
 
     # Пишет файл manifest.jsonl:
     @staticmethod
@@ -2091,10 +2091,10 @@ class CVATTask(CVATBase):
 
     # Пишет файл описания задачи task.json:
     @staticmethod
-    def _write_info(jobs, info, task_data_dir):
+    def _write_info(info, unzipped_backup):
 
         # Определяем путь до нужного файла:
-        info_file = os.path.join(task_data_dir, 'task.json')
+        info_file = os.path.join(unzipped_backup, 'task.json')
 
         # Пишем всю информацию о задаче в соответствующий файл:
         return obj2json(info, info_file)
