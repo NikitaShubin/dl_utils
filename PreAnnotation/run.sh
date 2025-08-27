@@ -76,6 +76,9 @@ RUNPARAMS=(
     # Имя контейнера:
     --name "${DOCKER_NAME}"
 
+    # Сетевое имя:
+    -h "${DOCKER_HOSTNAME}"
+
     -e JUPYTER_PASS=PreAnnotator
     -e JUPYTER_PORT=$JUPYTER_PORT
 
