@@ -2883,6 +2883,10 @@ def subtask2xml(subtask, xml_file=None):
     # Расщепление подзадачи на составляющие:
     df, file, true_frames = subtask
 
+    # Создаём пустой датафрейм, если он отсутствует:
+    if df is None:
+        df = new_df()
+
     # Разделяем датафрейм на теги, формы и треки:
     tags_df, shapes_df, tracks_df = \
         split_df_to_tags_shapes_and_tracks(df, False)
