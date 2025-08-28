@@ -17,6 +17,7 @@ from utils import (
     cv2_vid_exts, get_file_list, json2obj, get_empty_dir, Zipper, obj2json,
     get_video_info, split_dir_name_ext, invert_index_vector
 )
+from video_utils import VideoGenerator
 
 
 class AccurateProgressReporter(core.progress.ProgressReporter):
@@ -191,7 +192,7 @@ class Client:
             task_spec = {'name': name,
                          'labels': labels}
 
-            task = self.tasks.create_from_data(
+            task = self.obj.tasks.create_from_data(
                 spec=task_spec,
                 resource_type=core.proxies.tasks.ResourceType.LOCAL,
                 resources=file,
@@ -226,7 +227,7 @@ class Client:
             # Создаём датасет:
             proj_spec = {'name': name,
                          'labels': labels}
-            project = self.projects.create_from_dataset(proj_spec)
+            project = self.obj.projects.create_from_dataset(proj_spec)
 
             # Возвращаем обёрнутрый объект:
             return CVATSRVProject(self, project)
@@ -613,7 +614,8 @@ class CVATSRVBase:
             clients = [self.client.kwargs4init()] * len(name)
             types = ['task' if self._hier_lvl else 'project'] * len(name)
             ids = list(map(self.name2id, name))
-            return mpmap(self.client._backup, clients, path, types, ids, **mpmap_kwargs)
+            return mpmap(self.client._backup, clients, path, types, ids,
+                         **mpmap_kwargs)
 
         # Если бекапить надо всю текущую сущность:
         elif name is None:
@@ -1101,10 +1103,10 @@ class CVATSRVProject(CVATSRVBase):
                                     annotation_path=annotation_file)
 
         # Привязываем задачу к текущему датасету:
-        task.update({'project_id': self.obj.id})
+        task.obj.update({'project_id': self.obj.id})
 
         # Даём задаче законченное имя:
-        task.update({'name': name})
+        task.obj.update({'name': name})
         # В случае прерывания процесса создания задачи её можно будет легко
         # найти по временному имени, чтобы удалить.
 
@@ -1553,7 +1555,8 @@ class CVATBase:
                 obj2json(info, file=json_file)
 
                 # Отдельно сохраняем описание датасета:
-                self._write_guide(self.cvat_srv_obj.guide, self.unzipped_backup)
+                self._write_guide(self.cvat_srv_obj.guide,
+                                  self.unzipped_backup)
 
         # Должен создавать поля data и info:
         self._parse_unzipped_backup()
