@@ -1596,7 +1596,9 @@ class CVATBase:
 
     # Копирует файлы в папку с распакованным бекапом:
     @staticmethod
-    def _copy_files2unzipped_backup(data_path, include_as_is, unzipped_backup):
+    def _copy_files2unzipped_backup(data_path,
+                                    include_as_is,
+                                    unzipped_backup):
         raise NotImplementedError('Метод должен быть переопределён!')
 
     # Пишет текущее состояние разметки в папку с распакованным бекапом,
@@ -2199,8 +2201,14 @@ class CVATTask(CVATBase):
         # сортировки по номерам в именах кадров:
         if new_order_inds is None:
 
-            # Интерпретируем имена файлов как номера кадров:
-            nums = [int(split_dir_name_ext(file)[1]) for file in files]
+            # Берём имена файлов:
+            nums = [split_dir_name_ext(file)[1] for file in files]
+
+            # На всякий случай удаляем из имён все символы, кроме цифр:
+            nums = [''.join(filter(str.isdigit, num)) for num in nums]
+
+            # Интерпретируем наборы цифр как номера кадров:
+            nums = list(map(int, nums))
 
             # Получаем индексы упорядочивания:
             new_order_inds = np.argsort(nums)
@@ -2286,15 +2294,9 @@ class CVATJob:
     @classmethod
     def _from_raw_data(cls, file: str | list[str] | tuple[str]):
 
-        if isinstance(file, str):
-            first_file = file
-
-        else:
-            first_file = file[0]
-
-            # Если список из одного элемента - берём его вместо списка:
-            if len(file) == 1:
-                file = file[0]
+        # Если список из одного элемента - берём его вместо списка:
+        if isinstance(file, (tuple, list)) and len(file) == 1:
+            file = file[0]
 
         # Определяем общее число кадров:
         total_frames = VideoGenerator.get_file_total_frames(file)
