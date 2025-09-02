@@ -10,7 +10,8 @@ from http.client import IncompleteRead
 
 from cvat import (
     add_row2df, concat_dfs, ergonomic_draw_df_frame, cvat_backups2raw_tasks,
-    cvat_backup_task_dir2task, get_related_files, df2annotations
+    cvat_backup_task_dir2task, get_related_files, df2annotations,
+    interpolate_df, split_df_by_visibility, hide_skipped_objects_in_df
 )
 from utils import (
     mkdirs, rmpath, mpmap, get_n_colors, unzip_dir, AnnotateIt, cv2_exts,
@@ -1638,6 +1639,23 @@ class CVATBase:
         else:
             raise NotImplementedError('Метод {method} не объявлен!')
 
+    def copy2(self, other_cvat_srv_obj, desc=None):
+        '''
+        Разворачивает текущий бекап в новом месте, не меняя старый.
+        Возвращает представитель нового объекта на CVAT-сервере.
+        '''
+
+        # Создаём бекап:
+        self.push(local_only=True)
+        self.compress()
+
+        # Доопределяем описание процесса:
+        if desc is None:
+            desc = 'Копирование' if self.verbose else None
+
+        # Восстанавливаем бекап в новом месте и возвращаем результат:
+        return other_cvat_srv_obj.restore(self.zipped_backup, desc=desc)
+
 
 class CVATProject(CVATBase):
     '''
@@ -2313,16 +2331,28 @@ class CVATJob:
         Меняет очерёдность кадров, если они представлены отдельными файлами.
         Используется в методе reorder_frames для задач.
         '''
-        # Если номера кадров исходной и прореженной последовательности не
-        # совпадают - возвращаем ошибку:
+        # Сужаем область применимости метода:
         if (self.df['frame'] != self.df['true_frame']).any():
             raise ValueError('Последовательность не должна '
                              'быть прореженной!')
+        for i in range(len(self.true_frames)):
+            if self.true_frames.get(i, None) != i:
+                raise ValueError('Последовательность должна '
+                                 'быть непрореженной и начинаться с 0!')
+
+        # Интерполируем разметку:
+        self.df = interpolate_df(self.df, self.true_frames)
+
+        # Отбрасываем скрытые объекты:
+        self.df = split_df_by_visibility(self.df)[0]
 
         # Обновляем номера кадров прореженной и исходной последовательности
         # кадров:
         self.df['frame'] = self.df['frame'].apply(df_frame_func)
         self.df['true_frame'] = self.df['true_frame'].apply(df_frame_func)
+
+        # Восстанавливаем ключи, скрывающие треки:
+        self.df = hide_skipped_objects_in_df(self.df, self.true_frames)
 
         # Обновляем сам список файлов с кадрами:
         self.file = files
