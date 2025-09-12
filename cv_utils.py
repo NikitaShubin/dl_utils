@@ -335,7 +335,7 @@ class Mask:
     def rectangle(self):
 
         # Рассчитываем параметры прямоугольника, если он ещё не рассчитан:
-        if self._rect == 'auto':
+        if isinstance(self._rect, str) and self._rect == 'auto':
 
             # Определяем границы ненулевых элементов с каждой из сторон:
             mask = self.array
