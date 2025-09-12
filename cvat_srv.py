@@ -1036,7 +1036,7 @@ class CVATSRVJob(CVATSRVBase):
         '''
         Возвращает URL подзадачи.
         '''
-        task_substr = f'/tasks/{self.obj.parent_id}/jobs/'
+        task_substr = f'/tasks/{self.obj.task_id}/jobs/'
         return super().url.replace('/jobs/', task_substr)
 
     def __len__(self):
@@ -1312,15 +1312,14 @@ class CVATBase:
         self.__prepare_resources()
 
     @staticmethod
-    def __check_soruce(cvat_srv_obj,
-                       zipped_backup,
-                       unzipped_backup,
-                       verbose,
-                       take_data_from):
+    def __redetermine_data_source(cvat_srv_obj,
+                                  zipped_backup,
+                                  unzipped_backup,
+                                  verbose,
+                                  take_data_from):
         '''
         Проверяет существование нужного ресурса и доопределяет take_data_from.
-        Вынесено из __prepare_variables в отдельную функцию для упрощения
-        последней.
+        Используется в __prepare_variables.
         '''
         # Проверяем существование нужного ресурса:
         if take_data_from == 'cvat_srv_obj':
@@ -1371,11 +1370,11 @@ class CVATBase:
 
         # Проверяем существование нужного ресурса и доопределяем
         # take_data_from:
-        take_data_from = cls.__check_soruce(cvat_srv_obj,
-                                            zipped_backup,
-                                            unzipped_backup,
-                                            verbose,
-                                            take_data_from)
+        take_data_from = cls.__redetermine_data_source(cvat_srv_obj,
+                                                       zipped_backup,
+                                                       unzipped_backup,
+                                                       verbose,
+                                                       take_data_from)
 
         # Инициируем список файлов, подлежащих удалению перед закрытием
         # объекта:
@@ -1417,7 +1416,7 @@ class CVATBase:
             self.paths2remove = paths2remove
 
     # Выполнчет сжатие бекапа(ов):
-    def compress(self):
+    def __compress(self):
 
         # Определяем текстовое сопровождение процесса:
         desc = 'Сжатие бекапа' if self.verbose else ''
@@ -1462,7 +1461,7 @@ class CVATBase:
                 )
 
     # Выполнчет распаковку бекапа(ов):
-    def extract(self):
+    def __extract(self):
 
         # Определяем текстовое сопровождение процесса:
         desc = 'Извлечение бекапа' if self.verbose else ''
@@ -1531,7 +1530,7 @@ class CVATBase:
                         self.cvat_srv_obj.backup(self.zipped_backup)
 
             # Распаковываем бекап(ы):
-            self.extract()
+            self.__extract()
             # Архив(ы) после этого удаляе(ю)тся.
 
             # Если задачи качались по отдельности, то project.json нужно
@@ -1566,40 +1565,67 @@ class CVATBase:
     def _parse_unzipped_backup(self):
         raise NotImplementedError('Метод должен быть переопределён!')
 
+    # Пишет текстовое описания (гайд) датасета annotation_guide.md:
+    @staticmethod
+    def _write_guide(guide, unzipped_backup):
+        raise NotImplementedError('Метод должен быть переопределён!')
+
     # Создаёт новый экземпляр класса из фото/видео/дирректории с данными:
     @classmethod
     def from_raw_data(cls,
                       data_path: str | list[str] | tuple[str],
                       include_as_is: bool = False,
                       # Дальше параметры, аналогичные __init__:
-                      *init_args, **init_kwargs):
+                      **init_kwargs):
 
-        # Доопределяем входные переменные:
-        (cvat_srv_obj,
-         zipped_backup,
-         unzipped_backup,
-         parted,
-         verbose,
-         paths2remove) = cls.__prepare_variables(*init_args, **init_kwargs)
+        # Параметр take_data_from должен отсутствовать или быть равен
+        # 'zipped_backup':
+        if init_kwargs.get('take_data_from',
+                           'unzipped_backup') != 'unzipped_backup':
+            raise ValueError('Параметр "take_data_from" не используется '
+                             'при создании бекапа с нуля!')
+
+        # Реальное значение "take_data_from" будет недокументированным:
+        init_kwargs['take_data_from'] = 'unzipped_backup'
+
+        # Создаём папку для распакованных данных и доопределяем путь до неё,
+        # если надо:
+        unzipped_backup = init_kwargs.get('unzipped_backup', None)
+        unzipped_backup = get_empty_dir(unzipped_backup)
+        init_kwargs = dict(init_kwargs)  # Копирование переменной
+        init_kwargs['unzipped_backup'] = unzipped_backup
 
         # Копируем файлы во папку с распакованным дадасетом:
-        cls._copy_files2unzipped_backup(data_path,
-                                        include_as_is,
-                                        unzipped_backup)
+        init_files_kwargs = cls.__copy_files2unzipped_backup(data_path,
+                                                             include_as_is,
+                                                             unzipped_backup)
+        # Возвращает параметры, используемые далее в
+        # __init_files_in_unzipped_backup.
+
+        # Создаём остальные файлы в папке с распакованным дадасетом:
+        cls.__init_files_in_unzipped_backup(unzipped_backup,
+                                            **init_files_kwargs)
+        # init_files_kwargs берётся из __copy_files2unzipped_backup
 
         # Создаём новый экземпляр класса для уже подготовленной дирректории:
-        return cls(cvat_srv_obj,
-                   zipped_backup,
-                   unzipped_backup,
-                   parted,
-                   verbose,
-                   paths2remove)
+        cvat_obj = cls(**init_kwargs)
+
+        # Явно добавляем папку с распакованным бекапов в список на удаление:
+        cvat_obj.paths2remove.append(unzipped_backup)
+
+        return cvat_obj
 
     # Копирует файлы в папку с распакованным бекапом:
     @staticmethod
-    def _copy_files2unzipped_backup(data_path,
-                                    include_as_is,
-                                    unzipped_backup):
+    def __copy_files2unzipped_backup(data_path,
+                                     include_as_is,
+                                     unzipped_backup):
+        raise NotImplementedError('Метод должен быть переопределён!')
+
+    # Создаёт метаданные (всё кроме самих фото/видео) в папке с распакованным
+    # бекапом:
+    @classmethod
+    def __init_files_in_unzipped_backup(cls, unzipped_backup, **kwargs):
         raise NotImplementedError('Метод должен быть переопределён!')
 
     # Пишет текущее состояние разметки в папку с распакованным бекапом,
@@ -1647,7 +1673,7 @@ class CVATBase:
 
         # Создаём бекап:
         self.push(local_only=True)
-        self.compress()
+        self.__compress()
 
         # Доопределяем описание процесса:
         if desc is None:
@@ -1764,7 +1790,7 @@ class CVATProject(CVATBase):
                                 'Отправка на CVAT-сервер невозможна!')
 
             # Формируем архив(ы):
-            self.compress()
+            self.__compress()
 
             # Отправляем архив(ы) на сервер
             desc = 'Выгрузка бекапа' if self.verbose else ''
@@ -1835,6 +1861,7 @@ class CVATTask(CVATBase):
         # Создаём для каждой подзадачи экземпляр класса CVATJob:
         self.data = mpmap(CVATJob.from_subtask, task, num_procs=1)
 
+    """
     @staticmethod
     def __prepare_single_raw_file(data_path: str,
                                   task_data_dir: str | None = None,
@@ -1977,7 +2004,8 @@ class CVATTask(CVATBase):
         подходящего типа, а архив игнорироваться (возвращаться ошибка).
         '''
         # Инициируем экземпляр класса, но пока без работы с файлами:
-        cvat_task = cls(*init_args, **init_kwargs, _skip_parse=True)
+        cvat_task = cls(data_path, *init_args, **init_kwargs,
+                        take_data_from='unzipped_backup')
 
         # Получаем целевую папку с распакованным бекапом:
         unzipped_backup = cvat_task.unzipped_backup
@@ -2009,6 +2037,7 @@ class CVATTask(CVATBase):
         cvat_task.__prepare_resources()
 
         return cvat_task
+    """
 
     # Создаёт список элементов типа CVATJob для неразмеченных данных:
     @classmethod
@@ -2153,7 +2182,7 @@ class CVATTask(CVATBase):
             with AnnotateIt('Отправка задачи в CVAT' if self.verbose else ''):
 
                 # Создаём архив(ы):
-                self.compress()
+                self.__compress()
 
                 # Фиксируем исходную задачу:
                 old_cvat_srv_obj = self.cvat_srv_obj
