@@ -428,7 +428,7 @@ def cvat_backup_task_dir2task(task_dir,
         # Формируем словарь кадров для текущего фрагментов:
         start_frame = job['start_frame'] # Номер  первого   кадра текущего фрагмента
         stop_frame  = job['stop_frame']  # Номер последнего кадра текущего фрагмента
-        status      = job['status']      # Статус                 текущего фрагмента
+        # status      = job['status']      # Статус                 текущего фрагмента
         cur_true_frames = {frame: true_frames[frame]
                            for frame in range(start_frame, stop_frame + 1)}
 

@@ -11,7 +11,7 @@ from http.client import IncompleteRead
 from cvat import (
     add_row2df, concat_dfs, ergonomic_draw_df_frame, cvat_backups2raw_tasks,
     cvat_backup_task_dir2task, get_related_files, df2annotations,
-    interpolate_df, split_df_by_visibility, hide_skipped_objects_in_df
+    interpolate_df, split_df_by_visibility, hide_skipped_objects_in_df, new_df
 )
 from utils import (
     mkdirs, rmpath, mpmap, get_n_colors, unzip_dir, AnnotateIt, cv2_exts,
@@ -1596,36 +1596,37 @@ class CVATBase:
         init_kwargs['unzipped_backup'] = unzipped_backup
 
         # Копируем файлы во папку с распакованным дадасетом:
-        init_files_kwargs = cls.__copy_files2unzipped_backup(data_path,
-                                                             include_as_is,
-                                                             unzipped_backup)
+        init_files_kwargs = cls._copy_files2unzipped_backup(data_path,
+                                                            include_as_is,
+                                                            unzipped_backup)
         # Возвращает параметры, используемые далее в
-        # __init_files_in_unzipped_backup.
+        # _init_files_in_unzipped_backup.
 
         # Создаём остальные файлы в папке с распакованным дадасетом:
-        cls.__init_files_in_unzipped_backup(unzipped_backup,
-                                            **init_files_kwargs)
-        # init_files_kwargs берётся из __copy_files2unzipped_backup
+        cls._init_files_in_unzipped_backup(unzipped_backup,
+                                           **init_files_kwargs)
+        # init_files_kwargs берётся из _copy_files2unzipped_backup
 
         # Создаём новый экземпляр класса для уже подготовленной дирректории:
         cvat_obj = cls(**init_kwargs)
 
         # Явно добавляем папку с распакованным бекапов в список на удаление:
-        cvat_obj.paths2remove.append(unzipped_backup)
+        cvat_obj.paths2remove.add(unzipped_backup)
 
         return cvat_obj
 
     # Копирует файлы в папку с распакованным бекапом:
-    @staticmethod
-    def __copy_files2unzipped_backup(data_path,
-                                     include_as_is,
-                                     unzipped_backup):
+    @classmethod
+    def _copy_files2unzipped_backup(cls,
+                                    data_path,
+                                    include_as_is,
+                                    unzipped_backup):
         raise NotImplementedError('Метод должен быть переопределён!')
 
     # Создаёт метаданные (всё кроме самих фото/видео) в папке с распакованным
     # бекапом:
     @classmethod
-    def __init_files_in_unzipped_backup(cls, unzipped_backup, **kwargs):
+    def _init_files_in_unzipped_backup(cls, unzipped_backup, **kwargs):
         raise NotImplementedError('Метод должен быть переопределён!')
 
     # Пишет текущее состояние разметки в папку с распакованным бекапом,
@@ -1861,7 +1862,6 @@ class CVATTask(CVATBase):
         # Создаём для каждой подзадачи экземпляр класса CVATJob:
         self.data = mpmap(CVATJob.from_subtask, task, num_procs=1)
 
-    """
     @staticmethod
     def __prepare_single_raw_file(data_path: str,
                                   task_data_dir: str | None = None,
@@ -1872,8 +1872,9 @@ class CVATTask(CVATBase):
         # Если это файл:
         if os.path.isfile(data_path):
 
-            # Определяем тип файла:
-            ext = os.path.splitext(data_path)[-1].lower()
+            # Отделяем тип файла от имени:
+            full_name, ext = os.path.splitext(data_path)
+            ext = ext.lower()
 
             # Если это видео или фото - копируем его в подпапку:
             if ext in cv2_exts:
@@ -1898,6 +1899,9 @@ class CVATTask(CVATBase):
 
         # Если это дирректория:
         elif os.path.isdir(data_path):
+
+            # Берём путь до дирректории:
+            full_name = data_path
 
             # Если её надо брать как есть, то копируем всё её
             # содержимое:
@@ -1939,7 +1943,11 @@ class CVATTask(CVATBase):
         else:
             raise FileNotFoundError(f'Не найден "{data_path}"!')
 
-        return file_list
+        # Определяем имя задачи как имя файла без его пути и расширения
+        # (если оно было):
+        task_name = os.path.basename(full_name)
+
+        return file_list, task_name
 
     @staticmethod
     def __prepare_multiple_raw_files(data_path: list[str] | tuple[str],
@@ -1964,6 +1972,9 @@ class CVATTask(CVATBase):
             # Определяем место расположения всех файлов:
             source_dir = data_paths.pop()
 
+            # Берём имя папки с исходными файлами как имя задачи:
+            task_name = split_dir_name_ext(source_dir)[1]
+
             # Копируем все файлы из этой дирректории в целевую:
             shutil.copytree(source_dir, task_data_dir)
 
@@ -1976,7 +1987,7 @@ class CVATTask(CVATBase):
         else:
 
             file_list = []
-            for file in data_paths:
+            for ind, file in enumerate(data_paths):
 
                 # Копируем файл в целевую папку:
                 shutil.copy(file, task_data_dir)
@@ -1985,7 +1996,108 @@ class CVATTask(CVATBase):
                 basename = os.path.basename(file)
                 file_list.append(os.path.join(task_data_dir, basename))
 
-        return file_list
+                # Если это первый файл из списка, то берём имя его папки
+                # как имя задачи:
+                if ind == 0:
+                    task_name = os.path.splitext(basename)[0]
+
+        return file_list, task_name
+
+    # Копирует файлы в папку с распакованным бекапом:
+    @classmethod
+    def _copy_files2unzipped_backup(cls,
+                                    data_path,
+                                    include_as_is,
+                                    unzipped_backup):
+        # Определяем способ копирования:
+        if isinstance(data_path, str):  # Если передан всего один файл
+            prepare_raw_data = cls.__prepare_single_raw_file
+        else:                           # Если файлов несколько
+            prepare_raw_data = cls.__prepare_multiple_raw_files
+
+        # Определяем целевую папку для данных:
+        task_data_dir = os.path.join(unzipped_backup, 'data')
+
+        # Создаём папку данных для распакованного бекапа, если надо:
+        if not os.path.isdir(task_data_dir):
+            mkdirs(task_data_dir)
+
+        # Выполняем само копирование:
+        file_list, task_name = prepare_raw_data(data_path,
+                                                task_data_dir,
+                                                include_as_is)
+
+        return {'file_list': file_list,
+                'task_name': task_name}
+
+    # Создаёт метаданные (всё кроме самих фото/видео) в папке с распакованным
+    # бекапом:
+    @classmethod
+    def _init_files_in_unzipped_backup(cls,
+                                       unzipped_backup,
+                                       file_list,
+                                       task_name):
+
+        # Определяем номер последнего кадра в данных:
+        file = file_list if len(file_list) > 1 else file_list[0]
+        stop_frame = VideoGenerator.get_file_total_frames(file) - 1
+
+        # Инициируем инфу о задаче:
+        info = cls._init_info(name=task_name,
+                              data={
+                                  'sorting_method': 'predefined',
+                                  'start_frame': 0,
+                                  'stop_frame': stop_frame
+                              },
+                              jobs=[{
+                                  'status': 'annotation',
+                                  'start_frame': 0,
+                                  'stop_frame': stop_frame
+                              }])
+
+        # Создаём пустую разметку:
+        data = cls._init_annotations(file_list)
+
+        # Определяем папку с данными:
+        task_data_dir = os.path.join(unzipped_backup, 'data')
+
+        # Обновляем содержимое файлов в распакованном датасете:
+        cls._write_annotations2unzipped_backup(data,
+                                               task_data_dir,
+                                               unzipped_backup,
+                                               info)
+
+    @staticmethod
+    def _init_info(name: str = 'unnamed_task',
+                   bug_tracker: str = '',
+                   status: str = 'completed',
+                   subset: str = 'Train',
+                   labels: list[dict] = [],
+                   version: str = '1.0',
+                   data: dict = {
+                       'sorting_method': 'predefined',
+                       'start_frame': 0,
+                       'stop_frame': 0
+                   },
+                   jobs: list[dict] = [{'status': 'annotation',
+                                        'start_frame': 0,
+                                        'stop_frame': 0}],
+                   **kwargs):
+
+        # Собираем словарь:
+        info = dict(name=name,
+                    bug_tracker=bug_tracker,
+                    status=status,
+                    subset=subset,
+                    labels=labels,
+                    version=version,
+                    data=data,
+                    jobs=jobs)
+
+        # Добавляем к словарю доп. параметры и возвращаем:
+        return info | kwargs
+
+    """
 
     # Создаёт новый экземпляр класса из фото/видео/дирректории с данными:
     @classmethod
@@ -2353,6 +2465,12 @@ class CVATJob:
 
     # Строит словарь разметки формата annotations.json:
     def _build_annotations(self):
+
+        # Создаём пустой датафрейм, если разметка отсутствует:
+        if self.df is None:
+            self.df = new_df()
+
+        # Формируем и возвращаем словарь с разметкой:
         return df2annotations(self.df)
 
     def _reorder_frames(self, files, df_frame_func):
