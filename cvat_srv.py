@@ -2045,6 +2045,8 @@ class CVATTask(CVATBase):
         # Инициируем инфу о задаче:
         info = cls._init_info(name=task_name,
                               data={
+                                  'image_quality': 90,
+                                  'chunk_type': 'imageset',
                                   'sorting_method': 'predefined',
                                   'start_frame': 0,
                                   'stop_frame': stop_frame
@@ -2075,6 +2077,8 @@ class CVATTask(CVATBase):
                    labels: list[dict] = [],
                    version: str = '1.0',
                    data: dict = {
+                       'image_quality': 90,
+                       'chunk_type': 'imageset',
                        'sorting_method': 'predefined',
                        'start_frame': 0,
                        'stop_frame': 0
