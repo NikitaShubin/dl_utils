@@ -1416,7 +1416,7 @@ class CVATBase:
             self.paths2remove = paths2remove
 
     # Выполнчет сжатие бекапа(ов):
-    def __compress(self):
+    def _compress(self):
 
         # Определяем текстовое сопровождение процесса:
         desc = 'Сжатие бекапа' if self.verbose else ''
@@ -1461,7 +1461,7 @@ class CVATBase:
                 )
 
     # Выполнчет распаковку бекапа(ов):
-    def __extract(self):
+    def _extract(self):
 
         # Определяем текстовое сопровождение процесса:
         desc = 'Извлечение бекапа' if self.verbose else ''
@@ -1530,7 +1530,7 @@ class CVATBase:
                         self.cvat_srv_obj.backup(self.zipped_backup)
 
             # Распаковываем бекап(ы):
-            self.__extract()
+            self._extract()
             # Архив(ы) после этого удаляе(ю)тся.
 
             # Если задачи качались по отдельности, то project.json нужно
@@ -1674,7 +1674,7 @@ class CVATBase:
 
         # Создаём бекап:
         self.push(local_only=True)
-        self.__compress()
+        self._compress()
 
         # Доопределяем описание процесса:
         if desc is None:
@@ -1791,7 +1791,7 @@ class CVATProject(CVATBase):
                                 'Отправка на CVAT-сервер невозможна!')
 
             # Формируем архив(ы):
-            self.__compress()
+            self._compress()
 
             # Отправляем архив(ы) на сервер
             desc = 'Выгрузка бекапа' if self.verbose else ''
@@ -2291,24 +2291,51 @@ class CVATTask(CVATBase):
         # Если нужно отправлять результат на CVAT-сервер:
         if not local_only:
 
+            if self.cvat_srv_obj is None:
+                raise ConnectionError('Для отправки задачи в CVAT нужно '
+                                      'задать "cvat_srv_obj"!')
+
             with AnnotateIt('Отправка задачи в CVAT' if self.verbose else ''):
 
                 # Создаём архив(ы):
-                self.__compress()
+                self._compress()
 
-                # Фиксируем исходную задачу:
+                # Инициируем флаг удаления предыдущей задачи:
+                delete_old = False
+
+                # Фиксируем исходный CVAT_SRV-объект:
                 old_cvat_srv_obj = self.cvat_srv_obj
 
-                # Получаем представителя предка объекта на CVAT:
-                parent = old_cvat_srv_obj.parent()
+                # Определяем метод восстановления:
+                if self.cvat_srv_obj._hier_lvl == 0:
+                    # Если передан сам CVAT-сервер:
+                    restore = self.cvat_srv_obj.client.restore_task
 
-                # Определяем способ восстановления из бекапа:
-                if parent is None:
-                    restore = old_cvat_srv_obj.client.restore_task
+                # Если передана именно CVAT-задача:
+                elif self.cvat_srv_obj._hier_lvl == 2:
+
+                    # Старую задачу надо будет удалить:
+                    delete_old = True
+
+                    # Определяем проект этой задачи:
+                    project = self.cvat_srv_obj.parent()
+
+                    # Определяем способ восстановления из бекапа в
+                    # зависимости от того, есть у задачи датасет. или нет:
+                    if project is None:
+                        restore = self.cvat_srv_obj.client.restore_task
+                    else:
+                        restore = project.restore
+                    # Если у задачи есть проект - то восстанавливаем
+                    # в нём, а если нет - делаем её свободной.
+
+                # Если передан CVAT-датасет:
+                elif self.cvat_srv_obj._hier_lvl == 1:
+                    restore = self.cvat_srv_obj.restore
+
                 else:
-                    restore = parent.restore
-                # Если у задачи есть проект - то восстанавливаем в нём, а если
-                # нет - делаем её свободной.
+                    raise ValueError('Параметр "cvat_srv_obj" должен быть'
+                                     ' задачей, датасетом или сервером!')
 
                 # Выполняем Выгрузку бекапа и заменяем интерфейсный
                 # объект:
@@ -2316,7 +2343,8 @@ class CVATTask(CVATBase):
 
                 # После успешного восстановления нового датасета старый
                 # удаляется:
-                old_cvat_srv_obj.delete()
+                if delete_old:
+                    old_cvat_srv_obj.delete()
 
     '''
     def __del__(self):
