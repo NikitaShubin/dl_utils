@@ -1678,10 +1678,30 @@ class CVATBase:
 
         # Доопределяем описание процесса:
         if desc is None:
-            desc = 'Копирование' if self.verbose else None
+            desc = 'Разворачивание бекапа' if self.verbose else None
+
+        # Если копировать надо датасет, а передан представитель сервера,
+        # то создаём датасет:
+        if self.cvat_srv_obj._hier_lvl == 1 and \
+                other_cvat_srv_obj._hier_lvl == 0:
+            other_cvat_srv_obj = other_cvat_srv_obj.client.new_project(
+                self.info['name'],
+                self.info['labels']
+            )
 
         # Восстанавливаем бекап в новом месте и возвращаем результат:
-        return other_cvat_srv_obj.restore(self.zipped_backup, desc=desc)
+        if self.parted:
+
+            # Список архивов бекапов:
+            backups = get_file_list(self.zipped_backup, '.zip', False)
+
+            # Восстанавливаем каждую задачу отдельно:
+            for bu in tqdm(backups, desc=desc, disable=not desc):
+                task = other_cvat_srv_obj.restore(bu, desc='')
+            return task.parent()
+
+        else:
+            return other_cvat_srv_obj.restore(self.zipped_backup, desc=desc)
 
 
 class CVATProject(CVATBase):
