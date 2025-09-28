@@ -75,7 +75,7 @@ import pandas as pd
 
 import xml.etree.ElementTree as ET
 from tqdm import tqdm
-from PIL import ImageColor
+from PIL import ImageColor, Image
 from matplotlib import pyplot as plt
 from scipy.optimize import linear_sum_assignment
 from collections import defaultdict
@@ -226,6 +226,7 @@ def shape2df(shape    : 'Объект, из которого считывают�
            for column in columns}
     row['track_id'] = track_id
 
+
     # Добавляем строку к датафрейму, если он был задан:
     df = pd.DataFrame(row) if df is None else \
         pd.concat([df, pd.DataFrame(row)])
@@ -258,9 +259,9 @@ def df2annotations(df):
     '''
     Формирует из датафрейма словарь разметки в формате annotations.json.
     '''
+
     # Разделяем датафрейм на теги, формы и треки:
-    tags_df, shapes_df, tracks_df = \
-        split_df_to_tags_shapes_and_tracks(df, False)
+    tags_df, shapes_df, *track_dfs = split_df_to_tags_shapes_and_tracks(df)
 
     # Перебираем каждый тег:
     tags = []
@@ -274,29 +275,18 @@ def df2annotations(df):
 
     # Перебираем по отдельности каждый трек:
     tracks = []
-    for track_id in tracks_df['track_id'].unique():
-        track_df = tracks_df[tracks_df['track_id'] == track_id]
+    for track_df in track_dfs:
+
+        # Получаем строку первого кадра текущего трека:
+        track_first_frame = track_df['frame'].min()
+        track_first_frame_mask = track_df['frame'] == track_first_frame
+        track_first_frame_dfrow = track_df[track_first_frame_mask].iloc[0, :]
 
         # Иницируем словарь, описывающий трек:
-        track = {'frame': track_df['frame'].min()}
+        track = {name: track_first_frame_dfrow[name]
+                 for name in per_track_columns + ['frame']}
         # Требует указания первого кадра.
-
-        # Описываем параметры, характеризующие трек в целом:
-        for name in per_track_columns:
-
-            # Записи в столбцах per_track_columns должны быть одинаковы в
-            # пределах одного трека:
-            vals = track_df[name]
-            if df_default_vals[name] == []:  # Список переводим в кортеж,
-                vals = vals.apply(tuple)     # чтобы применялась ф-ия unique
-            vals = vals.unique()
-            if len(vals) > 1:
-                raise ValueError('Противоречивые значения в столбце '
-                                 f'{name} трека {track_id}: {vals}!')
-            val = vals[0]
-            if isinstance(val, tuple):  # Возвращаем список, если надо
-                val = list(val)
-            track[name] = val
+        # Остальные параметры тоже берутся из первого кадра.
 
         # Дополняем покадровой разметкой:
         track_shapes = []
@@ -542,8 +532,15 @@ def get_related_files(file, images_only=False, as_manifest=False):
             cur_resources = [os.path.relpath(resource, task_data_path)
                              for resource in cur_resources]
 
+            # Узнаём разрешение изображения:
+            width, height = Image.open(file).size
+            # Работает быстрее, чем чтение всего содержимого в numpy-массив,
+            # как в OpenCV.
+
             resources.append({'name': str(name),
                               'extension': ext,
+                              'width': width,
+                              'height': height,
                               'meta': {'related_images': cur_resources}})
 
         # Если нужен обычный словарь:
