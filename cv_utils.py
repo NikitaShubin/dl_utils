@@ -89,7 +89,7 @@ class Mask:
         assert array.ndim == 2
         # Массив должен быть двумерным.
 
-        self.array = array
+        self.array = array.copy()
         self._rect = rect
         self._area = area
 
@@ -98,6 +98,9 @@ class Mask:
     def astype(self, type_=None):
         return self.array if type_ is None else self.array.astype(type_)
     '''
+
+    def copy(self):
+        return type(self)(self.array, self._area, self._rect)
 
     # Изменение типа массива:
     def astype(self, dtype):
@@ -116,7 +119,7 @@ class Mask:
             else:
                 return (self.array * 255).astype(np.uint8)
 
-    # Приводим входные данны к классу Mask, если надо:
+    # Импорт из COCO-формата:
     @classmethod
     def from_COCO_annotation(cls, coco_annotation):
 
@@ -127,14 +130,14 @@ class Mask:
 
         # Собираем объект:
         return cls(array=coco_annotation['segmentation'],
-                   area =coco_annotation['area'        ],
-                   rect =rect                           )
+                   area=coco_annotation['area'],
+                   rect=rect)
 
     # Экспорт в COCO-формат:
     def as_COCO_annotation(self):
-        return {'segmentation': self.array   ,
-                'bbox'        : self.asbbox(),
-                'area'        : self.area  ()}
+        return {'segmentation': self.array,
+                'bbox': self.asbbox(),
+                'area': self.area()}
 
     # Приводим входные данны к классу Mask, если надо:
     @classmethod
@@ -499,11 +502,11 @@ class Mask:
 
     # Вынос внутренних методов в КЛАССОВЫЕ бинарные ф-ии:
     is_rect_intersection = staticmethod(is_rect_intersection_with)
-    IoU                  = staticmethod(IoU_with                 )
-    Dice                 = staticmethod(Dice_with                )
-    Overlap              = staticmethod(Overlap_with             )
-    JaccardDiceOverlap   = staticmethod(JaccardDiceOverlap_with  )
-    Jaccard              = IoU
+    IoU = staticmethod(IoU_with)
+    Dice = staticmethod(Dice_with)
+    Overlap = staticmethod(Overlap_with)
+    JaccardDiceOverlap = staticmethod(JaccardDiceOverlap_with)
+    Jaccard = IoU
 
     # Отрисовка маски:
     def draw(self, img=None, color=255, alpha=1.):
@@ -528,6 +531,67 @@ class Mask:
             return getattr(self.array, name)
         #     raise ValueError(f'Атрибут {name} не поддерживается!')
     '''
+
+    def fitEllipse(self, est=False):
+        '''
+        Возвращает параметры эллипсов, аппроксимирующих контуры маски.
+
+        Если est == True, то возвращается список словарей, где, помимо
+        параметров эллипса, есть ряд других полезных величин, по которым можно
+        оценить степень совпадения аппроксимации и получить сами маски.
+        '''
+
+        # Получаем список контуров для текущей маски:
+        array = self.array.copy()
+        contours, hierarchy = cv2.findContours(self.array,
+                                               cv2.RETR_TREE,
+                                               cv2.CHAIN_APPROX_SIMPLE)
+        assert np.equal(self.array, array).all()
+
+        # Инициируем список выводов:
+        ellipses = []
+
+        # Перебираем все найденные контуры:
+        for contour, connection in zip(contours, hierarchy):
+
+            # Получаем оценку параметров эллипса:
+            ellipse = cv2.fitEllipse(contour)
+
+            if est:
+
+                # Если контур всего один, берём исходную маску для проверки:
+                if len(contours) == 1:
+                    source_mask = self.copy()
+
+                # Если контуров несколько, растеризируем каждый отдельно:
+                else:
+                    source = np.zeros_like(self.array)
+                    source = cv2.fillPoly(source, contour, 255)
+                    source_mask = Mask(source)
+
+                # Создаём маску по оцененным параметрам:
+                target = cv2.ellipse(np.zeros_like(self.array), ellipse, 255, -1)
+                target_mask = type(self)(target)
+
+                # Подсчитываем метрики совпадения сегментов:
+                JDO = source_mask.JaccardDiceOverlap_with(target_mask)
+
+                # Упаковываем все результаты в словарь и добавляем его в
+                # итоговый список:
+                ellipses.append({'contour': contour,
+                                 'connection': connection,
+                                 'ellipse': ellipse,
+                                 'source': source_mask,
+                                 'target': target_mask,
+                                 'IoU': JDO[0],
+                                 'Jaccard': JDO[0],
+                                 'Dice': JDO[1],
+                                 'Overlap': JDO[2]})
+
+            else:
+                ellipses.append(ellipse)
+
+        return ellipses
 
 
 def build_masks_IoU_matrix(masks1, masks2=None, diag_val=1., desc=None, num_procs=0):
