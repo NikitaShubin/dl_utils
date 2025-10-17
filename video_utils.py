@@ -10,7 +10,8 @@ from skimage import feature
 from matplotlib import pyplot as plt
 
 from utils import (isint, isfloat, text2img, overlap_with_alpha, mpmap,
-                   rmpath, mkdirs, ImReadBuffer, cv2_vid_exts, cv2_img_exts)
+                   rmpath, mkdirs, ImReadBuffer, cv2_vid_exts, cv2_img_exts,
+                   get_file_list)
 
 
 def recomp2mp4(source_file, target_file, rm_soruce=True, quiet=True):
@@ -1418,41 +1419,6 @@ def apply2image(im_filter      : 'Фильтр, применяемый к цве
         mkdirs(out_path)
 
     io.imsave(out_file, out)
-
-
-def get_file_list(path, extentions=[]):
-    '''
-    Возвращает список всех файлов, содержащихся по указанному пути
-    (включая поддиректории).
-    '''
-    # Обработка параметра extentions:
-    if isinstance(extentions, str):
-        if len(extentions) > 0:
-            extentions = {extentions.lower()}
-        else:
-            extentions = []
-    elif isinstance(extentions, (list, tuple, set)):
-        for ext in extentions:
-            if not isinstance(ext, str):
-                raise ValueError('extentions должен быть строкой, или ' +
-                                 'списком/кортежем/множеством строк. ' +
-                                 f'Получен элемент {ext}')
-    else:
-        raise ValueError('extentions должен быть строкой, или эсписком/' +
-                         'кортежем/множеством строк. Получен %s' % extentions)
-    extentions = [ext.lower() for ext in extentions]
-
-    # Составление списка файлов:
-    file_list = []
-    for file in os.listdir(path):
-        file = os.path.join(path, file)
-        if os.path.isdir(file):
-            file_list += get_file_list(file, extentions)
-        elif not len(extentions) or \
-                os.path.splitext(file)[1][1:].lower() in extentions:
-            file_list.append(file)
-
-    return file_list
 
 
 def convert_videos(inp_path, out_path, skip_existed=True):
