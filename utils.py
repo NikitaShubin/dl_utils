@@ -618,6 +618,9 @@ def draw_contrast_text(image, text):
     '''
     Делает многострочные контрастные надписи на заданном изображении.
     '''
+    # Отвязываем рабочее изображение от входного:
+    image = image.copy()
+
     # Разбиваем текст на строки и отрисовываем каждую в отдельности:
     for line_ind, line in enumerate(text.split('\n'), 1):
 
@@ -2868,6 +2871,76 @@ def isfloat(a):
     return isinstance(a, (float, np.floating)) or \
            isinstance(a, np.dtype)   and np.issubdtype(a, np.floating) or \
            isinstance(a, np.ndarray) and np.issubdtype(a.dtype, np.floating)
+
+
+def obj_diff(obj1, obj2, prefix=''):
+    '''
+    Выводит список найденных различий в двух структурах.
+    '''
+    if obj1 == obj2:
+        return ''
+
+    # Сравниваем типы:
+    if type(obj1) is not type(obj2):
+        return f'Несовпадение типов {prefix}: {type(obj1)} != {type(obj2)}!'
+
+    # Сравниваем размеры:
+    if hasattr(obj1, '__len__') and len(obj1) != len(obj2):
+        return f'Несовпадение размеров {prefix}: {len(obj1)} != {len(obj2)}!'
+
+    # Если объект итерируемый:
+    if hasattr(obj1, '__iter__'):
+
+        # Если объекты являются словарями:
+        if isinstance(obj1, dict):
+
+            keys1 = set(obj1.keys())
+            keys2 = set(obj2.keys())
+
+            dkeys1 = keys1 - keys2
+
+            if dkeys1:
+                return f'Несовпадение ключей {prefix}: {dkeys1} != {dkeys2}!'
+
+            else:
+                out = ''
+                for key in keys1:
+                    out_ = obj_diff(obj1[key], obj2[key], prefix + f'[{key}]')
+
+                    if out_:
+                        out = out + '\n' + out_
+
+                if out:
+                    return out[1:]
+                else:
+                    return ''
+
+        # Если объекты являются множествами, кортежами или списками:
+        if isinstance(obj1, (set, tuple, list)):
+
+            # На всякий случай сортируем элементы для облегчения
+            # поэлементного сопоставления, если возможно:
+            try:
+                obj1 = sorted(obj1)
+                obj2 = sorted(obj2)
+                if obj1 == obj2:
+                    return ''
+            except:
+                pass
+
+            out = ''
+            for ind, (sub1, sub2) in enumerate(zip(obj1, obj2)):
+                out_ = obj_diff(sub1, sub2, prefix + f'[{ind}]')
+
+                if out_:
+                    out = out + '\n' + out_
+
+            if out:
+                return out[1:]
+            else:
+                return ''
+
+    return f'Несовпадение значений {prefix}: {obj1} != {obj2}!'
 
 
 __all__ = [
