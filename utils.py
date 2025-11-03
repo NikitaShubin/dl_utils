@@ -671,6 +671,227 @@ def resize_with_pad(image                    ,
                               cv2.BORDER_CONSTANT, value=padding_color)
 
 
+def rounded_rectangle(img,
+                      top_left, bottom_right,
+                      radius=1, color=255,
+                      thickness=1, line_type=cv2.LINE_AA):
+    '''
+    Рисует прямоугольник со скруглёнными углами:
+    Переписано https://stackoverflow.com/a/60210706 с помощью DeepSeek.
+    '''
+
+    top = min(top_left[0], bottom_right[0])
+    bottom = max(top_left[0], bottom_right[0])
+    left = min(top_left[1], bottom_right[1])
+    right = max(top_left[1], bottom_right[1])
+
+    height = min(bottom - top, right - left)
+
+    if radius > 1:
+        radius = 1
+
+    corner_radius = int(radius * (height/2))
+
+    if thickness < 0:
+        if corner_radius == 0:
+            cv2.rectangle(img,
+                          (left, top),
+                          (right, bottom),
+                          color, thickness, line_type)
+        else:
+            # рисуем заполненные прямоугольники для основных частей
+            cv2.rectangle(img,
+                          (left + corner_radius, top),
+                          (right - corner_radius, bottom),
+                          color, -1, line_type)
+            cv2.rectangle(img,
+                          (left, top + corner_radius),
+                          (right, bottom - corner_radius),
+                          color, -1, line_type)
+
+            # рисуем заполненные эллипсы для углов
+            cv2.ellipse(img,
+                        (left + corner_radius, top + corner_radius),
+                        (corner_radius, corner_radius),
+                        180, 0, 90,
+                        color, -1, line_type)
+            cv2.ellipse(img,
+                        (right - corner_radius, top + corner_radius),
+                        (corner_radius, corner_radius),
+                        270, 0, 90,
+                        color, -1, line_type)
+            cv2.ellipse(img,
+                        (left + corner_radius, bottom - corner_radius),
+                        (corner_radius, corner_radius),
+                        90, 0, 90,
+                        color, -1, line_type)
+            cv2.ellipse(img,
+                        (right - corner_radius, bottom - corner_radius),
+                        (corner_radius, corner_radius),
+                        0, 0, 90,
+                        color, -1, line_type)
+
+    else:
+        # рисуем контур
+        if corner_radius == 0:
+            cv2.rectangle(img,
+                          (left, top),
+                          (right, bottom),
+                          color, thickness, line_type)
+        else:
+            # рисуем прямые линии для сторон
+            cv2.line(img,
+                     (left + corner_radius, top),
+                     (right - corner_radius, top),
+                     color, thickness, line_type)
+            cv2.line(img,
+                     (left + corner_radius, bottom),
+                     (right - corner_radius, bottom),
+                     color, thickness, line_type)
+            cv2.line(img,
+                     (left, top + corner_radius),
+                     (left, bottom - corner_radius),
+                     color, thickness, line_type)
+            cv2.line(img,
+                     (right, top + corner_radius),
+                     (right, bottom - corner_radius),
+                     color, thickness, line_type)
+
+            # рисуем дуги для углов
+            cv2.ellipse(img,
+                        (left + corner_radius, top + corner_radius),
+                        (corner_radius, corner_radius),
+                        180, 0, 90,
+                        color, thickness, line_type)
+            cv2.ellipse(img,
+                        (right - corner_radius, top + corner_radius),
+                        (corner_radius, corner_radius),
+                        270, 0, 90,
+                        color, thickness, line_type)
+            cv2.ellipse(img,
+                        (left + corner_radius, bottom - corner_radius),
+                        (corner_radius, corner_radius),
+                        90, 0, 90,
+                        color, thickness, line_type)
+            cv2.ellipse(img,
+                        (right - corner_radius, bottom - corner_radius),
+                        (corner_radius, corner_radius),
+                        0, 0, 90,
+                        color, thickness, line_type)
+    return img
+
+
+class Img2Film:
+    '''
+    Обрамляет изображения схематическим кадром из фотоплёнки.
+    '''
+
+    def __init__(self,
+                 dpmm: 'Число пикселей на мм' = 300 / 25.4,  # dpi=600
+                 inner_size: 'Размер внутреннего изображения' = (24, 36),
+                 outer_size: 'Размер всего кадра плёнки' = (35, 37),
+                 num_holes: 'Число перфораций с каждой стороны' = 8):
+        self.dpmm = dpmm
+
+        # Рассчитываем внутренние и итоговые размеры в пикселях:
+        self.inner_size = (np.array(inner_size) * dpmm).astype(int)
+        self.outer_size = (np.array(outer_size) * dpmm).astype(int)
+
+        if (self.outer_size <= self.inner_size).any():
+            raise ValueError('Изображение должно помещаться на плёнку!')
+
+        # Рассчитываем сдвиг внутреннего изображения относительно итогового:
+        self.shift = (self.outer_size - self.inner_size) // 2
+
+        # Число перфораций:
+        self.num_holes = num_holes
+
+        # Остальные параметры инициируем через сброс:
+        self.reset()
+
+    def reset(self):
+        self.target_size = None
+        self.dtype = None
+        self.film = None
+
+    def _init_film(self, img):
+        '''
+        Создаёт шаблон итогового изображения.
+        '''
+        # Определяем размер и тип итогового изображения:
+        self.target_size = list(self.outer_size) + list(img.shape[2:])
+        self.dtype = img.dtype
+
+        # Инициируем шаблон:
+        self.film = np.zeros(self.target_size, dtype=self.dtype)
+
+        # Определяем параметры перфораций:
+        color = 255 if self.dtype == np.uint8 else 1.
+        if len(self.target_size) == 3 and self.target_size[2] == 3:
+            color = (color, color, color)
+        radius = 0.7
+        rel_cy1 = self.shift[0] / 2 / self.outer_size[0]
+        rel_cy2 = 1. - rel_cy1
+        rel_hw = 1 / 5 / self.num_holes
+        rel_hh = rel_cy1 / 2
+        top1 = int((rel_cy1 - rel_hh) * self.target_size[0])
+        top2 = int((rel_cy2 - rel_hh) * self.target_size[0])
+        bottom1 = int((rel_cy1 + rel_hh) * self.target_size[0])
+        bottom2 = int((rel_cy2 + rel_hh) * self.target_size[0])
+
+        # Создаём перфорацию:
+        for ind in range(self.num_holes):
+            rel_cx = (2 * ind + 1) / 2 / self.num_holes
+            left = int((rel_cx - rel_hw) * self.target_size[1])
+            right = int((rel_cx + rel_hw) * self.target_size[1])
+
+            self.film = rounded_rectangle(self.film,
+                                          (top1, left),
+                                          (bottom1, right),
+                                          radius, color, -1)
+            self.film = rounded_rectangle(self.film,
+                                          (top2, left),
+                                          (bottom2, right),
+                                          radius, color, -1)
+
+    def apply2img(self, img):
+        '''
+        Обрамляет в кадр плёнки заданное изображение.
+        '''
+        # Масштабируем изображение до внутреннего размера:
+        in_img = cv2.resize(img, self.inner_size[::-1],
+                            interpolation=cv2.INTER_AREA)
+
+        # Если текущий шаблон не соответствует необходимому или не создан, то
+        # воссоздаём его:
+        if in_img.dtype != self.dtype or \
+                (self.target_size[:2] != list(self.film.shape[:2])) or \
+                (self.target_size[2:] != list(in_img.shape[2:])):
+            self._init_film(in_img)
+
+        # Берём заготовку итогового изображения:
+        out_img = self.film.copy()
+
+        # Вписываем внутреннее изображение в итоговое:
+        out_img[self.shift[0]: self.shift[0] + in_img.shape[0],
+                self.shift[1]: self.shift[1] + in_img.shape[1],
+                ...] = in_img
+
+        return out_img
+
+    def __call__(self, img):
+
+        # Читаем изображение, если передано имя файла:
+        if isinstance(img, str):
+            img = cv2.imread(img)
+
+            # BGR -> RGB
+            if img.ndims == 3:
+                img = img[..., ::-1]
+
+        return self.apply2img(img)
+
+
 def img_dir2video(img_dir,
                   video_file='preview.avi',
                   tmp_file=None,
@@ -2897,10 +3118,10 @@ def obj_diff(obj1, obj2, prefix=''):
             keys1 = set(obj1.keys())
             keys2 = set(obj2.keys())
 
-            dkeys1 = keys1 - keys2
+            dkeys = keys1 - keys2
 
-            if dkeys1:
-                return f'Несовпадение ключей {prefix}: {dkeys1} != {dkeys2}!'
+            if dkeys:
+                return f'Ненайденные ключи {prefix}: {dkeys}!'
 
             else:
                 out = ''
