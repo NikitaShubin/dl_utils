@@ -542,17 +542,21 @@ class Mask:
         '''
 
         # Получаем список контуров для текущей маски:
-        array = self.array.copy()
-        contours, hierarchy = cv2.findContours(self.array,
+        array = self.to_image()
+        contours, hierarchy = cv2.findContours(array,
                                                cv2.RETR_TREE,
                                                cv2.CHAIN_APPROX_SIMPLE)
-        assert np.equal(self.array, array).all()
 
         # Инициируем список выводов:
         ellipses = []
 
         # Перебираем все найденные контуры:
         for contour, connection in zip(contours, hierarchy):
+
+            # Для оценки параметров эллипса в контуре должно быть
+            # минимум 5 точек:
+            if len(contour) < 10:
+                continue
 
             # Получаем оценку параметров эллипса:
             ellipse = cv2.fitEllipse(contour)
@@ -561,16 +565,18 @@ class Mask:
 
                 # Если контур всего один, берём исходную маску для проверки:
                 if len(contours) == 1:
-                    source_mask = self.copy()
+                    source = array
 
                 # Если контуров несколько, растеризируем каждый отдельно:
                 else:
-                    source = np.zeros_like(self.array)
+                    source = np.zeros_like(array)
                     source = cv2.fillPoly(source, contour, 255)
-                    source_mask = Mask(source)
+
+                # Оборачиваем маску в соответствующий класс для сопоставления:
+                source_mask = Mask(source)
 
                 # Создаём маску по оцененным параметрам:
-                target = cv2.ellipse(np.zeros_like(self.array), ellipse, 255, -1)
+                target = cv2.ellipse(np.zeros_like(array), ellipse, 255, -1)
                 target_mask = type(self)(target)
 
                 # Подсчитываем метрики совпадения сегментов:
@@ -594,7 +600,11 @@ class Mask:
         return ellipses
 
 
-def build_masks_IoU_matrix(masks1, masks2=None, diag_val=1., desc=None, num_procs=0):
+def build_masks_IoU_matrix(masks1,
+                           masks2=None,
+                           diag_val=1.,
+                           desc=None,
+                           num_procs=0):
     '''
     Построение матрицы, в ячейках которой хранятся
     значения IoU для двух масок, которым соответствуют

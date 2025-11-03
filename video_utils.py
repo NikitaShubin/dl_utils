@@ -270,8 +270,17 @@ class ViRead:
             else:
                 raise ValueError('Параметр "%s" не может быть равен "%s".' % ('on_end', on_end))
 
+    def __len__(self):
+        return self.total_frames
+
+    def __iter__(self):
+        return self
+
     def __next__(self):
-        return self()
+        frame = self()
+        if frame is None:
+            raise StopIteration
+        return frame
 
     def __enter__(self):
         return self 
