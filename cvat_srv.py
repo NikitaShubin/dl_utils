@@ -10,8 +10,9 @@ from http.client import IncompleteRead
 
 from cvat import (
     add_row2df, concat_dfs, ergonomic_draw_df_frame, cvat_backups2raw_tasks,
-    cvat_backup_task_dir2task, get_related_files, df2annotations,
-    interpolate_df, split_df_by_visibility, hide_skipped_objects_in_df, new_df
+    cvat_backup_task_dir2task, get_related_files, df2annotations, new_df,
+    interpolate_df, split_df_by_visibility, hide_skipped_objects_in_df,
+    CVATLabels
 )
 from utils import (
     mkdirs, rmpath, mpmap, get_n_colors, unzip_dir, AnnotateIt, cv2_exts,
@@ -19,6 +20,10 @@ from utils import (
     get_video_info, split_dir_name_ext, invert_index_vector
 )
 from video_utils import VideoGenerator
+
+
+# Множество ключей, приемлемыз для описания конкретного класса:
+cvat_label_keys = {'name', 'color', 'type', 'svg', 'attributes'}
 
 
 class AccurateProgressReporter(core.progress.ProgressReporter):
@@ -75,66 +80,38 @@ class Client:
     """
 
     @staticmethod
-    def _adapt_labels(labels):
+    def _adapt_labels(labels:
+                      tuple[dict | str | api_client.model.label.Label] |
+                      list[dict | str | api_client.model.label.Label] |
+                      set[dict | str | api_client.model.label.Label]):
         '''
         Добавляет к списку классов цвета, если надо.
         '''
-        assert isinstance(labels, (tuple, list, set))
+        # Если объект пуст - возвращаем пустой список:
+        if len(labels) == 0:
+            return []
 
-        # Определяем, описаны метки строками или словарями:
-        is_str = False
-        is_dict = False
-        for label in labels:
-            if isinstance(label, dict):
-                is_dict = True
-            elif isinstance(label, str):
-                is_str = True
-            else:
-                raise ValueError(
-                    'Список классов должен содержать строки, словари '
-                    'или `cvat_sdk.api_client.model.label.Label`. '
-                    f'Получен "{type(label)}!"'
-                )
+        # Кортеж и множество переводим в список:
+        labels = list(labels)
 
-        # Если передан словарь, то оставляем в нём только самое необходимое:
-        if is_dict and not is_str:
-
-            # Инициируем список новых меток:
+        # Если передан список строк - преобразуем элементы в словари:
+        if isinstance(labels[0], str):
             labels_ = []
-
-            # Перебираем исходные метки:
-            for label in labels:
-
-                # Инициируем новую метку
-                label_ = {}
-                for key, val in label.items():
-                    if key in {'name', 'attributes', 'color'}:
-                        label_[key] = val
-
-                # Пополняем список новых меток:
-                labels_.append(label_)
-
-            # Заменяем старый список новым:
+            for color, label in zip(labels, get_n_colors(len(labels))):
+                labels_.append({'name': label,
+                                'attributes': [],
+                                'color': '#%02x%02x%02x' % color})
             labels = labels_
 
-        # Полезно в случае дублирования меток из датасета в задачу,
-        # т.к. не все поля датасета соответствуют полям задач.
+        # Если передан список CVAT-меток - преобразуем в словари:
+        elif isinstance(labels[0], api_client.model.label.Label):
+            labels = [label.to_dict() for label in labels]
 
-        # Дополняем названия цветами, если переданы только строки:
-        elif is_str and not is_dict:
-            colors = get_n_colors(len(labels))
-            labels = [
-                {
-                    'name': label,
-                    'attributes': [],
-                    'color': '#%02x%02x%02x' % color,
-                } for label, color in zip(labels, colors)
-            ]
-
-        else:
-            print(f'is_str = {is_str}; is_dict = {is_dict}')
-            raise ValueError('Параметр labels может быть списком ' +
-                             'либо строк, либо словарей!')
+        # Оставляем только нужные пары ключ-значение для каждого класса:
+        labels = [
+            {key: val for key, val in label.items() if key in cvat_label_keys}
+            for label in labels
+        ]
 
         return labels
 
@@ -266,10 +243,11 @@ class Client:
         if os.path.isfile(path):
             rmpath(path)
 
-        # Выполняем бекап до талого:
-        while True:
+        # Выполняем бекап:
+        pbar = AccurateProgressReporter(desc) if desc else None
+        max_attempts = 5
+        for attempt in range(max_attempts):
             try:
-                pbar = AccurateProgressReporter(desc) if desc else None
                 cvat_obj.obj.download_backup(path, pbar=pbar)
                 break
             except IncompleteRead:
@@ -277,6 +255,10 @@ class Client:
             except Exception as e:
                 print(e)
                 print(f'Перезапуск бекапа "{path}"')
+        else:
+            print('Попытки исчерпаны!')
+            raise e
+
 
         # Возвращаем путь до бекапа:
         return path
@@ -307,9 +289,10 @@ class Client:
         else:
             raise ValueError(f'Недопустимое значение "type": {type}')
 
-        # Выполняем восстановление до талого:
+        # Выполняем восстановление:
         pbar = AccurateProgressReporter(desc) if desc else None
-        while True:
+        max_attempts = 5
+        for attempt in range(max_attempts):
             try:
                 cvat_obj = create_from_backup(
                     filename=path,
@@ -319,6 +302,9 @@ class Client:
             except Exception as e:
                 print(e)
                 print(f'Перезапуск восстановления "{path}"')
+        else:
+            print('Попытки исчерпаны!')
+            raise e
 
         # Если указан ID датасета, к которому задачу надо присовокупить:
         if parent_id is not None:
@@ -1096,11 +1082,8 @@ class CVATSRVProject(CVATSRVBase):
             raise KeyError(f'Задача "{name}" уже существует '
                            f'в датасете "{self.name}"!')
 
-        # Извлекаем метки из дадасета:
-        labels = self.labels()
-
         # Создаём задачу под временным именем:
-        task = self.client.new_task(tmp_name, file, labels,
+        task = self.client.new_task(tmp_name, file, self.labels(),
                                     annotation_path=annotation_file)
 
         # Привязываем задачу к текущему датасету:
@@ -1121,7 +1104,7 @@ class CVATSRVProject(CVATSRVBase):
         return {'name': self.name,
                 'bug_tracker': self.obj.bug_tracker,
                 'status': self.obj.status,
-                'labels': self.obj.labels(),
+                'labels': self.labels(),
                 'version': '1.0'}
 
 
@@ -1537,17 +1520,12 @@ class CVATBase:
             # создать отдельно:
             if self.parted:
 
-                # Составляем список меток:
-                keys = {'name', 'color', 'attributes', 'type', 'sublabels'}
-                labels = []
-                for label in self.cvat_srv_obj.labels():
-                    labels.append({k: label[k] for k in label.keys() & keys})
-
                 # Собираем общее описание:
+                labels = CVATLabels(self.cvat_srv_obj.labels())
                 info = {'name': self.cvat_srv_obj.name,
                         'bug_tracker': self.cvat_srv_obj.obj.bug_tracker,
                         'status': self.cvat_srv_obj.obj.status,
-                        'labels': labels,
+                        'labels': labels.to_dicts(),
                         'version': '1.0'}
 
                 # Пишем всю инфу в файл:
@@ -1680,13 +1658,14 @@ class CVATBase:
         if desc is None:
             desc = 'Разворачивание бекапа' if self.verbose else None
 
-        # Если копировать надо датасет, а передан представитель сервера,
-        # то создаём датасет:
-        if self.cvat_srv_obj._hier_lvl == 1 and \
+        # Если копировать надо датасет, причём позадачно, а передан
+        # представитель сервера, то создаём датасет:
+        if self.parted and \
+                self.cvat_srv_obj._hier_lvl == 1 and \
                 other_cvat_srv_obj._hier_lvl == 0:
             other_cvat_srv_obj = other_cvat_srv_obj.client.new_project(
                 self.info['name'],
-                self.info['labels']
+                self.info['labels'].to_dicts()
             )
 
         # Восстанавливаем бекап в новом месте и возвращаем результат:
@@ -1700,8 +1679,12 @@ class CVATBase:
                 task = other_cvat_srv_obj.restore(bu, desc='')
             return task.parent()
 
-        else:
+        elif self.cvat_srv_obj._hier_lvl == other_cvat_srv_obj._hier_lvl + 1:
             return other_cvat_srv_obj.restore(self.zipped_backup, desc=desc)
+
+        else:
+            print(other_cvat_srv_obj._hier_lvl, self.cvat_srv_obj._hier_lvl)
+            raise
 
 
 class CVATProject(CVATBase):
@@ -1724,6 +1707,7 @@ class CVATProject(CVATBase):
         self.info = json2obj(
             os.path.join(self.unzipped_backup, 'project.json')
         )
+        self.info['labels'] = CVATLabels(self.info['labels'])  # Парсинг меток
         base_names.remove('project.json')  # Выкидываем файл из списка
 
         # Читаем гайд датасета annotation_guide.md, если он есть:
@@ -1758,6 +1742,10 @@ class CVATProject(CVATBase):
 
         # Путь до файла:
         info_file = os.path.join(unzipped_backup, 'project.json')
+
+        # Создаём копию info и представляем метки в виде словарей:
+        info = dict(info)
+        info['labels'] = info['labels'].to_dicts()
 
         # Пишем содержимое файла:
         return obj2json(info, info_file)
@@ -1878,6 +1866,7 @@ class CVATTask(CVATBase):
         # Извлекаем список подзадач и метаданные задачи:
         task, self.info = cvat_backup_task_dir2task(self.unzipped_backup,
                                                     True)
+        self.info['labels'] = CVATLabels(self.info['labels'])  # Парсинг меток
 
         # Создаём для каждой подзадачи экземпляр класса CVATJob:
         self.data = mpmap(CVATJob.from_subtask, task, num_procs=1)
@@ -2283,6 +2272,10 @@ class CVATTask(CVATBase):
 
         # Определяем путь до нужного файла:
         info_file = os.path.join(unzipped_backup, 'task.json')
+
+        # Создаём копию info и представляем метки в виде словарей:
+        info = dict(info)
+        info['labels'] = info['labels'].to_dicts()
 
         # Пишем всю информацию о задаче в соответствующий файл:
         return obj2json(info, info_file)

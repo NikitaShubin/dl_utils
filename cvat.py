@@ -84,42 +84,44 @@ from utils import (mpmap, ImReadBuffer, reorder_lists, mkdirs, CircleInd,
                    apply_on_cartesian_product, DelayedInit,
                    color_float_hsv_to_uint8_rgb, draw_contrast_text,
                    put_text_carefully, cv2_vid_exts, cv2_img_exts,
-                   split_dir_name_ext, get_file_list, cv2_exts)
+                   split_dir_name_ext, get_file_list, cv2_exts, json2obj)
 from cv_utils import Mask, build_masks_IoU_matrix
 from video_utils import VideoGenerator, ViSave, recomp2mp4
 
 
 # Словарь имён и типов полей, которые надо считать из разметки:
-df_columns_type = {'track_id'  : object, # 
-                   'label'     : str   , # 
-                   'frame'     : int   , # 
-                   'true_frame': int   , # 
-                   'type'      : str   , # 
-                   'points'    : object, # 
-                   'occluded'  : bool  , # 
-                   'outside'   : bool  , # 
-                   'z_order'   : int   , # 
-                   'rotation'  : float , # 
-                   'attributes': object, # 
-                   'group'     : int   , # 
-                   'source'    : str   , # 
-                   'elements'  : object} # 
+df_columns_type = {'track_id': object,
+                   'label': str,
+                   'frame': int,
+                   'true_frame': int,
+                   'type': str,
+                   'points': object,
+                   'occluded': bool,
+                   'outside': bool,
+                   'z_order': int,
+                   'rotation': float,
+                   'attributes': object,
+                   'mutable_attributes': object,
+                   'group': int,
+                   'source': str,
+                   'elements': object}
 
 # Словарь имён полей из разметки и их значений по умолчанию:
-df_default_vals = {'track_id'  : None     , # 
-                   'label'     : ''       , # 
-                   'frame'     : 0        , # 
-                   'true_frame': 0        , # 
-                   'type'      : 'polygon', # 
-                   'points'    : []       , # 
-                   'occluded'  : False    , # 
-                   'outside'   : False    , # 
-                   'z_order'   : 0        , # 
-                   'rotation'  : 0.       , # 
-                   'attributes': []       , # 
-                   'group'     : 0        , # 
-                   'source'    : 'manual' , # 
-                   'elements'  : []       } # 
+df_default_vals = {'track_id': None,
+                   'label': '',
+                   'frame': 0,
+                   'true_frame': 0,
+                   'type': 'polygon',
+                   'points': [],
+                   'occluded': False,
+                   'outside': False,
+                   'z_order': 0,
+                   'rotation': 0.,
+                   'attributes': [],
+                   'mutable_attributes': [],
+                   'group': 0,
+                   'source': 'manual',
+                   'elements': []}
 
 
 def get_column_ind(df, column):
@@ -226,7 +228,6 @@ def shape2df(shape    : 'Объект, из которого считывают�
            for column in columns}
     row['track_id'] = track_id
 
-
     # Добавляем строку к датафрейму, если он был задан:
     df = pd.DataFrame(row) if df is None else \
         pd.concat([df, pd.DataFrame(row)])
@@ -244,12 +245,13 @@ def shape2df(shape    : 'Объект, из которого считывают�
 
 # Столбцы датафрейма для ...
 # ... тега:
-tag_columns = ['frame', 'group', 'source', 'attributes', 'label']
+tag_columns = ['frame', 'group', 'source', 'attributes', 'mutable_attributes',
+               'label']
 # ... трека вцелом (без учёта кадров):
 per_track_columns = ['group', 'source', 'attributes', 'elements', 'label']
 # ... трека в отдельном кадре:
 per_frame_columns = ['type', 'occluded', 'outside', 'z_order', 'rotation',
-                     'points', 'frame', 'attributes']
+                     'points', 'frame', 'mutable_attributes']
 # ... шейпа:
 per_shape_columns = per_track_columns + per_frame_columns
 # Всё это используется в df2annotations.
@@ -266,12 +268,20 @@ def df2annotations(df):
     # Перебираем каждый тег:
     tags = []
     for dfrow in tags_df.iloc:
-        tags.append({column: dfrow[column] for column in tag_columns})
+        tag = {column: dfrow[column] for column in tag_columns}
+        tag['attributes'] += tag.pop('mutable_attributes')
+        # Надо перенести атрибуты из 'mutable_attributes'
+        # к атрибутам из 'attributes.
+        tags.append(tag)
 
     # Перебираем каждую форму:
     shapes = []
     for dfrow in shapes_df.iloc:
-        shapes.append({name: dfrow[name] for name in per_shape_columns})
+        shape = {name: dfrow[name] for name in per_shape_columns}
+        shape['attributes'] += shape.pop('mutable_attributes')
+        # Надо перенести атрибуты из 'mutable_attributes'
+        # к атрибутам из 'attributes.
+        shapes.append(shape)
 
     # Перебираем по отдельности каждый трек:
     tracks = []
@@ -292,6 +302,8 @@ def df2annotations(df):
         track_shapes = []
         for dfrow in track_df.iloc:
             shape = {name: dfrow[name] for name in per_frame_columns}
+            shape['attributes'] = shape.pop('mutable_attributes')
+            # Надо переименовать ключ 'mutable_attributes' в 'attributes.
             track_shapes.append(shape)
         track['shapes'] = track_shapes
 
@@ -325,12 +337,8 @@ def cvat_backup_task_dir2task(task_dir,
     # data_dir = os.path.join(task_dir, 'data')
 
     # Парсим нужные json-ы task и annotations:
-    with open(os.path.join(task_dir, 'task.json'),
-              'r', encoding='utf-8') as f:
-        task_desc = json.load(f)  # Загружаем основную инфу о видео
-    with open(os.path.join(task_dir, 'annotations.json'),
-              'r', encoding='utf-8') as f:
-        annotations = json.load(f)  # Загружаем файл разметки
+    task_desc = json2obj(os.path.join(task_dir, 'task.json'))
+    annotations = json2obj(os.path.join(task_dir, 'annotations.json'))
 
     # Загружаем данные об исходных файлах:
 
@@ -340,11 +348,8 @@ def cvat_backup_task_dir2task(task_dir,
         manifest_file := os.path.join(task_dir, 'data', 'manifest.jsonl')
     ):
 
-        # Читаем json-файл:
-        with open(manifest_file, 'r', encoding='utf-8') as f:
-            manifest = [json.loads(line) for line in f]
-
-        # Формируем кортеж имён файлов:
+        # Читаем json-файл и формируем кортеж имён файлов:
+        manifest = json2obj(manifest_file)
         file = [os.path.join(task_dir, 'data', d['name'] + d['extension']) \
                 for d in manifest if 'name' in d]
 
@@ -367,18 +372,18 @@ def cvat_backup_task_dir2task(task_dir,
                 f'Найдено более одного размеченного файла: {file}!')
         '''
 
-    task_name = task_desc['name']  # Имя задачи
-    jobs      = task_desc['jobs']  # Список подзадач
-    data      = task_desc['data']  # Данные текущей задачи
-    start = int(data['start_frame' ]           )  # Номер    первого кадра
-    stop  = int(data[ 'stop_frame' ]           )  # Номер последнего кадра
-    step  = data.get('frame_filter', 'filter=1')  # Шаг прореживания кадров
-    step  = int(step.split('=')[-1]            )  # Берём число после знака "="
+    task_name = task_desc['name']                # Имя задачи
+    jobs = task_desc['jobs']                     # Список подзадач
+    data = task_desc['data']                     # Данные текущей задачи
+    start = int(data['start_frame'])             # Номер    первого кадра
+    stop = int(data[ 'stop_frame'])              # Номер последнего кадра
+    step = data.get('frame_filter', 'filter=1')  # Шаг прореживания кадров
+    step = int(step.split('=')[-1])              # Берём число после знака "="
     deleted_frames = data.get('deleted_frames', [])  # Удалённые кадры
 
     # Номера используемых кадров:
     true_frames = np.arange(start, stop + 1, step)
-    true_frames = {key:val for key, val in enumerate(true_frames)}
+    true_frames = {key: val for key, val in enumerate(true_frames)}
 
     # Подготавливаем список размеченных фрагментов последовательности для
     # заполнения:
@@ -388,7 +393,7 @@ def cvat_backup_task_dir2task(task_dir,
     if len(file) == 1:
         file = file[0]
 
-    # Перебор описаний:
+    # Перебор разметок для каждой подзадачи:
     for job, annotation in zip(jobs, annotations):
 
         # Инициируем список датафреймов для каждой метки перед цилками чтения
@@ -404,9 +409,19 @@ def cvat_backup_task_dir2task(task_dir,
         # Перебор объектов в текущем описании:
         for track_id, track in enumerate(annotation['tracks']):
 
-            # Пополняем список сегментами текущего объекта для разных кадров:
-            dfs += [shape2df(shape, track, track_id)
-                    for shape in track['shapes']]
+            # Составляем список разметок текущего объекта на разных кадрах:
+            track_dfs = [shape2df(shape, track, track_id)
+                         for shape in track['shapes']]
+
+            # Переносим все уже записанные атрибуты в столбец
+            # mutable_attributes, т.к. они являются изменяемыми, а
+            # неизменяемые пишем во все строки attributes:
+            track_df = concat_dfs(track_dfs)
+            track_df['mutable_attributes'] = track_df['attributes']
+            track_df['attributes'] = [track['attributes']] * len(track_df)
+
+            # Пополняем список записей новым треком:
+            dfs += [track_df]
 
         # Объединяем все датафреймы в один:
         df = pd.concat(dfs)
@@ -416,9 +431,8 @@ def cvat_backup_task_dir2task(task_dir,
         df['true_frame'] = df['frame'].apply(lambda x: true_frames[x])
 
         # Формируем словарь кадров для текущего фрагментов:
-        start_frame = job['start_frame'] # Номер  первого   кадра текущего фрагмента
-        stop_frame  = job['stop_frame']  # Номер последнего кадра текущего фрагмента
-        # status      = job['status']      # Статус                 текущего фрагмента
+        start_frame = job['start_frame']  # Номер первого кадра
+        stop_frame = job['stop_frame']    # Номер последнего кадра
         cur_true_frames = {frame: true_frames[frame]
                            for frame in range(start_frame, stop_frame + 1)}
 
@@ -2318,20 +2332,21 @@ class CVATPoints:
         plt.axis(False)
 
 
+"""
 class CVATLabels:
     '''
     Класс, хранящий все типы меток CVAT-датасета (классы)
     '''
+
     def __init__(self, cvat_raw_labels):
 
         # Если передано имя текстового файла, читаем его как json:
         if isinstance(cvat_raw_labels, str) and \
                 os.path.isfile(cvat_raw_labels):
-            with open(cvat_raw_labels, 'r', encoding='utf-8') as f:
-                cvat_raw_labels = json.load(f)
+            cvat_raw_labels = json2obj(cvat_raw_labels)
 
         # Если передан список, считаем, что он и содержит словари всех меток:
-        elif isinstance(cvat_raw_labels, list):
+        if isinstance(cvat_raw_labels, list):
             pass
 
         # Иных вариантов не предусмотрено:
@@ -2340,6 +2355,7 @@ class CVATLabels:
                              f'{cvat_raw_labels}!')
 
         # Формируем датафрейм:
+        columns = ['name', 'color', 'attributes', 'type', 'sublabels', 'svg']
         self.df = pd.DataFrame.from_dict(cvat_raw_labels)
 
     # Возвращает полный список имён классов:
@@ -2365,6 +2381,224 @@ class CVATLabels:
     #     ...
     # rb.observe(on_button_clicked, names='value')
     # display(rb)
+"""
+
+
+class CVATLabelSVGElement:
+    '''
+    Класс для работы с элементом SVG-описания в метках CVAT.
+    '''
+
+    # Ключи, данным для которых нужно преобразование типов:
+    int_keys = {'data-element-id',
+                'data-label-id',
+                'data-node-id',
+                'data-node-from',
+                'data-node-to'}
+    float_keys = {'cx', 'cy', 'r', 'x1', 'x2', 'y1', 'y2'}
+
+    def __init__(self, xml: str):
+
+        # Выполняем преобразование в xml-объект:
+        xml = ET.fromstring(xml)
+
+        # Фиксируем тип объекта:
+        self.name = xml.tag
+
+        # Фиксируем аттрибуты объекта:
+        self.dict = {}
+        for key, val in xml.items():
+            if key in self.int_keys:
+                val = int(val)
+            elif key in self.float_keys:
+                val = float(val)
+            self.dict[key] = val
+
+    def to_str(self):
+        '''
+        Экспорт обратно в xml-строку.
+        '''
+
+        # Создаём xml-объект:
+        kwargs = {key: str(val) for key, val in self.dict.items()}
+        xml = ET.Element(self.name, **kwargs)
+
+        # Экспортируем в строку:
+        return str(ET.tostring(xml, encoding='unicode'))
+
+
+class CVATLabelSVG:
+    '''
+    Класс для работы с SVG-описанием в метках CVAT.
+    '''
+
+    def __init__(self, svg: str):
+
+        # Разбиваем многострочник на отдельные содержательные строки:
+        xmls = [xml for xml in svg.split('\n') if xml]
+
+        # Парсим каждую строку:
+        self.elems = [CVATLabelSVGElement(xml) for xml in xmls]
+
+    def to_str(self):
+
+        # Конвертируем элементы в строки:
+        xmls = [elem.to_str() for elem in self.elems]
+
+        # Объединяем строки в многострочник:
+        return '\n'.join(xmls) if len(xmls) else ''
+
+
+class CVATLabel:
+    '''
+    Класс для работы с CVAT-меткой.
+    '''
+
+    # Базовые, дополнительные, избыточные и лишние поля меток:
+    base_cvat_label_keys = ['name', 'color', 'type', 'attributes']
+    extra_cvat_label_keys = ['svg', 'sublabels']
+    excess_cvat_label_keys = ['id', 'parent_id', 'has_parent']
+    unused_cvat_label_keys = ['task_id', 'project_id']
+    cvat_label_keys = base_cvat_label_keys + extra_cvat_label_keys + \
+        excess_cvat_label_keys + unused_cvat_label_keys
+
+    def __init__(self, label):
+        #label: str | dict | cvat_sdk.api_client.model.label.Label
+
+        # Принудительно переводим метку в словарь:
+        if isinstance(label, str):
+            label = {'name': label,
+                     'color': '#ff0000',
+                     'type': 'any',
+                     'attributes': []}
+        elif hasattr(label, 'to_dict'):
+            label = label.to_dict()
+
+        # Фиксируем все обязательные параметры:
+        self.name = label['name']
+        self.color = label['color']
+        self.type = label['type']
+
+        # Фиксируем все дополнительные параметры:
+        self.attributes = label.get('attributes', [])
+        self.sublabels = CVATLabels(label.get('sublabels', []))
+        self.svg = CVATLabelSVG(label.get('svg', ''))
+
+        '''
+        if 'svg' in label:
+            print(label['svg'])
+            print('-' * 50)
+            print(self.svg.to_str())
+            print('=' * 50)
+        '''
+
+        # Фиксируем все избыточные параметры:
+        self.id = label.get('id', None)
+        self.parent_id = label.get('parent_id', None)
+        self.has_parent = label.get('has_parent', None)
+
+        # Убеждаемся, что в словаре не осталось ни одного незнакомого ключа:
+        unknown_keys = set(label.keys()) - set(self.cvat_label_keys)
+        if unknown_keys:
+            err_str = 'В метке обнаружены неожиданные поля:'
+            for key in unknown_keys:
+                err_str = err_str + f'\n{key}: {label[key]}'
+            err_str = err_str + '!'
+            raise ValueError(err_str)
+
+    @property
+    def rgb(self):
+        return ImageColor.getrgb(self.color)
+
+    @rgb.setter
+    def rgb(self, color: int | float | list | tuple):
+
+        # Принудительно делаем цветовой набор списком:
+        if hasattr(color, '__len__'):
+            color = list(color)
+        else:
+            color = [color, color, color]
+
+        # Приводим каналы к uint8, если надо:
+        for ind, channel in enumerate(color):
+            if isinstance(channel, float):
+                assert 0. <= channel <= 1.
+                color[ind] = int(channel * 255)
+
+        # Переводим цвет в HEX-формат и возращаем:
+        self.color = '#%02x%02x%02x' % tuple(color)
+        return self.color
+
+    def to_dict(self, *args, **kwargs):
+        '''
+        Возвращает метку в формате словаря.
+        '''
+        label = {}
+
+        # Пополняем дополнительными значениями, если они есть:
+        for key in self.base_cvat_label_keys + self.extra_cvat_label_keys:
+            val = getattr(self, key)
+
+            # Для определённых объектов нужна конвертация:
+            if key == 'sublabels':
+                val = val.to_dicts(*args, **kwargs)
+            elif key == 'svg':
+                val = val.to_str()
+
+            if val:
+                label[key] = val
+
+        return label
+
+
+class CVATLabels:
+    '''
+    Класс для работы с набором CVAT-меток.
+    '''
+
+    def __init__(self, labels: list | tuple | set):
+        self.labels = list(map(CVATLabel, labels))
+
+    def to_dicts(self, *args, **kwargs):
+        '''
+        Возвращает список словарей, описывающих каждую метку.
+        '''
+        return [label.to_dict(*args, **kwargs) for label in self.labels]
+
+    def copy(self):
+        '''
+        Создаёт глубокую копию набора меток.
+        '''
+        return type(self)(self.to_dicts())
+
+    def sort(self):
+        '''
+        Сортировка меток по имени.
+        '''
+
+        copy = self.copy()
+
+        # Сортируем сами метки:
+        copy.labels = sorted(copy.labels, key=lambda label: label.name)
+
+        # Подметки тоже сортируем, если есть:
+        for label in copy.labels:
+            if label.sublabels:
+                label.sublabels.sort()
+
+        return copy
+
+    def __iter__(self, *args, **kwargs):
+        return iter(self.labels)
+
+    def __next__(self, *args, **kwargs):
+        return next(self.labels)
+
+    def __getattr__(self, attr):
+        '''
+        Проброс атрибутов вложенного объекта наружу.
+        '''
+        return getattr(self.labels, attr)
 
 
 def interpolate_df(df, true_frames, interpolated_only=False):
