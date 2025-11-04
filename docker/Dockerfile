@@ -102,7 +102,7 @@ ARG PYTHONMODULES="                                                      \
                                                                          \
                                                                          \
     # Для работы с CVAT:                                                 \
-    cvat_sdk==2.41                                                       \
+    cvat_sdk==2.45                                                       \
     #cvat-sdk[masks,pytorch]                                             \
                                                                          \
     # IDE (JupyterLab\Jupyverse и PyCharm):                              \

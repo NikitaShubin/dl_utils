@@ -471,11 +471,11 @@ class SAM2:
 
         # Извлекаем строку имени устройства, если надо:
         if not isinstance(device, str):
-            deivce = device.type
+            device = device.type
 
         # Объединяем 2 контекста в 1:
         with torch.inference_mode() as im, \
-                torch.autocast(deivce, dtype=torch.bfloat16) as ac, \
+                torch.autocast(device, dtype=torch.bfloat16) as ac, \
                 warnings.catch_warnings() as cw:
             warnings.simplefilter("ignore")
             yield (im, ac, cw)
@@ -611,7 +611,7 @@ class SAM2:
         self.obj_id2obj_promtps_hash = {}
         self.obj_id2obj_df_cache = {}
         self.last_df_hash = None
-        self.last_df= None
+        self.last_df = None
         # Хеш позволяет проверять были ли изменены подсказки со времён
         # сохранения последнего трекинга.
 
@@ -965,6 +965,6 @@ class SAM2:
             task.set_annotations(kwargs['annotation_file'])
         else:
             task = cvat_proj.new(**kwargs)
-            task.update({'subset': 'Train'})
+            task.obj.update({'subset': 'Train'})
 
         return task.values()[0].url

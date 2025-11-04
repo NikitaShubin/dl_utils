@@ -664,7 +664,7 @@ def apply_func2df_columns(df, func, columns=None):
     # Применяем функцию:
     columns = set(columns) & set(df.keys())
     for column in columns:
-        df[column] = df[column].apply(func)
+        df.loc[:, column] = df[column].apply(func)
 
     return df
 
@@ -2556,7 +2556,13 @@ class CVATLabels:
     Класс для работы с набором CVAT-меток.
     '''
 
-    def __init__(self, labels: list | tuple | set):
+    def __init__(self, labels: list | tuple | set | str):
+
+        # Если передана строка - считаем её путём к json-файлу:
+        if isinstance(labels, str):
+            assert os.path.splitext(labels)[-1].lower() in {'.json', '.jsonl'}
+            labels = json2obj(labels)
+
         self.labels = list(map(CVATLabel, labels))
 
     def to_dicts(self, *args, **kwargs):
@@ -2600,6 +2606,25 @@ class CVATLabels:
         '''
         return getattr(self.labels, attr)
 
+    def names(self):
+        '''
+        Возвращает список имён меток.
+        '''
+        return [label.name for label in self.labels]
+
+    # Возвращает аргументы создания радиокнопки списка классов в Jupyter:
+    def get_ipy_radio_buttons_kwargs(self, description='Класс:'):
+        return  {'options': self.names(), 'description': description}
+    # from IPython.display import display
+    # from ipywidgets import RadioButtons
+    #
+    # cvat_labels = CVATLabels(...)
+    # rb = RadioButtons(**cvat_labels.get_ipy_radio_buttons_kwargs())
+    #
+    # def on_button_clicked(b):
+    #     ...
+    # rb.observe(on_button_clicked, names='value')
+    # display(rb)
 
 def interpolate_df(df, true_frames, interpolated_only=False):
     '''
