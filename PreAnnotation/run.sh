@@ -48,7 +48,7 @@ else
     # Если образ успешно собран:
 
     # Отправляем образ на hub.docker.com:
-    docker push $IMAGE_NAME
+    nohup docker push $IMAGE_NAME > /dev/null &
 fi
 
 # Возвращаем исходное значение текущей папки:

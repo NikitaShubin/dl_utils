@@ -31,12 +31,11 @@ ENV LANG C.UTF-8
 
 
 # Устанавливаем необходимые python-библиотеки:
-#ARG PIPPARAMS="--root-user-action=ignore --no-cache-dir"
-ARG PIPPARAMS="--no-cache-dir"
+# ARG PIPPARAMS="--no-cache-dir"  # Отключаем кеш
 ARG PIP="python -m pip"
 ARG PYTHONMODULES="                                                      \
-    # Фиксируем версию PyTorch:                                          \
-    torch==2.5.1                                                         \
+    # Фиксируем версии PyTorch и совместимых пакетов:                    \
+    torch==2.5.1 torchvision==0.20.1 torchaudio==2.5.1                   \
                                                                          \
     # Для работы с CVAT:                                                 \
     cvat-sdk                                                             \
@@ -50,6 +49,9 @@ ARG PYTHONMODULES="                                                      \
     # Базовые модули:                                                    \
     opencv-python scikit-learn pandas numba scikit-image                 \
                                                                          \
+    # Коллекция YOLO-моделей:                                            \
+    ultralytics                                                          \
+                                                                         \
     #                    Фундаментальные модели:                         \
                                                                          \
     # HQSAM (используется в samal.py вместо Segment Anything Model):     \
@@ -61,10 +63,15 @@ ARG PYTHONMODULES="                                                      \
     # Grounding DINO:                                                    \
     groundingdino-py                                                     \
 "
-# "jupyverse[jupyterlab,noauth]"
-RUN ${PIP} install $PIPPARAMS --upgrade pip && \
-    ${PIP} install $PIPPARAMS $PYTHONMODULES -vvv
 
+# Сначала обновляем сам pip.
+# Затем устанавливаем пакеты БЕЗ зависимостей, на случай проблем.
+# Потом устанавливаем все зависимости для ранее установленных пакетов
+# Наконец, очищаем кэш pip для уменьшения размера образа
+RUN ${PIP} install $PIPPARAMS --upgrade pip && \
+    ${PIP} install $PIPPARAMS --no-deps $PYTHONMODULES && \
+    ${PIP} install $PIPPARAMS $PYTHONMODULES && \
+    ${PIP} cache purge
 
 # Исправляем баг SAM2 с недоступностью конфигурационных файлов:
 RUN pypackagesdir=`${PIP} show sam-2 | grep Location | cut -d' ' -f2` && \
@@ -85,7 +92,6 @@ WORKDIR "${WORKSPACE}"
 # Снимаем с рабочей папки защиту от записи:
 RUN chmod -R 777 .
 
-
 COPY --chown="${USERNAME}:${USERNAME}" --chmod=777 *.py ./src/
 # Модули.
 COPY --chown="${USERNAME}:${USERNAME}" --chmod=777 PreAnnotation/*.ipynb ./
@@ -99,6 +105,9 @@ RUN useradd -ms "${SHELL_PATH}" "${USERNAME}"         && \
 USER "${USERNAME}"
 
 
+# Создаём папку для моделей:
+RUN mkdir "${HOMEDIR}"/models/
+
 # Скачиваем самые мощные модели SAM2 и DINO:
 #RUN wget -c --retry-connrefused --tries=0 --timeout=5 -P "${HOMEDIR}"/models/ \
 #    https://dl.fbaipublicfiles.com/segment_anything_2/092824/sam2.1_hiera_large.pt \
@@ -107,6 +116,7 @@ ADD --chmod=777 https://dl.fbaipublicfiles.com/segment_anything_2/092824/sam2.1_
 ADD --chmod=777 https://github.com/IDEA-Research/GroundingDINO/releases/download/v0.1.0-alpha2/groundingdino_swinb_cogcoor.pth "${HOMEDIR}"/models/
 #ADD --chmod=777 https://github.com/IDEA-Research/GroundingDINO/blob/main/groundingdino/config/GroundingDINO_SwinB_cfg.py "${HOMEDIR}"/models/
 # Самые мощные модели SAM2 и DINO (вместе с конфигом).
+
 
 # Доустановка мелочей для GroundingDINO:
 RUN python -c "import os; import groundingdino; from groundingdino.util.inference import load_model; load_model(os.path.join(os.path.dirname(os.path.abspath(groundingdino.__file__)), 'config', 'GroundingDINO_SwinB_cfg.py'), '${HOMEDIR}/models/groundingdino_swinb_cogcoor.pth')"

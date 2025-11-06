@@ -76,7 +76,7 @@ ENV LANG C.UTF-8
 
 # Устанавливаем необходимые python-библиотеки:
 #ARG PIPPARAMS="--root-user-action=ignore --no-cache-dir"
-ARG PIPPARAMS="--no-cache-dir"
+ARG PIPPARAMS=""
 ARG PIP="python -m pip"
 ARG PYTHONMODULES="                                                      \
     # Keras и прочее:                                                    \
@@ -163,15 +163,23 @@ com/PublicPackages/_packaging/onnxruntime-cuda-12/pypi/simple/           \
     groundingdino-py                                                     \
                                                                          \
     # Гигантская библиотека предобученных моделей:                       \
-    git+https://github.com/huggingface/transformers.git                  \
+    # git+https://github.com/huggingface/transformers.git                \
+    # Нужна более старая версия для работы Grounding DINO                \
                                                                          \
     #                            Прочее:                                 \
                                                                          \
     pycuda                                                               \
 "
+
+# Сначала обновляем сам pip.
+# Затем фиксируем текущую версию уже установленного Tensorflow и устанавливаем остальные пакеты БЕЗ зависимостей, на случай проблем.
+# Потом устанавливаем все зависимости для ранее установленных пакетов.
+# Наконец, очищаем кэш pip для уменьшения размера образа.
 RUN ${PIP} install $PIPPARAMS --upgrade pip && \
     export TFVER=`${PIP} show tensorflow | grep Vers | awk '{print $2}'` && \
-    ${PIP} install $PIPPARAMS tensorflow==${TFVER} $PYTHONMODULES --upgrade
+    ${PIP} install $PIPPARAMS tensorflow==${TFVER} $PYTHONMODULES --upgrade --no-deps && \
+    ${PIP} install $PIPPARAMS $PYTHONMODULES && \
+    ${PIP} cache purge
 # Установка всех необходимых пакетов при фиксации версии уже установленного Tensorflow.
 
 
@@ -252,12 +260,11 @@ RUN echo "c.LatexConfig.run_times = 2"           >> "${JPCONF}" && \
 # Отображение скрытых файлов в файловом менеджере.
 
 
-
 # Взято с https://gist.github.com/jbwhit/eecdd1cac2756df85ad165f437445b0b.
 
 #RUN export jupass=`python -c "from jupyter_server.auth import passwd; print(passwd('test'))"` && \
 #    echo "c.NotebookApp.password = '${jupass}'"     >> "${JPCONF}"
-    
+
 
 # Поддержка LaTeX в JupyterLab:
 #RUN jupyter lab --generate-config && \
