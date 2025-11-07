@@ -82,7 +82,7 @@ class Mask:
         self._array = val
     '''
 
-    def __init__(self, array, area='auto', rect='auto'):
+    def __init__(self, array, area='auto', rect='auto', attribs={}):
         # Проверка входного параметра:
         assert isinstance(array, np.ndarray)
         # Маска собирается только из Numpy-массива.
@@ -92,6 +92,7 @@ class Mask:
         self.array = array.copy()
         self._rect = rect
         self._area = area
+        self.attribs = attribs  # Доп. атрибуты
 
     '''
     # Конвертация в numpy-массив:
@@ -99,25 +100,58 @@ class Mask:
         return self.array if type_ is None else self.array.astype(type_)
     '''
 
+    def _reset(self):
+        '''
+        Забывает положение обрамляющего прямоугольника и площадь сегмента.
+        Используется в случае явного изменения array, т.к. эти параметры
+        должны быть перерасчитаны.
+        '''
+        self._rect = 'auto'
+        self._area = 'auto'
+
     def copy(self):
-        return type(self)(self.array, self._area, self._rect)
+        return type(self)(self.array, self._area, self._rect, self.attribs)
 
     # Изменение типа массива:
     def astype(self, dtype):
-        return type(self)(self.array.astype(dtype))
+        return type(self)(self.to_image(dtype), attribs=self.attribs)
 
     # Создаёт изображение из маски:
     def to_image(self, dtype=np.uint8):
-        if issubclass(dtype, np.floating):
-            if self.array.dtype == bool:
-                return self.array.astype(float)
+
+        if self.array.dtype == bool:
+            if dtype == bool:
+                return self.array  # bool -> bool
+            elif dtype == np.uint8:
+                return self.array.astype(np.uint8) * 255  # bool -> uint8
+            elif issubclass(dtype, np.floating):
+                return self.array.astype(dtype)  # bool -> float
             else:
-                return self.array.copy()
-        elif dtype == np.uint8:
-            if self.array.dtype == bool:
-                return self.array.astype(np.uint8) * 255
+                raise ValueError(f'Неподдерживаемый целевой тип: {dtype}!')
+
+        elif self.array.dtype == np.uint8:
+            if dtype == bool:
+                return self.array.astype(dtype)  # uint8 -> bool
+            elif dtype == np.uint8:
+                return self.array  # uint8 -> uint8
+            elif issubclass(dtype, np.floating):
+                return self.array.astype(dtype) / 255  # uint8 -> float
             else:
-                return (self.array * 255).astype(np.uint8)
+                raise ValueError(f'Неподдерживаемый целевой тип: {dtype}!')
+
+        elif issubclass(self.array.dtype, np.floating):
+            if dtype == bool:
+                return self.array.astype(dtype)  # float -> bool
+            elif dtype == np.uint8:
+                return self.array.astype(dtype)  # float -> uint8
+            elif issubclass(dtype, np.floating):
+                return self.array.astype(dtype)  # float -> float
+            else:
+                raise ValueError(f'Неподдерживаемый целевой тип: {dtype}!')
+
+        else:
+            raise ValueError('Неподдерживаемый исходный тип: ' +
+                             f'{self.array.dtype}!')
 
     # Импорт из COCO-формата:
     @classmethod

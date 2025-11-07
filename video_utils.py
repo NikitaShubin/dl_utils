@@ -16,8 +16,8 @@ from utils import (isint, isfloat, text2img, overlap_with_alpha, mpmap,
 
 def recomp2mp4(source_file, target_file, rm_soruce=True, quiet=True):
     '''
-    Пересжимает исходный файл в mp4. Полезно для достижения большей
-    компактности за счёт использования внутрикадрового сжатия и лучшей
+    Пересжимает исходный файл в mp4. Полезно для достижения бОльшей
+    компактности за счёт использования межкадрового сжатия и лучшей
     аппаратной совместимости с различными устройствами воспроизведения.
     '''
     # Формируем команду для пересжатия:
@@ -101,7 +101,7 @@ class Pipeline():
                 elif image_filter.lower() == 'bgr2rgb'  : functions.append(bgr2rgb  )
                 elif image_filter.lower() == 'yuv2rgb'  : functions.append(yuv2rgb  )
                 elif image_filter.lower() == 'yuv2bgr'  : functions.append(yuv2bgr  )
-                elif image_filter.lower() == 'yuv2gray' : functions.append(lambda image: image[..., 0])
+                elif image_filter.lower() == 'yuv2gray' : functions.append(lambda image: image[:, :, 0])
                 elif image_filter.lower() == 'gray2rgb' : functions.append(gray2rgb )
                 elif image_filter.lower() == 'gray2bgr' : functions.append(gray2bgr )
                 elif image_filter.lower() == 'im2double': functions.append(im2double)
