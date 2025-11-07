@@ -19,7 +19,7 @@ from cvat import (df_save, df_load, new_df, add_row2df, CVATPoints,
                   df_tuple2list)
 from utils import (unflatten_list, mkdirs,
                    color_float_hsv_to_uint8_rgb)
-from samal import fit_segments_in_df
+from seg import fit_segments_in_df
 
 
 class Prompts:

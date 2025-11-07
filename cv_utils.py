@@ -20,8 +20,7 @@ from IPython.display import Image
 from PIL.Image import fromarray
 from tqdm import tqdm
 
-from utils import (apply_on_cartesian_product, isfloat, isint,
-                   draw_mask_on_image)
+from utils import apply_on_cartesian_product, isfloat, draw_mask_on_image
 
 
 def float2uin8(img):
@@ -406,9 +405,14 @@ class Mask:
         return self._rect
 
     # Обрамляющий прямоугольник (левый верхний угол, размеры):
-    def asbbox(self):
+    def asbbox(self, format='xywh'):
         xmin, ymin, xmax, ymax = self.rectangle()
-        return xmin, ymin, xmax - xmin, ymax - ymin
+        if format == 'xywh':
+            return xmin, ymin, xmax - xmin, ymax - ymin
+        elif format == 'xyxy':
+            return xmin, ymin, xmax, ymax
+        else:
+            raise ValueError(f'Неподдерживаемый формат: {format}!')
 
     # Подсчёт площади сегмента в пикселях:
     def area(self):
@@ -449,9 +453,10 @@ class Mask:
         # Если все вышеперечисленные условия соблюдены, то пересечение есть:
         return True
 
-    # Индекс Жаккара:
     def Jaccard_with(self, other):
-
+        '''
+        Индекс Жаккара (Он же Intersection over Union).
+        '''
         # Если даже обрамляющие прямоугольники не пересекаются, то и самих
         # масок тем более пересечений не будет:
         if not self.is_rect_intersection_with(other):
@@ -471,9 +476,10 @@ class Mask:
         # Рассчёт индекса Жаккара:
         return intercection_area / overunion_area
 
-    # Коэффициент перекрытия:
     def Overlap_with(self, other):
-
+        '''
+        Коэффициент перекрытия.
+        '''
         # Если даже обрамляющие прямоугольники не пересекаются, то и самих
         # масок тем более пересечений не будет:
         if not self.is_rect_intersection_with(other):
@@ -493,18 +499,20 @@ class Mask:
         # Рассчёт коэффициента перекрытия:
         return intercection_area / min_area
 
-    # Коэффициент Дайеса:
     def Dice_with(self, other):
-
+        '''
+        Коэффициент Дайеса.
+        '''
         # Рассчитываем индекс Жаккара:
         J = self.Jaccard_with(other)
 
         # Переводим Жаккара в Дайеса:
         return 2 * J / (J + 1)
 
-    # Все три метрики совпадения масок разом:
     def JaccardDiceOverlap_with(self, other):
-
+        '''
+        Все три метрики совпадения масок разом.
+        '''
         # Если даже обрамляющие прямоугольники не пересекаются, то и самих
         # масок тем более пересечений не будет:
         if not self.is_rect_intersection_with(other):
@@ -632,6 +640,241 @@ class Mask:
                 ellipses.append(ellipse)
 
         return ellipses
+
+
+class BBox:
+    '''
+    Класс обрамляющих прямоугольников Вокруг объектов на изображении.
+    Предоставляет набор ползезных методов для работы с прямоугольниками.
+    '''
+
+    def __init__(self, xyxy=None, imsize=None, attribs={}):
+        self.xyxy = np.array(xyxy)
+        self.imsize = imsize
+        self.attribs = attribs
+
+    def copy(self):
+        '''
+        Создание дубликата
+        '''
+        imsize = None if self.imsize is None else np.array(self.imsize)
+        return type(self)(xyxy=self.xyxy,
+                          imsize=imsize,
+                          attribs=dict(self.attribs))
+
+    def straight(self):
+        '''
+        Упорядочивает последовательность углов прямоугольника.
+        Т.е. Делает левый верхний угол действительно левым верхним и т.п.
+        '''
+        copy = self.copy()
+        x0, y0, x1, y1 = copy.xyxy
+        copy.xyxy = np.array(
+            [min(x0, x1), min(y0, y1), max(x0, x1), max(y0, y1)]
+        )
+        return copy
+
+    def area(self):
+        '''
+        Подсчёт площади прямоугольника.
+        '''
+        x0, y0, x1, y1 = self.xyxy
+        return (x1 - x0) * (y1 - y0)
+
+    def __and__(self, other):
+        '''
+        BBox пересечения текущего BBox-а с заданным либо None.
+        '''
+        if other is None:
+            return
+
+        copy = self.straight()
+        other = other.straight()
+
+        ax0, ay0, ax1, ay1 = copy.xyxy
+        bx0, by0, bx1, by1 = other.xyxy
+
+        x0 = max(ax0, bx0)
+        y0 = max(ay0, by0)
+        x1 = min(ax1, bx1)
+        y1 = min(ay1, by1)
+
+        # Если пересечения нет - возвращаем None:
+        if x0 > x1 or y0 > y1:
+            return
+
+        copy.xyxy = np.array([x0, y0, x1, y1])
+
+        return copy
+
+    def __or__(self, other):
+        '''
+        BBox объединения текущего BBox-а с заданным.
+        '''
+        if other is None:
+            return self.straight()
+
+        ax0, ay0, ax1, ay1 = self.xyxy
+        bx0, by0, bx1, by1 = other.xyxy
+
+        x0 = min(ax0, bx0, ax1, bx1)
+        y0 = min(ay0, by0, ay1, by1)
+        x1 = max(ax0, bx0, ax1, bx1)
+        y1 = max(ay0, by0, ay1, by1)
+
+        copy = self.copy()
+        copy.xyxy = np.array([x0, y0, x1, y1])
+
+        return copy
+
+    def intersection_area_with(self, other):
+        '''
+        Площадь пересечения текущего BBox-а с заданным.
+        '''
+        intersection = self & other
+        return 0 if intersection is None else intersection.area()
+
+    def Jaccard_with(self, other):
+        '''
+        Индекс Жаккара (Он же Intersection over Union).
+        '''
+        # Рассчитываем площадь пересечения:
+        intercection_area = self.intersection_area_with(other)
+
+        # Если пересечение = 0, то возвращаем сразу 0 без рассчёта
+        # объединения:
+        if intercection_area == 0:
+            return 0.
+
+        # Рассчитываем площадь объединения:
+        overunion_area = self.area() + other.area() - intercection_area
+
+        # Рассчёт индекса Жаккара:
+        return intercection_area / overunion_area
+
+    def Overlap_with(self, other):
+        '''
+        Коэффициент перекрытия.
+        '''
+        # Рассчитываем площадь пересечения:
+        intercection_area = self.intersection_area_with(other)
+
+        # Если пересечение = 0, то возвращаем сразу 0 без рассчёта меньшей
+        # фигуры:
+        if intercection_area == 0:
+            return 0.
+
+        # Рассчитываем площадь меньшей фигуры:
+        min_area = min(self.area(), other.area())
+
+        # Рассчёт коэффициента перекрытия:
+        return intercection_area / min_area
+
+    def Dice_with(self, other):
+        '''
+        Коэффициент Дайеса.
+        '''
+        # Рассчитываем индекс Жаккара:
+        J = self.Jaccard_with(other)
+
+        # Переводим Жаккара в Дайеса:
+        return 2 * J / (J + 1)
+
+    def JaccardDiceOverlap_with(self, other):
+        '''
+        Все три метрики совпадения прямоугольников разом.
+        '''
+        # Рассчитываем площадь пересечения:
+        intercection_area = self.intersection_area_with(other)
+
+        # Если площадь пересечения = 0, то возвращаем сразу 0 без
+        # рассчёта объединения и меньшей фигуры:
+        if intercection_area == 0:
+            return 0., 0., 0.
+
+        self_area = self.area()
+        other_area = other.area()
+        # Рассчитываем вспомогательные величины:
+        overunion_area = self_area + other_area - intercection_area
+        # Площадь объединения.
+        min_area = min(self_area, other_area)
+        # Площадь меньшей фигуры.
+
+        # Рассчёт метрик:
+        J = intercection_area / overunion_area  # Индекс      Жаккара
+        D = 2 * J / (J + 1)                     # Коэффициент Дайеса
+        O = intercection_area / min_area        # Коэффициент перекрытия
+
+        return J, D, O
+    # Очерёдность метрик такова потому, что
+    # всегда справедливо неравенство J <= D <= O.
+
+    # Intersection over Union:
+    IoU_with = Jaccard_with
+
+    # Вынос внутренних методов в КЛАССОВЫЕ бинарные ф-ии:
+    IoU = staticmethod(IoU_with)
+    Dice = staticmethod(Dice_with)
+    Overlap = staticmethod(Overlap_with)
+    JaccardDiceOverlap = staticmethod(JaccardDiceOverlap_with)
+    Jaccard = IoU
+
+    def draw(self, img=None, color=255, alpha=1., thickness=1):
+        '''
+        Отрисовка прямоугольника.
+        '''
+        # Доопределяем изображение:
+        if img is None:
+            if self.imsize is None:
+                img = (self.xyxy[3], self.xyxy[2])
+                # В крайнем случае ориентируемся на правый нижний угол.
+            else:
+                img = self.imsize
+
+        # Если вместо изображения задан его размер, создаём его:
+        if isinstance(img, (list, tuple)) or img.ndim == 1:
+            if len(img) not in {2, 3}:
+                raise ValueError('Размер должен содержать 2 или 3 размера:' +
+                                 f'{img}!')
+            img = np.zeros(img, dtype=np.uint8)
+
+        # Рисуем на изображении:
+
+        if alpha == 1.:
+            # Делаем изображение цветным, если надо:
+            if hasattr(color, '__len__') and len(color) == 3 and \
+                    (img.ndim < 3 or img.shape[2] == 1):
+                img = np.dstack([img] * 3)
+
+            # Выполняем отрисовку:
+            out = cv2.rectangle(img,
+                                self.xyxy[:2], self.xyxy[2:],
+                                color, thickness)
+
+        else:
+            # Строим маску, содержащую прямоугольник:
+            mask = np.zeros(img.shape[:2], dtype=img.dtype)
+            mask = cv2.rectangle(mask,
+                                 self.xyxy[:2], self.xyxy[2:],
+                                 255 if img.dtype == np.uint8 else 1, thickness)
+
+            # Ннаносим маску на изображение:
+            out = draw_mask_on_image(mask, img, color, alpha)
+
+        return out
+
+    # Отображение прямоугольника:
+    def show(self, now=True, borders=True, *args, **kwargs):
+        img = self.draw(*args, **kwargs)
+        fig = plt.imshow(img, cmap='gray' if img.ndim == 2 else None)
+        if borders:
+            fig.axes.get_xaxis().set_visible(False)
+            fig.axes.get_yaxis().set_visible(False)
+        else:
+            plt.axis(False)
+
+        if now:
+            plt.show()
 
 
 def build_masks_IoU_matrix(masks1,
