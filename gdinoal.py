@@ -11,7 +11,7 @@ from cvat import CVATPoints, concat_dfs
 from utils import color_float_hsv_to_uint8_rgb, mkdirs, AnnotateIt
 
 
-class Dino:
+class GDino:
     '''
     Класс предварительной детекции с помощью Grounding DINO.
     '''

@@ -922,15 +922,48 @@ def build_masks_JaccardDiceOverlap_matrixs(masks1,
     return j_mat, d_mat, o_mat
 
 
-'''
-mask = np.zeros((10, 10), np.uint8)
-mask[3:5, 2: 4] = 1
-mask[6:9, 3: 8] = 1
-mask = Mask(mask)
+def build_bboxes_IoU_matrix(bboxes1,
+                            bboxes2=None,
+                            diag_val=1.,
+                            desc=None):
+    '''
+    Построение матрицы, в ячейках которой хранятся
+    значения IoU для двух масок, которым соответствуют
+    столбцы и строки этой матрицы. Если второй список
+    масок не задан, то в его качестве берётся первый
+    список.
+    '''
+    return apply_on_cartesian_product(BBox.Jaccard,
+                                      bboxes1, bboxes2,
+                                      symmetric=True,
+                                      diag_val=diag_val,
+                                      desc=desc,
+                                      num_procs=1).astype(float)
 
 
-for m in mask.split_segments():
-    m.show()
-    plt.show()
-    print(m.asbbox())
-'''
+def build_bboxes_JaccardDiceOverlap_matrixs(bboxes1,
+                                            bboxes2=None,
+                                            diag_val=(1., 1., 1.),
+                                            **mpmap_kwargs):
+    '''
+    Строит сразу 3 матрицы связностей для одного или двух списков масок.
+    '''
+    # Отключаем параллельность, т.к. на транзакционные издержки уйдёт ббольше
+    # времени:
+    mpmap_kwargs['num_procs'] = 1 
+
+    JDO = apply_on_cartesian_product(BBox.JaccardDiceOverlap,
+                                     bboxes1, bboxes2,
+                                     symmetric=True,
+                                     diag_val=diag_val,
+                                     **mpmap_kwargs)
+
+    # Расфасовываем результаты в отдельные матрицы:
+    j_mat = np.zeros_like(JDO, dtype=float)
+    d_mat = np.zeros_like(JDO, dtype=float)
+    o_mat = np.zeros_like(JDO, dtype=float)
+    for i in range(JDO.shape[0]):
+        for j in range(JDO.shape[1]):
+            j_mat[i, j], d_mat[i, j], o_mat[i, j] = JDO[i, j]
+
+    return j_mat, d_mat, o_mat
