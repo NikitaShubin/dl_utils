@@ -85,7 +85,7 @@ from utils import (mpmap, ImReadBuffer, reorder_lists, mkdirs, CircleInd,
                    color_float_hsv_to_uint8_rgb, draw_contrast_text,
                    put_text_carefully, cv2_vid_exts, cv2_img_exts,
                    split_dir_name_ext, get_file_list, cv2_exts, json2obj)
-from cv_utils import Mask, build_masks_IoU_matrix
+from cv_utils import Mask, BBox, build_masks_IoU_matrix
 from video_utils import VideoGenerator, ViSave, recomp2mp4
 
 
@@ -153,7 +153,8 @@ def update_row(row, inplace=False, **kwargs):
 
     # Заменяем все сзначения:
     for name, val in kwargs.items():
-        row[name] = val
+        if name in row.keys():
+            row[name] = val
 
     return row
 
@@ -847,20 +848,17 @@ class CVATPoints:
     Предоставляет набор позезных методов
     для работы с точками контура.
     '''
+    # Ключи датафрейма, относящиеся к атрибутам, а не основным параметрам
+    # класса CVATPoints:
+    attrib_keys = set(df_columns_type) - {'points', 'type', 'rotation'}
 
     def __init__(self,
                  points,
                  type_='polygon',
                  rotation=0.,
                  imsize=None,
-                 rotate_immediately=True):
-
-        '''
-        if hasattr(points, 'size') and points.size == 0 or \
-                len(points) == 0:
-            raise ValueError('Массив точек не должен быть пустым!')
-        '''
-
+                 rotate_immediately=True,
+                 attribs={}):
         # Переводим точки в numpy-массив:
         if not isinstance(points, np.ndarray):
             points = np.array(points)
@@ -901,6 +899,8 @@ class CVATPoints:
             self.type = 'polygon'
             self.rotation = 0
 
+        self.attribs = attribs
+
     # Возвращает центр контура:
     def center(self):
 
@@ -918,7 +918,8 @@ class CVATPoints:
 
         if self.rotation % 360 == 0.:
             return type(self)(self.aspolygon(False).points, type='polygon',
-                              imsize=self.imsize, rotate_immediately=False)
+                              imsize=self.imsize, rotate_immediately=False,
+                              attribs=self.attribs)
 
         # Получаем координаты центра контура:
         pvot = self.center()
@@ -934,7 +935,8 @@ class CVATPoints:
 
         # Возвращаем контур, повёрнутый в локальной системе координат:
         return type(self)(np.matmul((points.points - pvot), rot_mat) + pvot,
-                          imsize=self.imsize, rotate_immediately=False)
+                          imsize=self.imsize, rotate_immediately=False,
+                          attribs=self.attribs)
 
     # Переводит относительные YOLO-координаты в абсолютные CVAT-координаты:
     def yolo2cvat(self, height=None, width=None):
@@ -957,22 +959,29 @@ class CVATPoints:
             xmax = (xc + w / 2) * width
             ymax = (yc + h / 2) * height
 
-            return type(self)([xmin, ymin, xmax, ymax], 'rectangle', rotation=self.rotation, imsize=(height, width))
+            return type(self)([xmin, ymin, xmax, ymax], 'rectangle',
+                              rotation=self.rotation, imsize=(height, width),
+                              attribs=self.attribs)
 
         # Если объект - многоугольник:
         elif self.type == 'polygon':
             x = self.x() * width
             y = self.y() * height
 
-            return type(self)(np.vstack([x, y]).T, 'polygon', rotation=self.rotation, imsize=(height, width))
+            return type(self)(np.vstack([x, y]).T, 'polygon',
+                              rotation=self.rotation, imsize=(height, width),
+                              attribs=self.attribs)
 
         # Если не прямоугольник, и не многоугольник:
         else:
-            raise ValueError(f'Способ конвертации объекта типа "{self.type}" неизвестен!')
+            raise ValueError(
+                f'Способ конвертации объекта типа "{self.type}" неизвестен!'
+            )
 
     # Создаёт полную копию текущего экземлпяра класса:
     def copy(self):
-        return type(self)(self.points, self.type, self.rotation, self.imsize)
+        return type(self)(self.points, self.type, self.rotation, self.imsize,
+                          self.attribs)
 
     # Возвращает число вершин контура:
     def __len__(self):
@@ -992,7 +1001,8 @@ class CVATPoints:
         x = self.x() + x0
         y = self.y() + y0
         return type(self)(np.vstack([x, y]).T, self.type,
-                          rotation=self.rotation, imsize=self.imsize)
+                          rotation=self.rotation, imsize=self.imsize,
+                          attribs=self.attribs)
 
     # Выполняет масштабирование точек:
     def scale(self, scale):
@@ -1001,9 +1011,12 @@ class CVATPoints:
         y = self.y() * sy
 
         # Размеры изображения также меняем:
-        imsize = None if self.imsize is None else (self.imsize[0] * sy, self.imsize[1] * sx)
+        imsize = None if self.imsize is None \
+            else (self.imsize[0] * sy, self.imsize[1] * sx)
 
-        return type(self)(np.vstack([x, y]).T, self.type, rotation=self.rotation, imsize=imsize)
+        return type(self)(np.vstack([x, y]).T, self.type,
+                          rotation=self.rotation, imsize=imsize,
+                          attribs=self.attribs)
 
     # Возвращает координаты векторов последовательного
     # перехода от предыдущей точки контура к следующей:
@@ -1030,17 +1043,20 @@ class CVATPoints:
     def y(self):
         return self.points[:, 1]
 
-    # Поэлементная сумма коодринат вершин двух контуров с равным количеством вершин:
+    # Поэлементная сумма коодринат вершин двух контуров с равным количеством
+    # вершин:
     def __add__(self, cvat_points):
         return type(self)(self.points + cvat_points.points, self.type,
-                          rotation=self.rotation, imsize=self.imsize)
+                          rotation=self.rotation, imsize=self.imsize,
+                          attribs=self.attribs)
 
     # Масштабирование величин контура:
     def __mul__(self, alpha):
         return type(self)(self.points * alpha, self.type,
                           rotation=self.rotation,
                           imsize=None if self.imsize is None
-                          else tuple(np.array(self.imsize) * alpha))
+                          else tuple(np.array(self.imsize) * alpha),
+                          attribs=self.attribs)
 
     # Масштабирование величин контура:
     def __rmul__(self, alpha):
@@ -1051,10 +1067,11 @@ class CVATPoints:
         # Пока действует только для прямоугольников:
         assert self.type == cvat_points.type == 'rectangle'
 
-        xmin1, ymin1, xmax1, ymax1 =        self.asrectangle().flatten()
+        xmin1, ymin1, xmax1, ymax1 = self.asrectangle().flatten()
         xmin2, ymin2, xmax2, ymax2 = cvat_points.asrectangle().flatten()
 
-        # Упорядочиваем координаты по возрастанию, если очерёдность перепутана:
+        # Упорядочиваем координаты по возрастанию, если очерёдность
+        # перепутана:
         if xmin1 > xmax1: xmin1, xmax1 = xmax1, xmin1
         if ymin1 > ymax1: ymin1, ymax1 = ymax1, ymin1
         if xmin2 > xmax2: xmin2, xmax2 = xmax2, xmin2
@@ -1077,7 +1094,7 @@ class CVATPoints:
             return None
 
         return type(self)([xmin, ymin, xmax, ymax], 'rectangle',
-                          imsize=self.imsize)
+                          imsize=self.imsize, attribs=self.attribs)
 
     # Объединение контуров:
     def __or__(self, cvat_points):
@@ -1085,7 +1102,7 @@ class CVATPoints:
         # Пока действует только для прямоугольников:
         assert self.type == cvat_points.type == 'rectangle'
 
-        xmin1, ymin1, xmax1, ymax1 =        self.asrectangle().flatten()
+        xmin1, ymin1, xmax1, ymax1 = self.asrectangle().flatten()
         xmin2, ymin2, xmax2, ymax2 = cvat_points.asrectangle().flatten()
 
         # Определяем объединение по абсциссе:
@@ -1096,18 +1113,16 @@ class CVATPoints:
         ymin = min(ymin1, ymin2)
         ymax = max(ymax1, ymax2)
 
-        return type(self)([xmin, ymin, xmax, ymax],
-                          'rectangle',
-                          imsize=self.imsize)
+        return type(self)([xmin, ymin, xmax, ymax], 'rectangle',
+                          imsize=self.imsize, attribs=self.attribs)
 
     # Перерассчитывает контур с учётом вырезания изображения:
     def crop(self, crop_bbox):
 
         # Создаём из параметров кропа новую рамку:
-        crop_bbox = type(self)(crop_bbox,
-                               'rectangle',
-                               imsize=(crop_bbox[-1],
-                                       crop_bbox[-2]))
+        crop_bbox = type(self)(crop_bbox, 'rectangle',
+                               imsize=(crop_bbox[-1], crop_bbox[-2]),
+                               attribs=self.attribs)
 
         # Ищем пересечение двух прямоугольников:
         intersection = crop_bbox & self
@@ -1166,7 +1181,7 @@ class CVATPoints:
         imsize = None if self.imsize else (self.imsize[0] * k_height,
                                            self.imsize[1] * k_width)
         return type(self)(self.points * np.array([k_width, k_height]),
-                          imsize=imsize)
+                          imsize=imsize, attribs=self.attribs)
 
     # Квадрат расстояния между двумя точками:
     @staticmethod
@@ -1196,7 +1211,7 @@ class CVATPoints:
         if l2 > l1:
             p1, p2 = p2, p1
             l1, l2 = l2, l1
-            a, b  = b, a
+            a, b = b, a
 
         dl = l1 - l2  # Разница числа вершин двух контуров
         # Если контуры действительно имеют разное число вершин:
@@ -1230,7 +1245,8 @@ class CVATPoints:
                     delay += 1
 
             # Собираем точки в контур:
-            p2 = type(self)(np.vstack(points), imsize=self.imsize)
+            p2 = type(self)(np.vstack(points), imsize=self.imsize,
+                            attribs=self.attribs)
         # В соответствии с вышереализованным алгоритмом в контуре с бОльшим
         # количеством точек выбираются наикратчайщие отрезки, которые будут
         # объеденины в точки при переходе в более простой многоугольник. Т.о.
@@ -1341,7 +1357,8 @@ class CVATPoints:
             max(xmax, xmin), max(ymax, ymin)
 
         return type(self)(rect, 'rectangle', self.rotation * apply_rot,
-                          imsize=self.imsize, rotate_immediately=apply_rot)
+                          imsize=self.imsize, rotate_immediately=apply_rot,
+                          attribs=self.attribs)
     # Параметр apply_rot пришлось ввести во избежание рекурсии при вызове
     # метода apply_rot().
 
@@ -1368,10 +1385,10 @@ class CVATPoints:
         # крайних точек:
         xmin, ymin, xmax, ymax = self.asrectangle().flatten()
 
-        cx = (xmin + xmax) / 2 / width   # Относительные
-        cy = (ymin + ymax) / 2 / height  #     координаты центра
-        w  = (xmax - xmin)     / width   # Относительные
-        h  = (ymax - ymin)     / height  #     размеры
+        cx = (xmin + xmax) / width  / 2  # Относительные
+        cy = (ymin + ymax) / height / 2  #     координаты центра
+        w  = (xmax - xmin) / width       # Относительные
+        h  = (ymax - ymin) / height      #     размеры
 
         return cx, cy, w, h
 
@@ -1392,7 +1409,8 @@ class CVATPoints:
 
             return type(self)(np.vstack([x, y]).T, 'polygon',
                               self.rotation * apply_rot, imsize=self.imsize,
-                              rotate_immediately=apply_rot)
+                              rotate_immediately=apply_rot,
+                              attribs=self.attribs)
 
         elif self.type == 'rectangle':
             xmin, ymin, xmax, ymax = self.asrectangle(apply_rot).flatten()
@@ -1401,12 +1419,14 @@ class CVATPoints:
 
             return type(self)(np.vstack([x, y]).T, 'polygon',
                               self.rotation * apply_rot, imsize=self.imsize,
-                              rotate_immediately=apply_rot)
+                              rotate_immediately=apply_rot,
+                              attribs=self.attribs)
 
         elif self.type == 'polygon':
             return type(self)(self.points, 'polygon',
                               self.rotation * apply_rot, imsize=self.imsize,
-                              rotate_immediately=apply_rot)
+                              rotate_immediately=apply_rot,
+                              attribs=self.attribs)
 
         elif self.type == 'tag':
             if self.imsize is None:
@@ -1423,7 +1443,8 @@ class CVATPoints:
 
             return type(self)(np.vstack([x, y]).T, 'polygon',
                               self.rotation * apply_rot, imsize=self.imsize,
-                              rotate_immediately=apply_rot)
+                              rotate_immediately=apply_rot,
+                              attribs=self.attribs)
 
         else:
             raise ValueError('Неизвестный тип сегмента: %s' % self.type)
@@ -1437,27 +1458,42 @@ class CVATPoints:
             return self.aspolygon(apply_rot, imsize=self.imsize)
         if type_ == 'rectangle':
             return type(self)(self.asrectangle().flatten(), type_,
-                              self.rotation * apply_rot, imsize=self.imsize)
+                              self.rotation * apply_rot, imsize=self.imsize,
+                              attribs=self.attribs)
         raise ValueError(f'Неожиданный тип: {type_}')
         # Пока ничего, кроме прямоугольника и многоугольника не
         # поддерживается.
 
-    # Создаёт словарь аргументов для создания маски:
     def to_Mask_kwargs(self):
+        '''
+        Создаёт словарь аргументов для создания маски.
+        Используется так:
+            mask = Mask(**points.to_Mask_kwargs())
+        '''
         return {'array': self.draw(color=255, thickness=-1).astype(bool),
-                'rect': self.asrectangle().flatten()}
-    # Используется так:
-    # mask = Mask(**points.to_Mask_kwargs())
+                'rect': self.asrectangle().flatten(),
+                'attribs': dict(self.attribs)}
+
+    def to_BBox_kwargs(self):
+        '''
+        Создаёт словарь аргументов для создания обрамляющего прямоугольника.
+        Используется так:
+            bbox = BBox(**points.to_BBox_kwargs())
+        '''
+        self = self.asrectangle()
+        return {'xyxy': self.points,
+                'imsize': self.imsize,
+                'attribs': self.attribs}
 
     # Создаёт однострочный датафрейм с даннымии о контуре:
     def to_dfrow(self, dfrow=None, **kwargs):
+        kwargs = kwargs | self.attribs | {'type': self.type,
+                                          'points': self.flatten(),
+                                          'rotation': self.rotation}
         if dfrow is None:
-            return add_row2df(type=self.type,
-                              points=self.flatten(),
-                              rotation=self.rotation,
-                              **kwargs)
+            return add_row2df(**kwargs)
         else:
-            dfrow = dfrow.copy()
+            return update_row(dfrow, inplace=False, **kwargs)
 
     # Получить параметры для формирования cvat-разметки annotation.xml:
     def xmlparams(self):
@@ -1540,7 +1576,8 @@ class CVATPoints:
                 cx, rx = width - cx, width - rx
 
             return type(self)([cx, cy, rx, ry], self.type, rotation=rotation,
-                              imsize=(height, width), rotate_immediately=False)
+                              imsize=(height, width), rotate_immediately=False,
+                              attribs=self.attribs)
 
         elif self.type == 'rectangle':
             xmin, ymin, xmax, ymax = self.flatten()
@@ -1552,7 +1589,7 @@ class CVATPoints:
 
             return type(self)([xmin, ymin, xmax, ymax], self.type,
                               rotation=rotation, imsize=(height, width),
-                              rotate_immediately=False)
+                              rotate_immediately=False, attribs=self.attribs)
 
         elif self.type in {'polygon', 'polyline'}:
             points = self.points.copy()
@@ -1562,7 +1599,8 @@ class CVATPoints:
                 points[:, 0] = width - points[:, 0]
 
             return type(self)(points, self.type, rotation=rotation,
-                              imsize=(height, width), rotate_immediately=False)
+                              imsize=(height, width),
+                              rotate_immediately=False, attribs=self.attribs)
 
         elif self.type == 'tag':
             pass
@@ -1599,7 +1637,8 @@ class CVATPoints:
         # Если 0 градусов, то просто повторяем контур:
         if k == 0:
             return type(self)(self.points, self.type, rotation=self.rotation,
-                              imsize=(height, width), rotate_immediately=False)
+                              imsize=(height, width),
+                              rotate_immediately=False, attribs=self.attribs)
 
         # Если 180 градусов, то вместо поворота выполняем отражения по
         # горизонтали и вертикали:
@@ -1622,19 +1661,23 @@ class CVATPoints:
 
                 return type(self)([cx, cy, rx, ry], self.type,
                                   rotation=self.rotation, imsize=imsize,
-                                  rotate_immediately=False)
+                                  rotate_immediately=False,
+                                  attribs=self.attribs)
 
             elif self.type == 'rectangle':
                 xmin, ymin, xmax, ymax = self.flatten()
 
                 if k == 1:
-                    xmin, ymin, xmax, ymax = ymax, width - xmin, ymin, width - xmax
+                    xmin, ymin, xmax, ymax = \
+                        ymax, width - xmin, ymin, width - xmax
                 else:
-                    xmin, ymin, xmax, ymax = height - ymax, xmin, height - ymin, xmax
+                    xmin, ymin, xmax, ymax = \
+                        height - ymax, xmin, height - ymin, xmax
 
                 return type(self)([xmin, ymin, xmax, ymax], self.type,
                                   rotation=self.rotation, imsize=imsize,
-                                  rotate_immediately=False)
+                                  rotate_immediately=False,
+                                  attribs=self.attribs)
 
             elif self.type == 'polygon':
                 points = self.points[:, ::-1].copy()
@@ -1645,7 +1688,8 @@ class CVATPoints:
                     points[:, 0] = height - points[:, 0]
 
                 return type(self)(points, self.type, rotation=self.rotation,
-                                  imsize=imsize, rotate_immediately=False)
+                                  imsize=imsize, rotate_immediately=False,
+                                  attribs=self.attribs)
 
     # Номера точек, где контур надо резать на два:
     def get_split_inds(self):
@@ -1754,10 +1798,10 @@ class CVATPoints:
 
             try:
                 cls(points, rotation=rotation, imsize=imsize).split_multipoly()
-            except:
+            except Exception as e:
                 print(poly_list)
                 print(points)
-                raise
+                raise e
 
             return cls(points, rotation=rotation, imsize=imsize)
 
@@ -2025,7 +2069,7 @@ class CVATPoints:
                     cur_pt_ind.inc()
 
         # Собираем из списка новый массив точек:
-        return type(self)(points, imsize=self.imsize)
+        return type(self)(points, imsize=self.imsize, attribs=self.attribs)
     # Применяется если имеется реальная многоконтурность, но надо
     # визуализировать результат в CVAT. Т.к. сам CVAT не поддерживает
     # хранение нескольких многоугольников в одном сегменте, то они будут
@@ -2078,7 +2122,7 @@ class CVATPoints:
         # Собираем из списка новый массив точек:
         return type(self)(np.array(points_), self.type,
                           rotation=self.rotation, imsize=self.imsize,
-                          rotate_immediately=False)
+                          rotate_immediately=False, attribs=self.attribs)
     # Применяется если повторяющиеся точки появились случайно, например, ...
     # ... при разметке, и не являются признаком многоконтурности.
 
@@ -2100,20 +2144,24 @@ class CVATPoints:
         # Также переводим координаты в целочисленный тип.
 
         # Собираем контуры в один:
-        points = cls.unite_multipoly(contours, imsize=tuple(mask.shape[:2]))
+        points = cls.unite_multipoly(contours, imsize=tuple(mask.shape[:2]),
+                                     attribs=mask.attribs)
 
         return points
 
-    # Создаёт прямоугольный контур из обрамляющего прямоугольника:
     @classmethod
-    def from_bbox(cls, xmin, ymin, dx, dy, imsize=None):
+    def from_bbox(cls, bbox, imsize=None, format='xywh'):
+        '''
+        Создаёт прямоугольный контур из обрамляющего прямоугольника.
+        '''
+        if not isinstance(bbox, BBox):
+            bbox = BBox.from_format(bbox, imsize, format=format)
 
-        xmax = xmin + dx
-        ymax = ymin + dy
+        return cls(bbox.xyxy, 'rectangle', imsize=imsize,
+                   attribs=bbox.attribs)
 
-        return cls([xmin, ymin, xmax, ymax], 'rectangle', imsize=imsize)
-
-    # Создаёт прямоугольный контур из обрамляющего прямоугольника YOLO-формата:
+    # Создаёт прямоугольный контур из обрамляющего прямоугольника
+    # YOLO-формата:
     @classmethod
     def from_yolobbox(cls, cx, cy, w, h, imsize):
 
@@ -2121,8 +2169,8 @@ class CVATPoints:
 
         cx = cx * imwidth
         cy = cy * imheight
-        w  = w  * imwidth
-        h  = h  * imheight
+        w = w * imwidth
+        h = h * imheight
 
         xmin = cx - w / 2
         ymin = cy - h / 2
@@ -2150,8 +2198,10 @@ class CVATPoints:
     # Создаёт контур из строки в датафрейме подзадачи:
     @classmethod
     def from_dfrow(cls, raw, imsize=None, rotate_immediately=True):
+        attribs = {key: raw[key] for key in raw.keys()
+                   if key in cls.attrib_keys}
         return cls(raw['points'], raw['type'], raw['rotation'], imsize=imsize,
-                   rotate_immediately=rotate_immediately)
+                   rotate_immediately=rotate_immediately, attribs=attribs)
 
     # Возвращает многоугольный контур с уменьшенным числом вершин:
     def reducepoly(self, epsilon=1.5):
@@ -2185,7 +2235,8 @@ class CVATPoints:
 
         # Возвращаем упрощённый контур:
         return type(self)(reduced_poly, rotation=self.rotation,
-                          imsize=self.imsize, rotate_immediately=False)
+                          imsize=self.imsize, rotate_immediately=False,
+                          attribs=self.attribs)
 
     # Многоугольник в формате YOLO:
     def yoloseg(self, height=None, width=None):
@@ -3359,6 +3410,10 @@ def task_auto_annottation(task,
     # Инициализируем буфер для чтения изображений:
     img_buffer = ImReadBuffer()
 
+    # Сбрасываем состояние предразметчика, если возможно:
+    if hasattr(img2df, 'reset'):
+        img2df.reset()
+
     # Перебор подзадач:
     for subtask_ind, (df, file, true_frames) in enumerate(task, 1):
 
@@ -3420,12 +3475,19 @@ def tasks_auto_annottation(tasks,
     kwargs = kwargs | {'num_procs': num_procs, 'desc': desc}
 
     # Выполняем авторазметку:
-    return mpmap(task_auto_annottation,
-                 tasks,
-                 [img2df] * len(tasks),
-                 [label] * len(tasks),
-                 [store_prev_annotation] * len(tasks),
-                 **kwargs)
+    tasks = mpmap(task_auto_annottation,
+                  tasks,
+                  [img2df] * len(tasks),
+                  [label] * len(tasks),
+                  [store_prev_annotation] * len(tasks),
+                  **kwargs)
+
+    # На всякий случай ещё раз сбрасываем состояние предразметчика,
+    # если возможно:
+    if hasattr(img2df, 'reset'):
+        img2df.reset()
+
+    return tasks
 
 
 def cvat_backup_task_dir2auto_annotation_xml(cvat_backup_task_dir,
@@ -4104,7 +4166,7 @@ def bidirectional_subtask_shapes2tracks(subtask,
                                      num_procs)
 
     # Формируем датафреймы обоих направлений от ключевого кадра:
-    print(key_frame)
+    # print(key_frame)
     front_df = df[df_frames >= key_frame]
     back_df  = df[df_frames <= key_frame]
 
@@ -4686,7 +4748,7 @@ def tasks2preview(tasks,
     file_list = f'{out_file}.list'
     with open(file_list, 'w') as f:
         for sorted_out_file in sorted_out_files:
-            print(sorted_out_file)
+            # print(sorted_out_file)
             f.write(f"file '{os.path.basename(sorted_out_file)}'\n")
 
     # Выполняем сборку без пересжатия:

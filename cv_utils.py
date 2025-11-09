@@ -653,13 +653,46 @@ class BBox:
         self.imsize = imsize
         self.attribs = attribs
 
+    @classmethod
+    def from_format(cls, box, imsize=None, attribs={}, format='xywh'):
+        '''
+        Инициация из прямоугольников в разных форматах.
+        '''
+        if format == 'xywh':
+            x, y, w, h = box
+            box = x, y, x + w, y + h
+            return cls(box, imsize, attribs)
+
+        if format == 'xyxy':
+            return cls(box, imsize, attribs)
+
+        raise ValueError(f'Неподдерживаемый формат: {format}!')
+
+    @classmethod
+    def from_yolo(cls, box, imsize=None, attribs={}):
+        '''
+        Из обрамляющего прямоугольника в формате CVAT.
+        '''
+        # Если размер изображения не указан, придётся работать с
+        # отностительными координатами:
+        if imsize is None:
+            imsize = (1., 1.)
+
+        cx, cy, w, h = box
+        cx = cx * imsize[1]
+        cy = cy * imsize[0]
+        hw = w * imsize[1] / 2
+        hh = h * imsize[0] / 2
+        box = cx - hw, cy - hh, cx + hw, cy + hh
+
+        return cls(box, imsize, attribs)
+
     def copy(self):
         '''
-        Создание дубликата
+        Создание дубликата.
         '''
-        imsize = None if self.imsize is None else np.array(self.imsize)
         return type(self)(xyxy=self.xyxy,
-                          imsize=imsize,
+                          imsize=self.imsize,
                           attribs=dict(self.attribs))
 
     def straight(self):

@@ -7,8 +7,9 @@ import warnings
 from urllib.request import urlretrieve
 
 from pt_utils import AutoDevice
-from cvat import CVATPoints, concat_dfs
+from cvat import CVATPoints, concat_dfs, df_columns_type
 from utils import color_float_hsv_to_uint8_rgb, mkdirs, AnnotateIt
+from cv_utils import BBox
 
 
 class GDino:
@@ -18,13 +19,13 @@ class GDino:
     # Преобразует любой формат запросов в словарь:
     @staticmethod
     def _parse_prompt2label(prompt2label={}):
-
         # Если это уже словарь - оставляем без изменений:
         if isinstance(prompt2label, dict):
             pass
 
         # Если передана пустота - делаем пустой словарь:
-        elif prompt2label in (None, [], (), set()):
+        elif prompt2label is None or \
+                hasattr(prompt2label, '__len__') and not len(prompt2label):
             prompt2label = {}
 
         # Если дан список, кортеж или множество - принудительно создаём
@@ -70,12 +71,13 @@ class GDino:
     def _build_caption(prompt2label):
         return '.'.join(prompt2label.keys())
 
-    def __init__(self                                                ,
-                 model_path     = './groundingdino_swinb_cogcoor.pth',
-                 box_threshold  = 0.35                               ,
-                 text_threshold = 0.25                               ,
-                 device         = 'auto'                             ,
-                 prompt2label   = {}                                 ):
+    def __init__(self                                                     ,
+                 model_path          = './groundingdino_swinb_cogcoor.pth',
+                 box_threshold       = 0.35                               ,
+                 text_threshold      = 0.25                               ,
+                 device              = 'auto'                             ,
+                 prompt2label        = {}                                 ,
+                 postprocess_filters = []                                 ):
 
         # Если в пути не указано имя ни одной модели, то считаем это
         # именем папки, а моделью выберем groundingdino_swinb_cogcoor.pth:
@@ -144,6 +146,9 @@ class GDino:
             ]
         )
 
+        # Сохраняем список фильтров:
+        self.postprocess_filters = postprocess_filters
+
     # Читает изображение из файла, если надо:
     @staticmethod
     def imread(img):
@@ -193,15 +198,26 @@ class GDino:
 
         return img, boxes.numpy(), logits.numpy(), labels
 
+    def _predict2bboxes(self, boxes, logits, labels, imsize):
+        bboxes = []
+        for box, logit, label in zip(boxes, logits, labels):
+            attribs = {'confidence': logit,
+                       'label': label,
+                       'source': 'GroundingDINO'}
+            bbox = BBox.from_yolo(box, imsize, attribs)
+            bboxes.append(bbox)
+        return bboxes
+
+    def _bboxes2dfs(self, bboxes):
+        return [CVATPoints.from_bbox(bbox).to_dfrow() for bbox in bboxes]
+
     # Формирование разметки в cvat-формате:
     def img2df(self,
                img,
                prompt2label=None,
                box_threshold=None,
                text_threshold=None,
-               df_as_list_of_dfs=False,
-               source='GroundingDINO',
-               **kwargs):
+               df_as_list_of_dfs=False):
 
         # Получаем кадр и результаты детекции:
         img, boxes, logits, labels = self._predict(
@@ -211,19 +227,45 @@ class GDino:
         # Определяем размер исходного изображения:
         imsize = img.shape[:2]
 
-        dfs = []
-        for box, logit, label in zip(boxes, logits, labels):
-            points = CVATPoints.from_yolobbox(*box, imsize)
-            df_row = points.to_dfrow(source='GroundingDINO', **kwargs)
-            df_row['label'] = label
-            dfs.append(df_row)
-            # Метка присвоена вне to_dfrow, чтобы не переводить None в str.
-            # Иначе потом task_auto_annottation её не заменит.
+        # Если имеется постобработка:
+        if self.postprocess_filters:
+
+            # Перегоняем результаты детекции в список обрамляющих
+            # прямоугольников:
+            bboxes = self._predict2bboxes(boxes, logits, labels, imsize)
+
+            # Применяем поочерёдно каждый фильтр:
+            for postprocess_filter in self.postprocess_filters:
+                bboxes = postprocess_filter(bboxes)
+
+            # Перегоняем список прямоугольников в список однострочных
+            # датафреймов:
+            dfs = self._bboxes2dfs(bboxes)
+
+        # Если постобработки нет:
+        else:
+            dfs = []
+            for box, logit, label in zip(boxes, logits, labels):
+                points = CVATPoints.from_yolobbox(*box, imsize)
+                df_row = points.to_dfrow(source='GroundingDINO')
+                df_row['label'] = label
+                dfs.append(df_row)
+                # Метка присвоена вне to_dfrow, чтобы не переводить None в str.
+                # Иначе потом task_auto_annottation её не заменит.
 
         if df_as_list_of_dfs:
             return dfs
         else:
             return concat_dfs(dfs)
+
+    def __call__(self, img):
+        return self.img2df(img)
+
+    def reset(self):
+        '''
+        Сброс внутренних состояний.
+        '''
+        [_.reset for _ in self.postprocess_filters if hasattr(_, 'reset')]
 
     # Возвращает изображение с результатами детекции:
     def draw(self,
@@ -275,5 +317,3 @@ class GDino:
     def show(self, *args, **kwargs):
         plt.imshow(self.draw(*args, **kwargs))
         plt.axis(False)
-
-    __call__ = img2df

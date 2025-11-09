@@ -153,9 +153,9 @@ class SAM:
                             cb   = mask['crop_box'    ]
 
                             imsize = m.shape[:2]
-                            bbox =  CVATPoints.from_bbox(*bbox, imsize)
-                            pc   = [CVATPoints.from_bbox( *_*2, imsize) for _ in pc]
-                            cb   =  CVATPoints.from_bbox(  *cb, imsize)
+                            bbox =  CVATPoints.from_bbox(bbox, imsize)
+                            pc   = [CVATPoints.from_bbox( _*2, imsize) for _ in pc]
+                            cb   =  CVATPoints.from_bbox(  cb, imsize)
 
                             # Обращение поворота:
                             if k:
@@ -339,3 +339,9 @@ class SAM:
 
     # Файл с изображением -> разметка в формате CVAT-подзадачи:
     __call__ = img2df
+
+    def reset(self):
+        '''
+        Сброс внутренних состояний.
+        '''
+        [_.reset for _ in self.postprocess_filters if hasattr(_, 'reset')]
