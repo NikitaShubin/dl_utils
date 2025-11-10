@@ -993,6 +993,65 @@ def build_bboxes_JaccardDiceOverlap_matrixs(bboxes1,
     return j_mat, d_mat, o_mat
 
 
+def build_IoU_matrix(objs1,
+                     objs2=None,
+                     diag_val=1.,
+                     desc=None,
+                     num_procs=0):
+    '''
+    Аналогичен build_masks_IoU_matrix и build_bboxes_IoU_matrix, но работает
+    с объектами обоих типов (Mask или BBox).
+    Требуется, чтобы список(и) содержал гомогенные элементы
+    (были строго одного типа)!
+    '''
+    # Составляем множество типов объектов:
+    types = set(map(type, objs1))
+    if objs2 is not None:
+        types |= set(map(type, objs2))
+
+    if len(types) > 1:
+        raise ValueError(f'Элементы списка(ов) негомогенны: {types}!')
+
+    # Применяем подходящую функцию:
+    if Mask in types:
+        return build_masks_IoU_matrix(objs1, objs2, diag_val, desc,
+                                      num_procs)
+    elif BBox in types:
+        return build_bboxes_IoU_matrix(objs1, objs2, diag_val, desc)
+    else:
+        raise TypeError(f'Неподдерживаемый тип элементов: {types.pop()}!')
+
+
+def build_JaccardDiceOverlap_matrixs(objs1,
+                                     objs2=None,
+                                     diag_val=(1., 1., 1.),
+                                     **mpmap_kwargs):
+    '''
+    Аналогичен build_masks_JaccardDiceOverlap_matrixs и 
+    build_bboxes_JaccardDiceOverlap_matrixs, но работает
+    с объектами обоих типов (Mask и BBox).
+    '''
+    # Составляем множество типов объектов:
+    types = set(map(type, objs1))
+    if objs2 is not None:
+        types |= set(map(type, objs2))
+
+    if len(types) > 1:
+        raise ValueError(f'Элементы списка(ов) негомогенны: {types}!')
+
+    # Применяем подходящую функцию:
+    if Mask in types:
+        return build_masks_JaccardDiceOverlap_matrixs(objs1, objs2, diag_val,
+                                                      **mpmap_kwargs)
+    elif BBox in types:
+        return build_bboxes_JaccardDiceOverlap_matrixs(objs1, objs2, diag_val,
+                                                       **mpmap_kwargs)
+    else:
+        raise TypeError(f'Неподдерживаемый тип элементов: {types.pop()}!')
+
+    return builder(objs1, objs2, diag_val, **mpmap_kwargs)
+
+
 def split_by_attrib(objs, attrib='label', as_dict=False):
     '''
     Разбивает список объектов на подгруппы по значению заданного
@@ -1116,3 +1175,58 @@ class PrintInfo:
                   f'-> {output_len}')
 
             return result
+
+
+class NMS:
+    '''
+    Классический Non-maximum Suppression для списка обнаруженных
+    объектов в кадре.
+    '''
+
+    def __init__(self, minIoU=0.5):
+        self.minIoU = 0.5
+
+    def __call__(self, objs):
+        # Список из менее двух объектов оставляем без изменения:
+        if len(objs) < 2:
+            return objs
+
+        # Группируем по классам:
+        objs_list = split_by_attrib(objs)
+
+        # Обрабатываем список для каждого класса отдельно:
+        objs = []  # Итоговый список объектов
+        for label_objs in objs_list:
+
+            # Если объектов текущего класса меньше двух - переносим его в
+            # итоговый без изменений:
+            if len(label_objs) < 2:
+                objs += label_objs
+                continue
+
+            # Упорядочиваем по убыванию уверенности:
+            label_objs = sort_by_attrib(label_objs, nonmarked='raise')
+
+            # Строим матрицу связностей:
+            j_mat = build_IoU_matrix(label_objs)
+
+            # Перебираем все пары:
+            excluded_inds = []  # Индексы исключённых объектов
+            for i in range(len(label_objs) - 1):
+                if i in excluded_inds:
+                    continue  # Исключённые индексы пропускаем.
+
+                for j in range(i + 1, len(label_objs)):
+                    if j in excluded_inds:
+                        continue  # Исключённые индексы пропускаем.
+
+                    # Если пересечение текущей пары >= порогового, то исключаем
+                    # тот, что с меньшей уверенностью:
+                    if j_mat[i, j] >= self.minIoU:
+                        excluded_inds.append(j)
+
+            # Пополняем итоговый список объектов неисключёнными позициями:
+            objs += [obj for ind, obj in enumerate(label_objs)
+                       if ind not in excluded_inds]
+
+        return objs
