@@ -7,7 +7,7 @@ import warnings
 from urllib.request import urlretrieve
 
 from pt_utils import AutoDevice
-from cvat import CVATPoints, concat_dfs, df_columns_type
+from cvat import CVATPoints, concat_dfs
 from utils import color_float_hsv_to_uint8_rgb, mkdirs, AnnotateIt
 from cv_utils import BBox
 

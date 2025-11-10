@@ -8,7 +8,6 @@
 
 import os
 import cv2
-import datetime
 import numpy as np
 from tqdm import tqdm
 from numba import jit
@@ -82,25 +81,6 @@ class MasksFilter:
                 new_masks.append(mask)
 
         return new_masks
-
-
-class PrintMasksNum:
-    '''
-    Выводит текущее количество масок.
-    Используется для отладки.
-    '''
-
-    def __init__(self, decs='Текущее кол-во масок:', print_time=True):
-        self.desc = decs
-        self.print_time = print_time
-
-    def __call__(self, masks):
-        if self.print_time:
-            now = datetime.datetime.now()
-            print('[', now, '] ', sep='', end='')
-        print(self.desc, len(masks))
-
-        return masks
 
 
 class Morphology:

@@ -12,6 +12,8 @@
 
 
 import cv2
+import time
+import datetime
 
 import numpy as np
 
@@ -19,6 +21,7 @@ from matplotlib import pyplot as plt
 from IPython.display import Image
 from PIL.Image import fromarray
 from tqdm import tqdm
+from collections import defaultdict
 
 from utils import apply_on_cartesian_product, isfloat, draw_mask_on_image
 
@@ -67,18 +70,6 @@ class Mask:
     '''
     Класс масок выделения объектов на изображении.
     Предоставляет набор позезных методов для работы с картами.
-    '''
-
-    '''
-    @property
-    def array(self):
-        if hasattr(self, '_array') and self._array is not None:
-            return self._array
-        else: 
-
-    @array.setter
-    def array(self, val):
-        self._array = val
     '''
 
     def __init__(self, array, area='auto', rect='auto', attribs={}):
@@ -983,7 +974,7 @@ def build_bboxes_JaccardDiceOverlap_matrixs(bboxes1,
     '''
     # Отключаем параллельность, т.к. на транзакционные издержки уйдёт ббольше
     # времени:
-    mpmap_kwargs['num_procs'] = 1 
+    mpmap_kwargs['num_procs'] = 1
 
     JDO = apply_on_cartesian_product(BBox.JaccardDiceOverlap,
                                      bboxes1, bboxes2,
@@ -1000,3 +991,128 @@ def build_bboxes_JaccardDiceOverlap_matrixs(bboxes1,
             j_mat[i, j], d_mat[i, j], o_mat[i, j] = JDO[i, j]
 
     return j_mat, d_mat, o_mat
+
+
+def split_by_attrib(objs, attrib='label', as_dict=False):
+    '''
+    Разбивает список объектов на подгруппы по значению заданного
+    атрибута. По-умолчанию группирует объекты по меткам класса.
+
+    Т.е.:
+    [obj1, obj2, ...] -> [[obj1, obj3, ...], [obj2, ...], ...]
+    '''
+    objs_dict = defaultdict(list)  # Словарь для прямоугольников с атрибутом
+    nonmarked = []                 # Список для безатрибутных прямоугольников
+
+    for obj in objs:
+
+        # Если атрибут есть, вносим прямоугольник в одноимённый список:
+        if attrib in obj.attribs:
+            attrib_val = obj.attribs[attrib]
+            objs_dict[attrib_val].append(obj)
+
+        # Если атрибут не указан, заносим прямоугольник в отдельный список:
+        else:
+            nonmarked.append(obj)
+
+    # Если нужен словарь + остаток:
+    if as_dict:
+        return objs_dict, nonmarked
+
+    # Если нужны просто списки списков:
+    else:
+        return list(objs_dict.values()) + [nonmarked]
+
+
+def sort_by_attrib(objs,
+                   attrib='confidence',
+                   key=None,
+                   descending=True,
+                   nonmarked='first'):
+    '''
+    Сортирует спиоск объектов по значению какого-либо атрибута.
+
+    key - ключ сортировки (как в sorted).
+
+    nonmarked - флаг обработки безатрибутных объектов:
+            nonmarked = 'first':
+        помещает объекты беэ этого аттрибута впереди всех;
+            nonmarked = 'last':
+        помещает объекты беэ этого аттрибута позади всех;
+            для всех других значениях nonmarked при встерече с таким
+        объектом возникает ошибка!
+    '''
+    # Разбиваем на подсписки по значениям атрибута:
+    objs_dict, nonmarked_ = split_by_attrib(objs, attrib, True)
+
+    # Сортируем значения атрибута:
+    keys = sorted(objs_dict.keys(), key=key, reverse=not descending)
+
+    # Упорядочиваем сами прямоугольники по их атрибутам:
+    objs = []
+    for key in keys:
+        objs += objs_dict[key]
+
+    nonmarked = nonmarked.lower()
+    if nonmarked == 'first':
+        return nonmarked_ + objs
+    if nonmarked == 'last':
+        return objs + nonmarked_
+
+    if nonmarked_:
+        raise ValueError(f'Найдено {len(nonmarked_)} безатрибутных объекта!')
+
+    return objs
+
+
+class PrintInfo:
+    '''
+    Декоратор-класс для отслеживания вызовов callable-объектов,
+    преобразующих список в список.
+    '''
+
+    def __init__(self, wrapped=None, name: str | None = None):
+        '''
+        Args:
+                wrapped: Объект с методом __call__, принимающим список и
+            возвращающим список;
+                name: Имя для отображения в выводе
+            (по умолчанию: имя класса wrapped).
+        '''
+        if wrapped is not None and not hasattr(wrapped, '__call__'):
+            raise ValueError(f'{wrapped} должен быть вызываемым объектом!')
+
+        self._wrapped = wrapped
+        self._name = name or wrapped.__class__.__name__
+
+    def __call__(self, input_list: list) -> list:
+        '''
+        Вызывает обернутый объект, измеряет время и выводит статистику.
+        '''
+        # Если объект для декорации не задан,
+        # просто выводим время и размер списка:
+        if self._wrapped is None:
+            now = datetime.datetime.now()
+            print(f'[{now}]: len = {len(input_list)}')
+            return input_list
+
+        # Если объект для декорации задан, выводим размеры
+        # списка до и после обработки, и время на обработку:
+        else:
+            # Длина входного списка
+            input_len = len(input_list)
+
+            # Засекаем время
+            start_time = time.time()
+            result = self._wrapped(input_list)
+            end_time = time.time()
+
+            # Длина выходного списка и время обработки
+            output_len = len(result)
+            dtime = end_time - start_time
+
+            # Вывод информации
+            print(f'{input_len} -> [{self._name} ({dtime:.2f} с.)] ' +
+                  f'-> {output_len}')
+
+            return result
