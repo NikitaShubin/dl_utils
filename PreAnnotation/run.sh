@@ -22,6 +22,17 @@ IMAGE_NAME=kitbrain/$DOCKER_NAME
 # Определяем имя хоста внутри докера:
 DOCKER_HOSTNAME="${DOCKER_NAME}_`hostname`"
 
+# Определяем теги образа:
+GITTAG=GIT-$(git rev-parse --short HEAD)
+DATETAG=$(date +"%Y.%m.%d")
+
+# Строка образа с тегами:
+IMAGE_NAME_AND_TAGS=(
+    -t "$IMAGE_NAME:$GITTAG"
+    -t "$IMAGE_NAME:$DATETAG"
+    -t "$IMAGE_NAME:latest"
+)
+
 # Перемещаемся на уровень выше от докер-файла:
 cur_dir=`pwd`
 echo $cur_dir
@@ -29,11 +40,12 @@ cd "${DOCKERFILE_DIR}"/..
 
 
 # Пытаемся собирать образ каждый раз заново:
-#if ! docker build --progress=plain -t $IMAGE_NAME -f $DOCKERFILE_DIR/Dockerfile . ; then
-if ! docker build -t $IMAGE_NAME -f $DOCKERFILE_DIR/Dockerfile . ; then
+# if ! docker build --progress=plain "${IMAGE_NAME_AND_TAGS[@]}" -f "$DOCKERFILE_DIR/Dockerfile" .;
+if ! docker build "${IMAGE_NAME_AND_TAGS[@]}" -f "$DOCKERFILE_DIR/Dockerfile" .;
+then
     # Если образ собрать не удалось:
     RED='\033[0;31m'
-    NC='\033[0m' # No Color (https://stackoverflow.com/a/5947802)
+    NC='\033[0m'  # No Color (https://stackoverflow.com/a/5947802)
     printf "\n${RED}Образ не собран!\n${NC}"
 
     # Берём готовый с DockerHub или выводим ошибку:
@@ -48,7 +60,8 @@ else
     # Если образ успешно собран:
 
     # Отправляем образ на hub.docker.com:
-    nohup docker push $IMAGE_NAME > /dev/null &
+    nohup docker push --all-tags $IMAGE_NAME > /dev/null &
+    #docker push --all-tags $IMAGE_NAME
 fi
 
 # Возвращаем исходное значение текущей папки:

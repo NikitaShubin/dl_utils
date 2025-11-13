@@ -22,10 +22,21 @@ IMAGE_NAME=kitbrain/dl_cv
 # Определяем имя хоста внутри докера:
 DOCKER_HOSTNAME="${DOCKER_NAME}_`hostname`"
 
-# Пытаемся собирать образ каждый раз заново:
+# Определяем теги образа:
+GITTAG=GIT-$(git rev-parse --short HEAD)
+DATETAG=$(date +"%Y.%m.%d")
 
-#if ! docker build --progress=plain -t $IMAGE_NAME "${DOCKERFILE_DIR}"; then
-if ! docker build -t $IMAGE_NAME "${DOCKERFILE_DIR}"; then
+# Строка образа с тегами:
+IMAGE_NAME_AND_TAGS=(
+    -t "$IMAGE_NAME:$GITTAG"
+    -t "$IMAGE_NAME:$DATETAG"
+    -t "$IMAGE_NAME:latest"
+)
+
+# Пытаемся собирать образ каждый раз заново:
+#if ! docker build --progress=plain "${IMAGE_NAME_AND_TAGS[@]}" "${DOCKERFILE_DIR}";
+if ! docker build "${IMAGE_NAME_AND_TAGS[@]}" "${DOCKERFILE_DIR}";
+then
     # Если образ собрать не удалось:
     RED='\033[0;31m'
     NC='\033[0m'  # No Color (https://stackoverflow.com/a/5947802)
@@ -43,7 +54,8 @@ else
     # Если образ успешно собран:
 
     # Отправляем образ на hub.docker.com:
-    nohup docker push $IMAGE_NAME > /dev/null &
+    nohup docker push --all-tags $IMAGE_NAME > /dev/null &
+    # docker push --all-tags $IMAGE_NAME
 fi
 
 #docker pull $IMAGE_NAME
