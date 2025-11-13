@@ -2130,9 +2130,16 @@ class CVATPoints:
     @classmethod
     def from_mask(cls, mask, findContours_mode=cv2.CHAIN_APPROX_SIMPLE):
 
-        # Бинарную маску надо перевести в полутоновую:
-        if str(mask.dtype) == 'bool':
-            mask = mask.astype(np.uint8)
+        # Если передан экземпляр класса Mask:
+        if isinstance(mask, Mask):
+            attribs = mask.attribs
+            mask = mask.to_image()
+
+        # Если передано просто изображение:
+        elif isinstance(mask, np.ndarray):
+            attribs = {}
+            if str(mask.dtype) == 'bool':
+                img = mask.astype(np.uint8)
 
         # Векторизируем:
         contours, _ = cv2.findContours(mask, cv2.RETR_TREE, findContours_mode)
@@ -2145,7 +2152,7 @@ class CVATPoints:
 
         # Собираем контуры в один:
         points = cls.unite_multipoly(contours, imsize=tuple(mask.shape[:2]),
-                                     attribs=mask.attribs)
+                                     attribs=attribs)
 
         return points
 
