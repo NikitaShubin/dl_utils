@@ -78,7 +78,7 @@ from tqdm import tqdm
 from PIL import ImageColor, Image
 from matplotlib import pyplot as plt
 from scipy.optimize import linear_sum_assignment
-from collections import defaultdict
+from collections import defaultdict, Counter
 
 from utils import (mpmap, ImReadBuffer, reorder_lists, mkdirs, CircleInd,
                    apply_on_cartesian_product, DelayedInit,
@@ -2390,56 +2390,18 @@ class CVATPoints:
         plt.axis(False)
 
 
-"""
-class CVATLabels:
+def obj2dfrow(obj):
     '''
-    Класс, хранящий все типы меток CVAT-датасета (классы)
+    Конвертация BBox- или Mask-объекта в строку датафрейма.
     '''
+    if isinstance(obj, BBox):
+        points = CVATPoints.from_bbox(obj)
+    elif isinstance(obj, Mask):
+        points = CVATPoints.from_mask(obj)
+    else:
+        raise TypeError(f'Неподдерживаемый тип: {type(obj)}!')
 
-    def __init__(self, cvat_raw_labels):
-
-        # Если передано имя текстового файла, читаем его как json:
-        if isinstance(cvat_raw_labels, str) and \
-                os.path.isfile(cvat_raw_labels):
-            cvat_raw_labels = json2obj(cvat_raw_labels)
-
-        # Если передан список, считаем, что он и содержит словари всех меток:
-        if isinstance(cvat_raw_labels, list):
-            pass
-
-        # Иных вариантов не предусмотрено:
-        else:
-            raise ValueError('Неожиданное значение "cvat_raw_labels": ' +
-                             f'{cvat_raw_labels}!')
-
-        # Формируем датафрейм:
-        columns = ['name', 'color', 'attributes', 'type', 'sublabels', 'svg']
-        self.df = pd.DataFrame.from_dict(cvat_raw_labels)
-
-    # Возвращает полный список имён классов:
-    def labels(self):
-        return list(self.df['name'])
-
-    # Возвращает цвет (RGB), соответствующий классу:
-    def label2color(self, label):
-        line = self.df[self.df['name'] == label]['color']
-        assert len(line) == 1
-        return ImageColor.getcolor(line.values[0], "RGB")
-
-    # Возвращает аргументы создания радиокнопки списка классов в Jupyter:
-    def get_ipy_radio_buttons_kwargs(self, description='Класс:'):
-        return  {'options': self.labels(), 'description': description}
-    # from IPython.display import display
-    # from ipywidgets import RadioButtons
-    #
-    # cvat_labels = CVATLabels(...)
-    # rb = RadioButtons(**cvat_labels.get_ipy_radio_buttons_kwargs())
-    #
-    # def on_button_clicked(b):
-    #     ...
-    # rb.observe(on_button_clicked, names='value')
-    # display(rb)
-"""
+    return points.to_dfrow()
 
 
 class CVATLabelSVGElement:
@@ -3654,6 +3616,31 @@ def concat_dfs(*args):
         return dfs[0]
     else:
         return pd.concat(dfs, ignore_index=True)
+
+
+def autofix_df(df):
+    '''
+    Исправляет противоречия в датафрейме:
+    Уместно использовать после работы трекера в моделях детекции но перед
+    hide_skipped_objects_in_df.
+    '''
+    df = df.copy()
+
+    # Исправление смены класса объекта в одном треке:
+    for track_id in df['track_id'].unique():
+
+        if track_id is None:
+            continue
+
+        track_df = df[df['track_id'] == track_id]
+    
+        counter = Counter(track_df['label'])
+        if len(counter) > 1:
+            most_common = counter.most_common(1)[0][0]
+            df.loc[df['track_id'] == track_id, 'label'] = most_common
+            # Из всех вариантов выбирается самый популярный.
+
+    return df
 
 
 def hide_skipped_objects_in_df(df, true_frames):
