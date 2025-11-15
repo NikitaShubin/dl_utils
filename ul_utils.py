@@ -11,45 +11,81 @@ import numpy as np
 from ultralytics import YOLO
 
 from cv_utils import BBox, Mask
-from cvat import obj2dfrow, concat_dfs
+from cvat import concat_dfs, CVATPoints
 
 
-def _ul_boxes2boxes(boxes):
-    xyxys = boxes.xyxy.numpy()
-    clses = boxes.cls.numpy()
-    confs = boxes.conf.numpy()
-    if boxes.is_track:
-        ids = boxes.id.numpy().astype(int)
+def _decrop_ul_masks(masks, orig_shape):
+    '''
+    Удаляет рамку у масок ultralytics.
+    '''
+    # Определяем исходные размеры масок и изображения:
+    orig_shape = np.array(orig_shape[:2])
+    mask_shape = np.array(masks.shape[1:])
+
+    # Оцениваем размер масок после обрезки:
+    target_shape = orig_shape * (mask_shape / orig_shape).min()
+    target_shape = np.round(target_shape, decimals=1).astype(int)
+
+    pad = mask_shape - target_shape  # Размер рамок
+
+    # Параметры обрезки:
+    top_left = np.round(pad / 2, decimals=1).astype(int)
+    # top_left = np.zeros_like(pad)
+    bottom_right = target_shape + top_left + 1
+
+    # Обрезка:
+    return masks[:, top_left[0]:bottom_right[0], top_left[1]:bottom_right[1]]
+
+
+def _result2objs(result, attribs: dict = {}):
+    '''
+    Переводим результаты из YOLO-формата в список объектов,
+    поддерживаемый cv_utils.
+    '''
+    # Фиксируем грубые описания объектов:
+    xyxys = result.boxes.xyxy.numpy()
+    clses = result.boxes.cls.numpy()
+    confs = result.boxes.conf.numpy()
+    if result.boxes.is_track:
+        ids = result.boxes.id.numpy().astype(int)
     else:
         ids = [None] * len(confs)
 
-    bboxes = []
-    for xyxy, cls, conf, id in zip(xyxys, clses, confs, ids):
-        bboxes.append(BBox(xyxy, attribs={'label': cls,
-                                          'confidence': conf,
-                                          'track_id': id}))
-    return bboxes
-
-
-def _ul_masks2masks(masks):
-    raise NotImplementedError('Конвертация в маски не реализована!')
-
-
-def _result2objs(result):
+    # Строим сами объекты:
     objs = []
-    if result.boxes is not None:
-        objs += _ul_boxes2boxes(result.boxes)
     if result.masks is not None:
-        objs += _ul_masks2masks(result.masks)
-    if result.obb is not None:
+
+        # Удаление рамок у масок:
+        masks = result.masks.data.numpy() * 255  # [0, 1] -> [0, 255] (uint8)
+        masks = _decrop_ul_masks(masks, result.orig_shape)
+
+        # Размер масок может отличаться от размеров исходного изображения,
+        # так что для прямоугольников нужно масштабирование:
+        scale_y = masks.shape[1] / result.orig_shape[0]
+        scale_x = masks.shape[2] / result.orig_shape[1]
+        scale = np.array([scale_x, scale_y, scale_x, scale_y])
+
+        for mask, xyxy, cls, conf, id in zip(masks, xyxys * scale,
+                                             clses, confs, ids):
+            attribs_ = attribs | {'label': result.names[cls],
+                                  'confidence': conf,
+                                  'track_id': id}
+            objs.append(Mask(mask, rect=xyxy, attribs=attribs_))
+
+    elif result.obb is not None:
         raise NotImplementedError('Повёрнутые прямоугольники не реализованы!')
-    if result.keypoints is not None:
+
+    elif result.keypoints is not None:
         raise NotImplementedError('Скелеты не реализованы!')
 
-    # Заменяем номера классов каждого объекта на их имена:
-    for obj in objs:
-        if 'label' in obj.attribs:
-            obj.attribs['label'] = result.names[obj.attribs['label']]
+    # Если есть только обычные обрамляющие прямоугольники:
+    else:
+        for xyxy, cls, conf, id in zip(xyxys, clses, confs, ids):
+            attribs_ = attribs | {'label': result.names[cls],
+                                  'confidence': conf,
+                                  'track_id': id}
+            objs.append(BBox(xyxy, imsize=result.orig_shape,
+                             attribs=attribs_))
 
     return objs
 
@@ -102,19 +138,36 @@ class UltralyticsModel:
 
     def result2df(self, result):
         # Формируем список объектов:
-        objs = _result2objs(result)
+        attribs = {'frame': self.frame_ind, 'true_frame': self.frame_ind}
+        objs = _result2objs(result, attribs)
 
         # Обрабатываем список объектов, если надо:
         for postprocess_filter in self.postprocess_filters:
             objs = postprocess_filter(objs)
 
         # Формируем датафрейм:
-        df = concat_dfs(list(map(obj2dfrow, objs)))
+        dfs = []
+        for obj in objs:
 
-        # Указываем номер кадра:
-        df['frame'] = df['true_frame'] = self.frame_ind
-        
-        return df
+            if isinstance(obj, BBox):
+                points = CVATPoints.from_bbox(obj)
+
+            elif isinstance(obj, Mask):
+                points = CVATPoints.from_mask(obj)
+
+                # Масштабируем маску до размера исходного изображения,
+                # если надо:
+                scale_y = result.orig_shape[0] / obj.array.shape[0]
+                scale_x = result.orig_shape[1] / obj.array.shape[1]
+                if not (scale_y == scale_x == 1.):
+                    points = points.scale((scale_x, scale_y))
+
+            else:
+                raise TypeError(f'Неподдерживаемый тип: {type(obj)}!')
+
+            dfs.append(points.to_dfrow())
+
+        return concat_dfs(dfs)
 
     def _img2result(self, img: np.ndarray):
         if self.tracker is None:
@@ -146,12 +199,11 @@ class UltralyticsModel:
         '''
         # Сбрасываем номер кадра:
         self.frame_ind = 0
-        
+
         # Сбрасываем фильтры, если надо:
         for postprocess_filter in self.postprocess_filters:
             if hasattr(postprocess_filter, 'reset'):
                 postprocess_filter.reset()
-
 
     def __call__(self, img):
         # Определяем способ обработы в зависимости от режима:

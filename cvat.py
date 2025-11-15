@@ -1771,10 +1771,11 @@ class CVATPoints:
         else:
             return [copy]
 
-    # Собирает один контур из нескольких:
     @classmethod
-    def unite_multipoly(cls, poly_list, rotation=0., imsize=None):
-
+    def unite_multipoly(cls, poly_list, rotation=0., imsize=None, attribs={}):
+        '''
+        Собирает один контур из нескольких.
+        '''
         # Если контуров реально несколько, то действительно объединяем:
         if len(poly_list) > 1:
 
@@ -1795,15 +1796,16 @@ class CVATPoints:
                 new_points = cls(new_poly).fuse_multipoly().points
                 points = np.vstack([points, new_points, new_points[-1:, :]])
             # В каждой составляющей также удаляем повторяющиеся точки.
-
+            '''
             try:
-                cls(points, rotation=rotation, imsize=imsize).split_multipoly()
+                cls(points, rotation=rotation, imsize=imsize, attribs=attribs).split_multipoly()
             except Exception as e:
                 print(poly_list)
                 print(points)
                 raise e
-
-            return cls(points, rotation=rotation, imsize=imsize)
+            '''
+            return cls(points, rotation=rotation,
+                       imsize=imsize, attribs=attribs)
 
         # Если контур всего один, то просто делаем его копию:
         elif len(poly_list) == 1:
