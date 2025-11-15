@@ -3370,6 +3370,7 @@ def task_auto_annottation(task,
                           img2df,
                           label=None,
                           store_prev_annotation=True,
+                          postprocess_filters=[],
                           desc=None):
     '''
     Применяет img2df для автоматической разметки бекапа
@@ -3426,8 +3427,14 @@ def task_auto_annottation(task,
                         if store_prev_annotation
                         else frame_dfs)
 
+        
+        # Применяем постобработку к полученной подзадаче:
+        subtask = (df, file, true_frames)
+        for processor in postprocess_filters:
+            subtask = processor(subtask)
+
         # Внесение очередной подзадачи в итоговую задачу:
-        task_.append((df, file, true_frames))
+        task_.append(subtask)
 
     return task_
 
@@ -3436,6 +3443,7 @@ def tasks_auto_annottation(tasks,
                            img2df,
                            label=None,
                            store_prev_annotation=True,
+                           postprocess_filters=[],
                            num_procs=1,
                            desc='Авторазметка',
                            **kwargs):
@@ -3451,6 +3459,7 @@ def tasks_auto_annottation(tasks,
                   [img2df] * len(tasks),
                   [label] * len(tasks),
                   [store_prev_annotation] * len(tasks),
+                  [postprocess_filters] * len(tasks),
                   **kwargs)
 
     # На всякий случай ещё раз сбрасываем состояние предразметчика,
@@ -3635,7 +3644,7 @@ def autofix_df(df):
             continue
 
         track_df = df[df['track_id'] == track_id]
-    
+
         counter = Counter(track_df['label'])
         if len(counter) > 1:
             most_common = counter.most_common(1)[0][0]
@@ -3701,6 +3710,16 @@ def hide_skipped_objects_in_df(df, true_frames):
     # номеру кадра:
     df = concat_dfs([df] + hidden_dfs)
     return df.sort_values('frame')
+
+
+def autofix_subtask(subtask):
+    df, file, true_frames = subtask
+    return autofix_df(df), file, true_frames
+
+
+def hide_skipped_objects_in_subtask(subtask):
+    df, file, true_frames = subtask
+    return hide_skipped_objects_in_df(df, true_frames), file, true_frames
 
 
 def split_df_by_visibility(df):

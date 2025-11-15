@@ -134,7 +134,8 @@ class UltralyticsModel:
         self.mode = mode.lower()
         self.postprocess_filters = postprocess_filters
 
-        self.frame_ind = 0
+        # Сбрасываем все внутренние состояния:
+        self.reset()
 
     def result2df(self, result):
         # Формируем список объектов:
@@ -204,6 +205,12 @@ class UltralyticsModel:
         for postprocess_filter in self.postprocess_filters:
             if hasattr(postprocess_filter, 'reset'):
                 postprocess_filter.reset()
+
+        # Сбрасываем состояния трекеров, если надо:
+        predictor = self.model.predictor
+        if hasattr(predictor, 'trackers'):
+            for tracker in predictor.trackers:
+                tracker.reset()
 
     def __call__(self, img):
         # Определяем способ обработы в зависимости от режима:
