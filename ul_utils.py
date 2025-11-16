@@ -111,7 +111,7 @@ class UltralyticsModel:
 
             # Eсли файл torch-модели не существует, а путь не задан явно,
             # то скачаем моель в ~/models/:
-            if os.path.splitext(model)[1].lower() not in {'.pt', 'pth'} and \
+            if os.path.splitext(model)[1].lower() in {'.pt', 'pth'} and \
                     not os.path.isfile(model) and \
                     model == os.path.basename(model):
                 model = os.path.join(os.path.expanduser('~user'),
