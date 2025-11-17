@@ -9,6 +9,7 @@
 import os
 import cv2
 import numpy as np
+import pandas as pd
 from tqdm import tqdm
 from numba import jit
 from collections import defaultdict
@@ -18,7 +19,7 @@ from utils import (rmpath, mkdirs, mpmap, ImReadBuffer, img_dir2video,
 from cvat import (CVATPoints, sort_tasks_by_len, cvat_backup_task_dir2info,
                   smart_fuse_multipoly_in_df, split_df_by_visibility,
                   concat_dfs, get_column_ind, DisableSettingWithCopyWarning,
-                  df2masks)
+                  df2masks, concat_dfs)
 from cv_utils import (Mask, build_masks_JaccardDiceOverlap_matrixs,
                       build_masks_IoU_matrix)
 
@@ -1115,7 +1116,7 @@ def fit_segments_in_df(df,
                 **mpmap_kwargs)
 
     # Объединяем разметки разных кадров обратно в единый датафрейм:
-    fitted_df = pd.concat(dfs)
+    fitted_df = concat_dfs(dfs)
 
     # Выкидываем многоугольники, маски которых имеют менее 3-х точек:
 
