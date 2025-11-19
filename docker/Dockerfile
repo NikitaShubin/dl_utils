@@ -43,7 +43,7 @@ ARG APPLICATIONS="                                    \
     python3-dev libcairo2-dev libpango1.0-dev         \
                                                       \
     # LaTeX-компилятор:                               \
-    texlive-xetex                                     \
+    texlive-full                                      \
                                                       \
     # Дополнительные консольные утилиты:              \
     bsdmainutils pv net-tools psmisc iputils-ping     \
@@ -92,7 +92,7 @@ ARG PYTHONMODULES="                                                      \
     open3d                                                               \
                                                                          \
     # YOLO и трекинг в ней + Roboflow:                                   \
-    ultralytics lapx supervision                                         \
+    ultralytics==8.3.228 lapx supervision                                \
                                                                          \
     # Большой банк предобученных CV-моделей                              \
     git+https://github.com/leondgarse/keras_cv_attention_models          \
@@ -177,10 +177,11 @@ com/PublicPackages/_packaging/onnxruntime-cuda-12/pypi/simple/           \
 # Наконец, очищаем кэш pip для уменьшения размера образа.
 RUN ${PIP} install $PIPPARAMS --upgrade pip && \
     export TFVER=`${PIP} show tensorflow | grep Vers | awk '{print $2}'` && \
-    ${PIP} install $PIPPARAMS tensorflow==${TFVER} $PYTHONMODULES --upgrade --no-deps && \
-    ${PIP} install $PIPPARAMS $PYTHONMODULES && \
+    ${PIP} install $PIPPARAMS tensorflow==${TFVER} $PYTHONMODULES --upgrade && \
     ${PIP} cache purge
 # Установка всех необходимых пакетов при фиксации версии уже установленного Tensorflow.
+#    ${PIP} install $PIPPARAMS tensorflow==${TFVER} $PYTHONMODULES --upgrade --no-deps && \
+#    ${PIP} install $PIPPARAMS $PYTHONMODULES && \
 
 
 # Исправляем баг SAM2 с недоступностью конфигурационных файлов:

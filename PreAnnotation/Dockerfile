@@ -50,7 +50,7 @@ ARG PYTHONMODULES="                                                      \
     opencv-python scikit-learn pandas numba scikit-image                 \
                                                                          \
     # Коллекция YOLO-моделей:                                            \
-    ultralytics                                                          \
+    ultralytics==8.3.228 lapx                                            \
                                                                          \
     #                    Фундаментальные модели:                         \
                                                                          \
