@@ -156,6 +156,10 @@ com/PublicPackages/_packaging/onnxruntime-cuda-12/pypi/simple/           \
     # git+https://github.com/facebookresearch/sam2.git decord            \
     sam2 decord                                                          \
                                                                          \
+    # Segment Anything Model 3:                                          \
+    # https://github.com/facebookresearch/sam3.git                       \
+    sam3                                                                 \
+                                                                         \
     # Language Segment-Anything:                                         \
     # git+https://github.com/luca-medeiros/lang-segment-anything.git     \
                                                                          \
