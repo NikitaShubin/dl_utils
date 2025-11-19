@@ -255,10 +255,20 @@ RUN jupyter lab --generate-config && \
 # Однако далее пароль будет взят из переменной окружения.
 
 # Другине настройки Jupyter-сервера:
-RUN echo "c.LatexConfig.run_times = 2"           >> "${JPCONF}" && \
-    echo "c.ContentsManager.allow_hidden = True" >> "${JPCONF}"
-# Двойной запуск компиляции LaTeX для проработки всяких ссылок.
+RUN echo "c.ContentsManager.allow_hidden = True"  >> "${JPCONF}" && \
+    echo "c.LatexConfig.run_times = 2"            >> "${JPCONF}" && \
+    echo "c.LatexConfig.manual_cmd_args = ["      >> "${JPCONF}" && \
+    echo "    'pdflatex',"                        >> "${JPCONF}" && \
+    echo "    '-interaction=nonstopmode',"        >> "${JPCONF}" && \
+    echo "    '-halt-on-error',"                  >> "${JPCONF}" && \
+    echo "    '-file-line-error'"                 >> "${JPCONF}" && \
+    echo "    '-shell-escape',"                   >> "${JPCONF}" && \
+    echo "    '-synctex=1',"                      >> "${JPCONF}" && \
+    echo "    '{filename}.tex'"                   >> "${JPCONF}" && \
+    echo "]"                                      >> "${JPCONF}"
 # Отображение скрытых файлов в файловом менеджере.
+# Двойной запуск компиляции LaTeX для проработки всяких ссылок.
+# Прочие конфигурации LaTeX.
 
 
 # Взято с https://gist.github.com/jbwhit/eecdd1cac2756df85ad165f437445b0b.
