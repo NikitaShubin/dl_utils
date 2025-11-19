@@ -57,11 +57,15 @@ then
     	exit 1
     fi
 else
-    # Если образ успешно собран:
-
-    # Отправляем образ на hub.docker.com:
-    nohup docker push --all-tags $IMAGE_NAME > /dev/null &
-    #docker push --all-tags $IMAGE_NAME
+    # Если образ успешно собран, отправляем ВСЕ теги в одном фоновом процессе:
+    nohup bash -c "
+        echo 'Начало отправки образов'
+        docker push '$IMAGE_NAME:$GITTAG'
+        docker push '$IMAGE_NAME:$DATETAG'
+        docker push '$IMAGE_NAME:latest'
+        echo 'Отправка завершена'
+    " > /dev/null 2>&1 &
+    echo "Запущена отправка всех тегов в фоне (PID: $!)"
 fi
 
 # Возвращаем исходное значение текущей папки:
