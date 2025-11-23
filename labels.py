@@ -24,9 +24,10 @@ from treelib import Tree
 
 from utils import rim2arabic
 
+
 # Имена столбцов в labels.xlsx:
-cvat_label_column = 'Метка в CVAT'                     # Метки CVAT-датасета
-uuid_label_column = 'Метка в другом источнике данных'  # Метки иного-датасета
+label_column = 'Метка в CVAT'                       # Имя класса (метка)
+synonym_column = 'Метка в другом источнике данных'  # Синоним класса
 
 # Имена столбцов в superlabels.xlsx:
 superlabel_column = 'Наименование суперкласса'         # Имена суперклассов
@@ -86,28 +87,33 @@ def _file2superlabels_df(file):
         cur_scl_number = df.iloc[ind][scl_number_column]       # Номер
         cur_scl_priority = df.iloc[ind][scl_prrity_column]     # Приоритет
 
+        # Если cur_superlabel_name = NaN, тострока не дозаполнена:
+        if pd.isna(cur_superlabel_name):
+            # Остальные параметры тоже должны быть NaN:
+            if pd.notna(cur_scl_number):
+                raise ValueError(cur_scl_number)
+            if pd.notna(cur_scl_priority):
+                raise ValueError(cur_scl_priority)
+
+            # Пишем в строку пропущенные значения для текущего суперкласса:
+            df.loc[ind, superlabel_column] = superlabel_name  # Имя
+            df.loc[ind, scl_number_column] = scl_number       # Номер
+            df.loc[ind, scl_prrity_column] = scl_priority     # Приоритет
+
         # Если cur_superlabel_name не NaN, значит это новый класс:
-        if cur_superlabel_name is not None:
+        else:
 
             # Остальные параметры тоже должны быть не NaN:
-            assert not (pd.isna(cur_scl_number) or pd.isna(cur_scl_priority))
+            if pd.isna(cur_scl_number):
+                raise ValueError(cur_scl_number)
+            if pd.isna(cur_scl_priority):
+                raise ValueError(cur_scl_priority)
 
             # Читаем из строки действительные значения для текущего
             # суперкласса:
             superlabel_name = cur_superlabel_name  # Имя
             scl_number = cur_scl_number            # Номер
             scl_priority = cur_scl_priority        # Приоритет
-
-        # Если cur_superlabel_name = NaN, тострока не дозаполнена:
-        else:
-
-            # Остальные параметры тоже должны быть NaN:
-            assert pd.isna(cur_scl_number) and pd.isna(cur_scl_priority)
-
-            # Пишем в строку пропущенные значения для текущего суперкласса:
-            df.loc[ind, superlabel_column] = superlabel_name  # Имя
-            df.loc[ind, scl_number_column] = scl_number       # Номер
-            df.loc[ind, scl_prrity_column] = scl_priority     # Приоритет
 
     # Приводим номера суперклассов к целочислоенному типу и сдвигаем, чтобы
     # суперкласс неиспользуемых объектов был под номером -1, а остальные
@@ -116,6 +122,30 @@ def _file2superlabels_df(file):
     # В результате исключённые объекты получат значение -2 !
 
     return df
+
+
+def _any_file2df(file):
+    '''
+    Читает файл классов или суперклассов.
+    Возвращает датафейрм и тип сожержимого (labels / superlabels).
+    '''
+    if not os.path.isfile(file):
+        raise FileNotFoundError(f'Файла "{file}" не существует!')
+
+    exceptions = []
+    for func, type_ in [
+        (_file2superlabels_df, 'superlabels'),  # Суперклассы
+        (_file2labels_df, 'labels')             # Классы
+    ]:
+        try:
+            return func(file), type_
+        except Exception as e:
+            exceptions.append(e)
+
+    raise ExceptionGroup(
+        f'"{file}" не является файлом классов или суперклассов!',
+        exceptions
+    )
 
 
 def _labels_df2tree(df):
@@ -131,17 +161,17 @@ def _labels_df2tree(df):
     for ind in df.index:
 
         # Имена класса для текущей строки:
-        cvat_label = df[cvat_label_column][ind]
-        uuid_label = df[uuid_label_column][ind]
+        label = df[label_column][ind]
+        synonym = df[synonym_column][ind]
 
         # Если параметр не заполнен, то в дерево надо будет вносить None:
-        if pd.isna(cvat_label):
-            cvat_label = None
-        if pd.isna(uuid_label):
-            uuid_label = None
+        if pd.isna(label):
+            label = None
+        if pd.isna(synonym):
+            synonym = None
 
         # Объединение меток
-        label = (cvat_label, uuid_label)
+        label = (label, synonym)
 
         # Разделяем строку ind на индекс (позицию во вложенных списках) и
         # расшифровку класса:
@@ -178,12 +208,12 @@ def _labels_df2tree(df):
     return tree
 
 
-def _tree2label_meaning_dicts(tree):
+def _make_labels2meanings(tree):
     '''
     Формируем словари перехода от меток к их расшифровкам:
     '''
-    label2label_meaning = {}  # Label -> расшифровка
-    uuid2label_meaning = {}   # UUID  -> расшифровка
+    labels2meanings = {}    #   Label -> расшифровка
+    synonyms2meanings = {}  # Synonym -> расшифровка
 
     # Перебираем все строки таблицы классов:
     for node in tree.expand_tree(mode=Tree.DEPTH):
@@ -193,8 +223,8 @@ def _tree2label_meaning_dicts(tree):
             continue
 
         # Считываем параметры класса
-        label_meaning = tree[node].tag            # Расшифровка
-        label, uuid_label = tree[node].data  # Метки
+        meaning = tree[node].tag          # Расшифровка
+        label, synonym = tree[node].data  # Метки
 
         # Вносим существующие метки в cvat-словарь:
         if label is not None:
@@ -203,315 +233,311 @@ def _tree2label_meaning_dicts(tree):
             label = label.lower()
 
             # Если такая метка уже встречалась:
-            if label in label2label_meaning:
+            if label in labels2meanings:
 
                 # Выводим ошибку, если текущая расщифровка не совпадает с
                 # предыдущей:
-                if label2label_meaning[label] != label_meaning:
+                if labels2meanings[label] != meaning:
                     error_str = \
                         f'Для метки "{label}" встретились' + \
                         'следующие несовпадающие расшифровки:\n' + \
-                        f'"{label2label_meaning[label]}"' + \
-                        f'и "{label_meaning}"!'
+                        f'"{labels2meanings[label]}" и "{meaning}"!'
                     raise KeyError(error_str)
 
             # Добавляем метку, если она не встречалась:
             else:
-                label2label_meaning[label] = label_meaning
+                labels2meanings[label] = meaning
 
         # Вносим существующие метки в gg-словарь:
-        if uuid_label is not None:
+        if synonym is not None:
 
             # Перевод в нижний регистр:
-            uuid_label = uuid_label.lower()
+            synonym = synonym.lower()
 
             # Если такая метка уже встречалась:
-            if uuid_label in uuid2label_meaning:
+            if synonym in synonyms2meanings:
 
                 # Выводим ошибку, если текущая расщифровка не совпадает с
                 # предыдущей:
-                if uuid2label_meaning[uuid_label] != label_meaning:
-                    error_str = f'Для метки "{uuid_label}" встретились ' + \
+                if synonyms2meanings[synonym] != meaning:
+                    error_str = f'Для метки "{synonym}" встретились ' + \
                         'следующие несовпадающие расшифровки:\n' + \
-                        f'"{uuid2label_meaning[uuid_label]}" и ' + \
-                        f'"{label_meaning}"!'
+                        f'"{synonyms2meanings[synonym]}" и "{meaning}"!'
                     raise KeyError(error_str)
 
             # Добавляем метку, если она не встречалась:
             else:
-                uuid2label_meaning[uuid_label] = label_meaning
+                synonyms2meanings[synonym] = meaning
 
-    return label2label_meaning, uuid2label_meaning
-
-
-def make_yolo_label2superlabel_meaning(superlabels):
-    '''
-    Строит словарь перехода от YOLO-меток к имени соответствующего
-    суперкласса.
-    '''
-    # Заполняемый словарь:
-    yolo_label2superlabel_meaning = {}
-
-    # Перебираем все строки датафрейма суперклассов:
-    for ind in range(len(superlabels)):
-
-        # Берём из строки нужные данные:
-        row = superlabels.iloc[ind]
-        yolo_label = int(row[scl_number_column])
-        superlabel_meaning = row[superlabel_column]
-
-        # Если такой ключ уже внесён в словарь:
-        if yolo_label in yolo_label2superlabel_meaning:
-
-            # Текущее значение не должно противоречить уже имеющемуся в
-            # словаре:
-            if yolo_label2superlabel_meaning[yolo_label] != superlabel_meaning:
-                raise KeyError('В таблице суперклассов метка ' +
-                               f'"{scl_number_column}" имеет ' +
-                               'несколько несовпадающих значений!')
-
-        # Если такого ключа ещё нет, то вносим запись:
-        else:
-            yolo_label2superlabel_meaning[yolo_label] = superlabel_meaning
-            '''
-            # При этом отрицательные ключи заменяем на None:
-            key = yolo_label if yolo_label >= 0 else None
-            yolo_label2superlabel_meaning[key] = superlabel_meaning
-            # Это нужно для того, чтобы суперкласс неиспользуемых
-            # объектов имел None вместо своего номер.
-            '''
-    return yolo_label2superlabel_meaning
+    return labels2meanings, synonyms2meanings
 
 
-def make_label_meaning2superlabel_meaning(superlabels):
+def _make_meanings2superlabels2superinds(superlabels_df):
     '''
     Строит из датафрейма словарь перехода от имени класса к имени
     соответствующего суперкласса.
     '''
-    # Заполняемый словарь:
-    label_meaning2superlabel_meaning = {}
+    # Заполняемые словари:
+    meanings2superlabels = {}
+    superlabels2superinds = {}
 
     # Перебираем все строки датафрейма суперклассов:
-    for ind in range(len(superlabels)):
+    for row in superlabels_df.iloc:
 
         # Берём из строки нужные данные:
-        row = superlabels.iloc[ind]
-        # yolo_label = row[scl_number_column]
-        label_meaning = row[scl_clsnme_column]
-        superlabel_meaning = row[superlabel_column]
+        meaning = row[scl_clsnme_column]
+        superlabel = row[superlabel_column]
+        superind = row[scl_number_column]
 
-        # Если такой ключ уже внесён в словарь:
-        if label_meaning in label_meaning2superlabel_meaning:
-            raise KeyError(f'В таблице суперклассов метка "{label_meaning}"' +
+        # Если такая расшифровка уже внесена в словарь:
+        if meaning in meanings2superlabels:
+            raise KeyError(f'В таблице суперклассов расшифровка "{meaning}"' +
                            ' встречается минимум дважды!')
 
-        # Если такого ключа ещё нет, то вносим запись:
+        # Если такой расшифровки ещё нет, то вносим запись:
         else:
 
-            # При этом отрицательные ключи заменяем на None:
-            label_meaning2superlabel_meaning[label_meaning.lower()] = \
-                superlabel_meaning
+            # При этом отрицательные расшифровки заменяем на None:
+            meanings2superlabels[meaning] = superlabel
             # Это нужно для того, чтобы суперкласс неиспользуемых объектов
-            # имел None вместо своего номера
+            # имел None вместо своего имени.
 
-    return label_meaning2superlabel_meaning
+        # Если такой индекс уже есть, проверяем совпадение:
+        if superlabel in superlabels2superinds:
+            old_superind = superlabels2superinds[superlabel]
+            if old_superind != superind:
+                raise KeyError('Противоречивые записи в суперклассе ' +
+                               f'"{superlabel}": ' +
+                               f'{old_superind} != {superind}!')
+
+        # Если такго индекса ещё нет, то вносим запись:
+        else:
+            superlabels2superinds[superlabel] = superind
+
+    return meanings2superlabels, superlabels2superinds
 
 
-def init_df_counter(index, column_name='num'):
+class LabelsConvertor:
     '''
-    Создание датафрейма-счётчика.
+    Класс-утилита для работы с классами (labels),
+    суперклассами (superlabels) и т.п.
+
+    Используется следующая внутренняя терминология:
+        label      - оригинальное название класа;
+        meaning    - его расшифровка (может быть на русском языке);
+        superlabel - название суперкласса (может включать в себя
+                     несколько классов);
+        superind   - номер суперкласса.
+
+    Полная цепочка перехода: label -> meaning -> superlabel -> superind.
+    Предпологается, что переход "label -> meaning" взаимнооднозначен (может
+    быть обращён), а "meaning -> superlabel" - наоборот - позволяет
+    "схлопывать" часть классов в суперклассы. По факту могут быть любые
+    варианты.
+
+    Чаще всего экземпляр класса используется как переход:
+        "end2end"          - использует масимально возможную часть полной
+                             цепочки перехода (многие варианты инициализации
+                             объекта предологают лишь частичную определённость
+                             полной цепочки);
+        "label2superind"   - от класса к номеру суперкласса (YOLO-формат);
+        "label2superlabel" - от класса к суперклассу (например, для замены
+                             меток после авторазметки).
+
+    Некоторые суперклассы могут быть:
+        неиспользуемыми - их superind = -1, соотвествующие объекты должны
+                          исклюаться из разметки в итоговой выборке при
+                          конвертации датасета;
+        запретными      - их superind = -2, кадры, содержащие эти объекты,
+                          подлежат исключению из итоговой выборки при
+                          конвертации.
     '''
-    # Инициализация датаферйма с индексами:
-    df = pd.DataFrame(index=index)
-
-    # Задаём имя индексирущего столбца:
-    df.index.name = 'Класс объекта'
-
-    # Создаётся столб с заданным именем, заполнненный нулями:
-    df[column_name] = 0
-
-    return df
-
-
-label LabelsConvertor:
-    '''
-    Класс-утилита для работы с классами, метками, суперклассами и т.п.
-    '''
+    # "Тип перехода -> соответствующий словарь"
+    # в порядке убывания приоритета:
+    on_call2method = {
+        # label -> meaning -> superlabel -> superind:
+        'label2superind': 'labels2superinds',
+        # label -> meaning -> superlabel            :
+        'label2superlabel': 'labels2superlabels',
+        #          meaning -> superlabel -> superind:
+        'meaning2superind': 'meaning2superinds',
+        # label -> meaning                          :
+        'label2meaning': 'labels2meanings',
+        #          meaning -> superlabel            :
+        'meaning2superlabel': 'meanings2superlabels',
+        #                     superlabel -> superind:
+        'superlabel2superind': 'superlabels2superinds',
+    }
 
     def __init__(self,
-                 labels_info: str | dict = 'labels.xlsx',
-                 superlabels_info: str | dict = 'superlabels.xlsx',
-                 on_call: str = label2yolo):
+                 labels2meanings: str | dict,
+                 meanings2superlabels: str | dict | None = None,
+                 on_call: str = 'end2end'):
         '''
-            labels_info:
-                xlsx-файл, с таблицей или словарь [метка в CVAT -> класс].
-            superlabels_info:
-                xlsx-файл, с таблицей или словарь [класс -> суперкласс].
-            on_call:
-                оснонвная ф-ция экземпляра класса: {'label2yolo', label
+        файл/словарь labels2meanings должен представлять собой переход
+        label -> meaning, а meanings2superlabels - переход
+        meaning -> superlabel.
+        Если meanings2superlabels не задан, то labels2meanings - это переход
+        label -> superlabel.
+
+        Варианты инициализации:
+            # Схлопывает классы "человек" и "толпа" в суперкласс "Люди", а
+            # "Машина" и "Самолёт" в "Транспорт":
+            lc = LabelsConvertor(
+                {
+                    'person': 'people',
+                    'crowd': 'people',
+                    'car': 'transport',
+                    'plane': 'transport'
+                }
+            )
+
+            # Тот же вариант с промежуточной расшифровкой:
+            lc = LabelsConvertor(
+                {
+                    'person': 'человек',
+                    'crowd': 'толпа',
+                    'car': 'машина',
+                    'plane': 'самолёт'
+                },
+                {
+                    'человек': 'people',
+                    'толпа': 'people',
+                    'машина': 'transport',
+                    'самолёт': 'transport'
+                },
+            )
+
+            # Загрузка данных из Excel-файлов:
+            lc = LabelsConvertor('labels.xlsx', 'superlabels.xlsx')
+
+            # или просто:
+            lc = LabelsConvertor('superlabels.xlsx')
+
+        # Примеры содержимого Excel-файлов представлены файлами
+        # labels_template.xlsx и superlabels_template.xlsx.
+
+        on_call отвечает за поведение экземпляра класса при использовании его
+        как функции от одного аргумента:
+            'label2superind'   - переход от метки класса к номеру суперкласса
+                                 (конвертация в YOLO-формат);
+            'label2superlabel' - переход от метки класса к метке суперкласса
+                                 (подмена одних меток другими, например, при
+                                 обработке результатов авторазметки);
+             'end2end'         - переход, задейсвтующий все переданные данные.
+                                 Начало и конец зависят от того, какие данные
+                                 переданы. В пределе это - полная цепочка:
+                                 label -> meaning -> superlabel -> superind.
         '''
-        # Папка с файлами, содержащими информацию по всем классам объектов:
-        defalut_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                                   'labels_info')
+        # Сначала читаем указанные файлы:
 
-        # Если заданные пути не существуеют - берём файлы из defalut_dir:
-        if not os.path.isfile(labels_info):
-            labels_info = os.path.join(defalut_dir, labels_info)
-        if not os.path.isfile(superlabels_info):
-            superlabels_info = os.path.join(defalut_dir, superlabels_info)
+        if isinstance(labels2meanings, str):
+            df, type_ = _any_file2df(labels2meanings)
+            if type_ == 'labels':
+                self.labels_df = df
+            elif type_ == 'superlabels':
+                self.superlabels_df = df
+            else:
+                raise NotImplementedError(f'Неизвестный тип файла: {type_}!')
 
-        # Загружаем таблицы:
-        self.labels = read_labels2df(labels_info)
-        self.superlabels = read_superlabels2df(superlabels_info)
+        if isinstance(meanings2superlabels, str):
+            df, type_ = _any_file2df(meanings2superlabels)
+            if type_ == 'labels':
+                if hasattr(self, 'labels_df'):
+                    raise ValueError('Передано два файла классов!')
+                self.labels_df = df
+            elif type_ == 'superlabels':
+                if hasattr(self, 'superlabels_df'):
+                    raise ValueError('Передано два файла суперклассов!')
+                self.superlabels_df = df
+            else:
+                raise NotImplementedError(f'Неизвестный тип файла: {type_}!')
 
-        # Строим дерево классов:
-        self.tree = labels2tree(self.labels)
-        # self.tree.show()
+        # Теперь разбираемся со словарями:
 
-        # Создаём словари перехода от меток к их расшифровкам:
-        self.cvat_label2label_meaning, self.uuid2label_meaning = \
-            make_label2label_meaning_dicts(self.tree)
+        if isinstance(labels2meanings, dict):
+            if hasattr(self, 'labels_df'):
+                self.meanings2superlabels = labels2meanings
+            else:
+                self.labels2meanings = labels2meanings
 
-        # Строим словари номер_суперкласса <-> имя_суперкласса
-        # (используется в YOLO):
-        self.yolo_label2superlabel_meaning = \
-            make_yolo_label2superlabel_meaning(self.superlabels)
-        self.superlabel_meaning2yolo_label = {
-            v.lower(): k for k, v in self.yolo_label2superlabel_meaning.items()
-        }
+        if isinstance(meanings2superlabels, dict):
+            if hasattr(self, 'superlabels_df'):
+                self.labels2meanings = meanings2superlabels
+            else:
+                self.meanings2superlabels = meanings2superlabels
 
-        assert len(self.yolo_label2superlabel_meaning) == \
-            len(self.superlabel_meaning2yolo_label)
+        # Наконец парсим все датафреймы, полученные из файлов:
 
-        # Словарь номер_класса -> расшифровка_класса (в отличие от
-        # yolo_label2superlabel_meaning не включает не используемый класс):
-        self.yolo_label_ind2superlabel_meaning = {
-            k: v for k, v in self.yolo_label2superlabel_meaning.items()
-            if k is not None
-        }
+        if hasattr(self, 'labels_df'):
+            tree = _labels_df2tree(self.labels_df)
+            _labels2meanings, _synonyms2meanings = _make_labels2meanings(tree)
 
-        # Строим словарь перехода от имён классов к именам суперклассов
-        self.label_meaning2superlabel_meaning = \
-            make_label_meaning2superlabel_meaning(self.superlabels)
+            # Объединяем словари меток и их синонимов:
+            labels2meanings = _labels2meanings | _synonyms2meanings
 
-        # Списки расшифровок классов, имеющих свои метки:
-        self.cvat_meanings_list = [self.cvat_label2label_meaning[label.lower()]
-                                   for label in self.labels[cvat_label_column]
-                                   if pd.notna(label)]
-        self.uuid_meanings_list = [self.uuid2label_meaning[label.lower()]
-                                   for label in self.labels[uuid_label_column]
-                                   if pd.notna(label)]
+            self.tree = tree
+            self._labels2meanings = _labels2meanings
+            self._synonyms2meanings = _synonyms2meanings
+            self.labels2meanings = labels2meanings
 
-        # Общие списки расшифровок классов и суперклассов:
-        self.superlabel_meaning_list = \
-            list(self.yolo_label2superlabel_meaning.values())
-        cvat_label_meaning_list = list(self.cvat_label2label_meaning.values())
-        uuid2label_meaning_list = list(self.uuid2label_meaning.values())
-        self.label_meaning_list = cvat_label_meaning_list + \
-            uuid2label_meaning_list
+        if hasattr(self, 'superlabels_df'):
+            self.meanings2superlabels, self.superlabels2superinds = \
+                _make_meanings2superlabels2superinds(self.superlabels_df)
 
-        # Отбрасываем повторения в списках:
-        self.cvat_meanings_list = list(dict.fromkeys(self.cvat_meanings_list))
-        self.uuid_meanings_list = list(dict.fromkeys(self.uuid_meanings_list))
-        self.superlabel_meaning_list = \
-            list(dict.fromkeys(self.superlabel_meaning_list))
+        # Пытаемся построить словари полного перехода
+        # label/synonym -> meaning -> superlabel[ -> superind]:
+        if hasattr(self, 'labels2meanings') and \
+                hasattr(self, 'meanings2superlabels'):
+            self.labels2superlabels = {}
+            for label, meaning in self.labels2meanings.items():
+                if meaning in self.meanings2superlabels:
+                    superlabel = self.meanings2superlabels[meaning]
+                    self.labels2superlabels[label] = superlabel
 
-        # Создаём счётчики классов каждого датасета и суперклассов:
-        self.cvat_counter, self.uuid_counter, self.superlabel_counter = \
-            map(init_df_counter, [self.cvat_meanings_list,
-                                  self.uuid_meanings_list,
-                                  self.superlabel_meaning_lis])
+            if hasattr(self, 'superlabels2superinds'):
+                self.labels2superinds = {}
+                for label, superlabel in self.labels2superlabels.items():
+                    if superlabel in self.superlabels2superinds:
+                        superind = self.superlabels2superinds[superlabel]
+                        self.labels2superinds[label] = superind
 
-        # Делаем экземпляр класса вызываемым:
+        # Устанавливаем функцию вызова:
         self.set_call(on_call)
+
+    def _get_end2end(self):
+        '''
+        Определяет переход, захватывающий всю доступную часть цепочки.
+        '''
+        for on_call, method in self.on_call2method.items():
+            if hasattr(self, method):
+                return on_call
+        raise Exception('Не найдено подходящих методов!')
 
     def set_call(self, on_call):
         '''
-        Устанавливае ф-ию __call__.
+        Меняет метод поведения экземпляра класса в случае вызова как функции.
         '''
-        # Если указано имя единственной ф-ии:
-        if isinstance(on_call, str):
-            if hasattr(self, on_call):
-                self.__call__ = getattr(self, on_call)
-            else:
-                raise ValueError(f'Несуществующая функция: {on_call}!')
+        if on_call == 'end2end':
+            on_call = self._get_end2end()
 
-        # Если указан целый список/кортеж имён функций, то проверяем
-        # корректность данных:
-        elif isinstance(on_call, (list, tuple)):
-            if not len(on_call):
-                raise ValueError('Список/кортеж функций пуст!')
-            for func in on_call:
-                if not isinstance(f, str):
-                    raise ValueError('Список/кортеж должен содержать ' +
-                                     f'строки. Получен: {type(func)}!')
-                elif not hasattr(self, func):
-                    raise ValueError(f'Несуществующая функция: {func}!')
+        method = self.on_call2method[on_call]
 
-        # Сборка комплексной функции:
-        def compose(self, arg):
-            for func in on_call:
-                arg = getattr(self, func)(arg)
-            return arg
-
-        self.__call__ = compose
-
-    # Возвращает новые счётчики классов:
-    def init_df_counter(self, source_type='superlabels', column_name='num'):
-
-        # На всякий случай принудительно переводим тип датасета в нижний
-        # регистр:
-        source_type = source_type.lower()
-
-        # Берём нужный уже инициированный датафрейм за основу:
-        if source_type == 'cvat':
-            df = self.cvat_counter
-        elif source_type == 'uuid':
-            df = self.uuid_counter
-        elif source_type == 'superlabels':
-            df = self.superlabel_counter
+        if hasattr(self, method):
+            self.call = getattr(self, method).__getitem__
         else:
-            raise ValueError(f'Неизвестный тип датасета: "{source_type}"!')
+            raise NotImplementedError('Неподдерживаемый переход: ' +
+                                      f'"{on_call}"!')
 
-        # Возвращаем копию датафрейма с заменой имени столбца на заданный:
-        return df.rename({'num': column_name}, axis='columns')
+        # Фиксируем текущий тип поведения:
+        self.on_call = on_call
 
-    # Конвертация метки любого типа в её расшифровку:
-    def label2meaning(self, label):
-
-        # Переводим в нижный регистр:
-        lower_label = label.lower()
-
-        # Ищем подходящюю расшифровку по словарям:
-        if lower_label in self.cvat_label2label_meaning:
-            label_meaning = self.cvat_label2label_meaning[lower_label]
-
-        elif lower_label in self.uuid2label_meaning:
-            label_meaning = self.uuid2label_meaning[lower_label]
-
-        else:
-            raise KeyError(f'Неизвестная метка "{label}"!')
-
-        return label_meaning
-
-    def label2yolo(self, label):
-        '''
-        Переводит метку из CVAT или иного датасета в номер суперкласса.
-        '''
-
-        # Переводим любую метку в её расшифровку:
-        label_meaning = self.label2meaning(label)
-
-        # Получаем расшифровку суперкласса:
-        superlabel_meaning = \
-            self.label_meaning2superlabel_meaning[label_meaning.lower()]
-
-        # Возвращаем индекс суперкласса:
-        return self.superlabel_meaning2yolo_label[superlabel_meaning.lower()]
+    def __call__(self, label):
+        return self.call(label)
 
     def apply2df(self, df):
         '''
-        Заменяет в датафрейме все метки на их номера.
+        Применяет конвертор ко всем меткам в датафрейме.
         '''
         # Делаем копию исходного датафрейма, чтобы не менять оригинал:
         df = df.copy()
@@ -520,51 +546,3 @@ label LabelsConvertor:
         df['label'] = df['label'].apply(self)
 
         return df
-
-    def apply2subtask(self, subtask):
-        '''
-        Заменяет в датафрейме подзадачи все метки на их номера.
-        '''
-        df, file, true_frames = subtask
-        return self.apply2df(df), file, true_frames
-
-
-def checkout_labels_in_tasks(tasks, labels_convertor):
-    '''
-    Формирует список неподдерживаемых меток по всему списку задач.
-    '''
-    # Инициализация множества неподдерживаемых меток:
-    unsupported_labels = set()
-
-    # Перебор по всем задачам:
-    for task in tasks:
-
-        # Перебор по всем подзадачам:
-        for df, _, _ in task:
-
-            # Перебор по всем меткам в подзадаче:
-            for label in df['label'].unique():
-
-                # Добавляем все незнакомые метки в множество:
-                try:
-                    labels_convertor(label)
-                except KeyError as err:
-                    if label not in unsupported_labels:
-                        unsupported_labels.add(label)
-                        print('Неизвестная метка {:>50} :'.format(label), err)
-
-    return unsupported_labels
-
-
-def apply_labels_convertor2tasks(tasks, labels_convertor):
-    '''
-    Применяет labels_convertor ко всем классам во всех задачах.
-    Применяется для списка задач, загруженных, например, с помощью
-    cvat_backups2tasks из cvat.py.
-    '''
-    tasks_ = []
-    for task in tasks:
-        task = [(labels_convertor.apply2df(df), file, true_frames)
-                for df, file, true_frames in task]
-        tasks_.append(task)
-    return tasks_
