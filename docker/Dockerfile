@@ -92,7 +92,7 @@ ARG PYTHONMODULES="                                                      \
     open3d                                                               \
                                                                          \
     # YOLO и трекинг в ней + Roboflow:                                   \
-    ultralytics==8.3.228 lapx supervision                                \
+    ultralytics lapx supervision                                         \
                                                                          \
     # Большой банк предобученных CV-моделей                              \
     git+https://github.com/leondgarse/keras_cv_attention_models          \
@@ -132,7 +132,7 @@ com/PublicPackages/_packaging/onnxruntime-cuda-12/pypi/simple/           \
     # использовании CUDA 12 (см. https://onnxruntime.ai/docs/install/).  \
                                                                          \
     # Линтеры, стайлчекеры, тестеры и прочие утилиты работы с кодом:     \
-    cookiecutter-data-science pytest pycodestyle pycodestyle_magic       \
+    cookiecutter-data-science pytest-cov pycodestyle pycodestyle_magic   \
     python-lsp-server[all] jupyterlab-lsp black[jupyter] ruff            \
     isort[requirements_deprecated_finder,pipfile_deprecated_finder]      \
     flake8 nbqa pylint wemake-python-styleguide ondivi                   \
