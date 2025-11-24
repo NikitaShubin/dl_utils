@@ -19,8 +19,6 @@
 .
 """
 
-
-
 from pathlib import Path
 from typing import ClassVar
 
@@ -30,33 +28,34 @@ from treelib import Tree
 from utils import rim2arabic
 
 # Имена столбцов в labels.xlsx:
-label_column = "Метка в CVAT"                       # Имя класса (метка)
-synonym_column = "Метка в другом источнике данных"  # Синоним класса
+label_column = 'Метка в CVAT'  # Имя класса (метка)
+synonym_column = 'Метка в другом источнике данных'  # Синоним класса
 
 # Имена столбцов в superlabels.xlsx:
-superlabel_column = "Наименование суперкласса"         # Имена суперклассов
-scl_clsnme_column = "Классы (содержимое суперкласса)"  # Имена классов
-scl_number_column = "№ п/п"      # Номера суперклассов
-scl_prrity_column = "Приоритет"  # Приоритет суперклассов
+superlabel_column = 'Наименование суперкласса'  # Имена суперклассов
+scl_clsnme_column = 'Классы (содержимое суперкласса)'  # Имена классов
+scl_number_column = '№ п/п'  # Номера суперклассов
+scl_prrity_column = 'Приоритет'  # Приоритет суперклассов
 
 
-def _fix_string(val: str) -> str:
+def _fix_string(lbl: str) -> str:
     """Чуть корректирует значения ячеек в xlsx-таблице.
 
     Заменяет неправильные пробелы на правильные и убирает пробелы в начале и
     конце.
     """
-    return val.replace("\xa0", " ").strip() if isinstance(val, str) else val
+    return lbl.replace('\xa0', ' ').strip() if isinstance(lbl, str) else lbl
 
 
-def _file2labels_df(file: str) -> pd.DataFrame:
+def _file2labels_df(file_path: str) -> pd.DataFrame:
     """Загружает xlsx-файл со списком классов."""
     # Загружаем полный список классов:
-    df = pd.read_excel(file, engine="openpyxl")
+    df = pd.read_excel(file_path, engine='openpyxl')
 
     # Отбрасываем столбцы, чьи имена не заданы явно:
-    df = df.drop(columns=[column for column in df.columns
-                          if "Unnamed: " in column])
+    df = df.drop(
+        columns=[column for column in df.columns if 'Unnamed: ' in column]
+    )
 
     # Подчищаем данные в таблице:
     for column in df.columns:
@@ -69,10 +68,10 @@ def _file2labels_df(file: str) -> pd.DataFrame:
     return df[~df.index.isna()]
 
 
-def _file2superlabels_df(file: str) -> pd.DataFrame:
+def _file2superlabels_df(file_path: str) -> pd.DataFrame:
     """Загружает xlsx-файл со списком суперклассов."""
     # Читаем список суперклассов:
-    df = pd.read_excel(file, engine="openpyxl")
+    df = pd.read_excel(file_path, engine='openpyxl')
 
     # Подчищаем данные в таблице:
     for column in df.columns:
@@ -80,15 +79,13 @@ def _file2superlabels_df(file: str) -> pd.DataFrame:
 
     # Заполняем пропуски:
     for ind in range(len(df)):
-
         # Считываем текущие значения в строке:
         cur_superlabel_name = df.iloc[ind][superlabel_column]  # Имя
-        cur_scl_number = df.iloc[ind][scl_number_column]       # Номер
-        cur_scl_priority = df.iloc[ind][scl_prrity_column]     # Приоритет
+        cur_scl_number = df.iloc[ind][scl_number_column]  # Номер
+        cur_scl_priority = df.iloc[ind][scl_prrity_column]  # Приоритет
 
         # Если cur_superlabel_name не NaN, значит это новый класс:
         if pd.notna(cur_superlabel_name):
-
             # Остальные параметры тоже должны быть не NaN:
             if pd.isna(cur_scl_number):
                 raise ValueError(cur_scl_number)
@@ -98,8 +95,8 @@ def _file2superlabels_df(file: str) -> pd.DataFrame:
             # Читаем из строки действительные значения для текущего
             # суперкласса:
             superlabel_name = cur_superlabel_name  # Имя
-            scl_number = cur_scl_number            # Номер
-            scl_priority = cur_scl_priority        # Приоритет
+            scl_number = cur_scl_number  # Номер
+            scl_priority = cur_scl_priority  # Приоритет
 
         # Если cur_superlabel_name = NaN, тострока не дозаполнена:
         else:
@@ -111,8 +108,8 @@ def _file2superlabels_df(file: str) -> pd.DataFrame:
 
             # Пишем в строку пропущенные значения для текущего суперкласса:
             df.loc[ind, superlabel_column] = superlabel_name  # Имя
-            df.loc[ind, scl_number_column] = scl_number       # Номер
-            df.loc[ind, scl_prrity_column] = scl_priority     # Приоритет
+            df.loc[ind, scl_number_column] = scl_number  # Номер
+            df.loc[ind, scl_prrity_column] = scl_priority  # Приоритет
 
     # Приводим номера суперклассов к целочислоенному типу и сдвигаем, чтобы
     # суперкласс неиспользуемых объектов был под номером -1, а остальные
@@ -123,26 +120,26 @@ def _file2superlabels_df(file: str) -> pd.DataFrame:
     return df
 
 
-def _any_file2df(file: str) -> (pd.DataFrame, str):
+def _any_file2df(file_path: str) -> (pd.DataFrame, str):
     """Читает файл классов или суперклассов.
 
     Возвращает датафейрм и тип сожержимого (labels / superlabels).
     """
-    if not Path(file).is_file():
-        msg = f'Файла "{file}" не существует!'
+    if not Path(file_path).is_file():
+        msg = f'Файла "{file_path}" не существует!'
         raise FileNotFoundError(msg)
 
     exceptions = []
     for func, type_ in [
-        (_file2superlabels_df, "superlabels"),  # Суперклассы
-        (_file2labels_df, "labels"),            # Классы
+        (_file2superlabels_df, 'superlabels'),  # Суперклассы
+        (_file2labels_df, 'labels'),  # Классы
     ]:
         try:
-            return func(file), type_
-        except Exception as e:  # noqa: BLE001
-            exceptions.append(e)
+            return func(file_path), type_
+        except Exception as exception:  # noqa: BLE001
+            exceptions.append(exception)
 
-    msg = f'"{file}" не является файлом классов или суперклассов!'
+    msg = f'"{file_path}" не является файлом классов или суперклассов!'
     raise ExceptionGroup(
         msg,
         exceptions,
@@ -157,11 +154,10 @@ def _labels_df2tree(df: pd.DataFrame) -> Tree:
     """
     # Создаём дерево и указываем корень:
     tree = Tree()
-    tree.create_node("Номер класса", "Номер класса")
+    tree.create_node('Номер класса', 'Номер класса')
 
     # Перебор по всем строкам таблицы:
     for df_ind in df.index:
-
         # Имена класса для текущей строки:
         label = df[label_column][df_ind]
         synonym = df[synonym_column][df_ind]
@@ -179,12 +175,12 @@ def _labels_df2tree(df: pd.DataFrame) -> Tree:
         # расшифровку класса:
 
         # Заменяем нетипичные пробелы на типичные:
-        ind = df_ind.replace("\xa0", " ")
+        ind = df_ind.replace('\xa0', ' ')
         # Расщепляем строку на слова:
-        words = [word for word in ind.strip().split(" ") if word]
-        ind = words[0]              # Первое слово является позицией в списках
-        name = " ".join(words[1:])  # Остальные слова расшифровывают класс
-        if ind[-1] == ".":  # В конце индекса должна стоять точка:
+        words = [word for word in ind.strip().split(' ') if word]
+        ind = words[0]  # Первое слово является позицией в списках
+        name = ' '.join(words[1:])  # Остальные слова расшифровывают класс
+        if ind[-1] == '.':  # В конце индекса должна стоять точка:
             ind = ind[:-1]  # Отбрасываем её
         else:
             msg = f'Нехватает точки в конце строки "{ind}"!'
@@ -193,19 +189,17 @@ def _labels_df2tree(df: pd.DataFrame) -> Tree:
         # Парсим строку индекса и вносим данные в нужную ветку дерева:
 
         # Если индекс записан римскими цифрами:
-        if ind[0] not in "0123456789":
-
+        if ind[0] not in '0123456789':
             # Определяем ветку в дереве:
             group = rim2arabic(ind)
 
             # Вносим в дерево новые данные:
-            tree.create_node(name, (group,),
-                             parent="Номер класса", data=label)
+            tree.create_node(name, (group,), parent='Номер класса', data=label)
 
         # Если индекс записан арабскими цифрами::
         else:
             # Определяем ветку и листок в дереве:
-            ind = (group, *map(int, ind.split(".")))
+            ind = (group, *map(int, ind.split('.')))
             parent = tuple(ind[:-1])
 
             # Вносим в дерево новые данные:
@@ -216,71 +210,69 @@ def _labels_df2tree(df: pd.DataFrame) -> Tree:
 
 def _make_labels2meanings(tree: Tree) -> (dict, dict):
     """Формируем словари перехода от меток к их расшифровкам."""
-    labels2meanings = {}    # Label   -> расшифровка
+    labels2meanings = {}  # Label   -> расшифровка
     synonyms2meanings = {}  # Synonym -> расшифровка
 
     # Перебираем все строки таблицы классов:
     for node in tree.expand_tree(mode=Tree.DEPTH):
-
         # Пропускаем классы, не имеющие меток:
         if tree[node].data in (None, (None, None)):
             continue
 
         # Считываем параметры класса
-        meaning = tree[node].tag          # Расшифровка
+        meaning = tree[node].tag  # Расшифровка
         label, synonym = tree[node].data  # Метки
 
         # Вносим существующие метки в cvat-словарь:
         if label is not None:
-
             # Перевод в нижний регистр:
             label = label.lower()
 
             # Если такая метка уже встречалась:
             if label in labels2meanings:
-
                 # Выводим ошибку, если текущая расщифровка не совпадает с
                 # предыдущей:
-                if labels2meanings[label] != meaning:
+                cur_meaning = labels2meanings[label]  # noqa: WPS529
+                if cur_meaning != meaning:
                     error_str = (
                         f'Для метки "{label}" встретились'
                         'следующие несовпадающие расшифровки:\n'
-                        f'"{labels2meanings[label]}" и "{meaning}"!'
+                        f'"{cur_meaning}" и "{meaning}"!'
                     )
                     raise KeyError(error_str)
 
             # Добавляем метку, если она не встречалась:
             else:
-                labels2meanings[label] = meaning
+                labels2meanings[label] = meaning  # noqa: WPS529
 
         # Вносим существующие метки в gg-словарь:
         if synonym is not None:
-
             # Перевод в нижний регистр:
             synonym = synonym.lower()
 
             # Если такая метка уже встречалась:
             if synonym in synonyms2meanings:
-
                 # Выводим ошибку, если текущая расщифровка не совпадает с
                 # предыдущей:
-                if synonyms2meanings[synonym] != meaning:
+                cur_meaning = synonyms2meanings[synonym]  # noqa: WPS529
+                if cur_meaning != meaning:
                     error_str = (
                         f'Для метки "{synonym}" встретились '
                         'следующие несовпадающие расшифровки:\n'
-                        f'"{synonyms2meanings[synonym]}" и "{meaning}"!'
+                        f'"{cur_meaning}" и "{meaning}"!'
                     )
                     raise KeyError(error_str)
 
             # Добавляем метку, если она не встречалась:
             else:
-                synonyms2meanings[synonym] = meaning
+                synonyms2meanings[synonym] = meaning  # noqa: WPS529
 
     return labels2meanings, synonyms2meanings
 
 
-def _make_meanings2superlabels2superinds(superlabels_df: pd.DataFrame) -> \
-        (dict, dict):
+def _make_meanings2superlabels2superinds(
+    superlabels_df: pd.DataFrame,
+) -> (dict, dict):
     """Парсит датафрейм суперклассов.
 
     Строит из датафрейма словарь перехода от имени класса к имени
@@ -292,7 +284,6 @@ def _make_meanings2superlabels2superinds(superlabels_df: pd.DataFrame) -> \
 
     # Перебираем все строки датафрейма суперклассов:
     for row in superlabels_df.iloc:
-
         # Берём из строки нужные данные:
         meaning = row[scl_clsnme_column]
         superlabel = row[superlabel_column]
@@ -315,17 +306,17 @@ def _make_meanings2superlabels2superinds(superlabels_df: pd.DataFrame) -> \
 
         # Если такой индекс уже есть, проверяем совпадение:
         if superlabel in superlabels2superinds:
-            old_superind = superlabels2superinds[superlabel]
+            old_superind = superlabels2superinds[superlabel]  # noqa: WPS529
             if old_superind != superind:
                 msg = (
-                    "Противоречивые записи в суперклассе "
+                    'Противоречивые записи в суперклассе '
                     f'"{superlabel}": {old_superind} != {superind}!'
                 )
                 raise KeyError(msg)
 
         # Если такго индекса ещё нет, то вносим запись:
         else:
-            superlabels2superinds[superlabel] = superind
+            superlabels2superinds[superlabel] = superind  # noqa: WPS529
 
     return meanings2superlabels, superlabels2superinds
 
@@ -368,104 +359,115 @@ class LabelsConvertor:
     # в порядке убывания приоритета:
     on_call2method: ClassVar[dict] = {
         # label -> meaning -> superlabel -> superind:
-        "label2superind": "labels2superinds",
+        'label2superind': 'labels2superinds',
         # label -> meaning -> superlabel            :
-        "label2superlabel": "labels2superlabels",
+        'label2superlabel': 'labels2superlabels',
         #          meaning -> superlabel -> superind:
-        "meaning2superind": "meaning2superinds",
+        'meaning2superind': 'meaning2superinds',
         # label -> meaning                          :
-        "label2meaning": "labels2meanings",
+        'label2meaning': 'labels2meanings',
         #          meaning -> superlabel            :
-        "meaning2superlabel": "meanings2superlabels",
+        'meaning2superlabel': 'meanings2superlabels',
         #                     superlabel -> superind:
-        "superlabel2superind": "superlabels2superinds",
+        'superlabel2superind': 'superlabels2superinds',
     }
 
-    def _read_files(self,
-                    labels2meanings: str | dict,
-                    meanings2superlabels: str | dict | None) -> None:
+    def _read_files(
+        self,
+        labels2meanings: str | dict,
+        meanings2superlabels: str | dict | None,
+    ) -> None:
         """Пытается читать файлы."""
         if isinstance(labels2meanings, str):
             df, type_ = _any_file2df(labels2meanings)
-            if type_ == "labels":
+            if type_ == 'labels':
                 self.labels_df = df
-            elif type_ == "superlabels":
+            elif type_ == 'superlabels':
                 self.superlabels_df = df
             else:
-                msg = f"Неизвестный тип файла: {type_}!"
+                msg = f'Неизвестный тип файла: {type_}!'
                 raise NotImplementedError(msg)
 
         if isinstance(meanings2superlabels, str):
             df, type_ = _any_file2df(meanings2superlabels)
-            if type_ == "labels":
-                if hasattr(self, "labels_df"):
-                    msg = "Передано два файла классов!"
+            if type_ == 'labels':
+                if hasattr(self, 'labels_df'):
+                    msg = 'Передано два файла классов!'
                     raise ValueError(msg)
                 self.labels_df = df
-            elif type_ == "superlabels":
-                if hasattr(self, "superlabels_df"):
-                    msg = "Передано два файла суперклассов!"
+            elif type_ == 'superlabels':
+                if hasattr(self, 'superlabels_df'):
+                    msg = 'Передано два файла суперклассов!'
                     raise ValueError(msg)
                 self.superlabels_df = df
             else:
-                msg = f"Неизвестный тип файла: {type_}!"
+                msg = f'Неизвестный тип файла: {type_}!'
                 raise NotImplementedError(msg)
 
-    def _read_dicts(self,
-                    labels2meanings: str | dict,
-                    meanings2superlabels: str | dict | None) -> None:
+    def _read_dicts(
+        self,
+        labels2meanings: str | dict,
+        meanings2superlabels: str | dict | None,
+    ) -> None:
         """Пытается читать словари."""
         if isinstance(labels2meanings, dict):
-            if hasattr(self, "labels_df"):
+            if hasattr(self, 'labels_df'):
                 self.meanings2superlabels = labels2meanings
             else:
                 self.labels2meanings = labels2meanings
 
         if isinstance(meanings2superlabels, dict):
-            if hasattr(self, "superlabels_df"):
+            if hasattr(self, 'superlabels_df'):
                 self.labels2meanings = meanings2superlabels
             else:
                 self.meanings2superlabels = meanings2superlabels
 
     def _parse_dfs(self) -> None:
         """Пытается парсить датафреймы."""
-        if hasattr(self, "labels_df"):
+        if hasattr(self, 'labels_df'):
             tree = _labels_df2tree(self.labels_df)
-            _labels2meanings, _synonyms2meanings = _make_labels2meanings(tree)
-
-            # Объединяем словари меток и их синонимов:
-            labels2meanings = _labels2meanings | _synonyms2meanings
+            labels2meanings, synonyms2meanings = _make_labels2meanings(tree)
 
             self.tree = tree
-            self._labels2meanings = _labels2meanings
-            self._synonyms2meanings = _synonyms2meanings
-            self.labels2meanings = labels2meanings
+            self._labels2meanings = labels2meanings
+            self._synonyms2meanings = synonyms2meanings
 
-        if hasattr(self, "superlabels_df"):
-            self.meanings2superlabels, self.superlabels2superinds = \
+            # Объединяем словари меток и их синонимов:
+            self.labels2meanings = labels2meanings | synonyms2meanings
+
+        if hasattr(self, 'superlabels_df'):
+            meanings2superlabels, superlabels2superinds = (
                 _make_meanings2superlabels2superinds(self.superlabels_df)
+            )
+            self.meanings2superlabels = meanings2superlabels
+            self.superlabels2superinds = superlabels2superinds
 
     def _build_dicts(self) -> None:
         """Строит всевозможные словари перехода."""
-        if hasattr(self, "labels2meanings") and \
-                hasattr(self, "meanings2superlabels"):
+        if hasattr(self, 'labels2meanings') and hasattr(
+            self, 'meanings2superlabels'
+        ):
             self.labels2superlabels = {}
             for label, meaning in self.labels2meanings.items():
-                if meaning in self.meanings2superlabels:
-                    superlabel = self.meanings2superlabels[meaning]
+                meanings2slabels = self.meanings2superlabels  # Краткое имя
+                if meaning in meanings2slabels:
+                    superlabel = meanings2slabels[meaning]  # noqa: WPS529
                     self.labels2superlabels[label] = superlabel
 
-            if hasattr(self, "superlabels2superinds"):
+            if hasattr(self, 'superlabels2superinds'):
                 self.labels2superinds = {}
                 for label, superlabel in self.labels2superlabels.items():
-                    if superlabel in self.superlabels2superinds:
-                        superind = self.superlabels2superinds[superlabel]
+                    slabels2sinds = self.superlabels2superinds  # Краткое имя
+                    if superlabel in slabels2sinds:
+                        superind = slabels2sinds[superlabel]  # noqa: WPS529
                         self.labels2superinds[label] = superind
 
-    def __init__(self,
-                 labels2meanings: str | dict,
-                 meanings2superlabels: str | dict | None = None,
-                 on_call: str = "end2end") -> None:
+    def __init__(
+        self,
+        labels2meanings: str | dict,
+        meanings2superlabels: str | dict | None = None,
+        on_call: str = 'end2end',
+    ) -> None:
         """Создание конвертора.
 
         файл/словарь labels2meanings должен представлять собой переход
@@ -537,33 +539,43 @@ class LabelsConvertor:
         self._build_dicts()
 
         # Устанавливаем функцию вызова:
-        self.set_call(on_call)
+        self.on_call = on_call
 
     def _get_end2end(self) -> str:
         """Определяет переход, захватывающий всю доступную часть цепочки."""
         for on_call, method in self.on_call2method.items():
             if hasattr(self, method):
                 return on_call
-        msg = "Не найдено подходящих методов!"
+        msg = 'Не найдено подходящих методов!'
         raise NotImplementedError(msg)
 
-    def set_call(self, on_call: str) -> None:
-        """Меняет поведения экземпляра класса в случае вызова как функции."""
-        if on_call == "end2end":
+    @property
+    def on_call(self) -> str:
+        """Возвращает аттрибут on_call.
+
+        Указывает тип поведения экземпляра класса в случае вызова как функции.
+        """
+        return self._on_call
+
+    @on_call.setter
+    def on_call(self, on_call: str) -> None:
+        """Ставит аттрибут on_call.
+
+        Меняет поведения экземпляра класса в случае вызова как функции.
+        """
+        if on_call == 'end2end':
             on_call = self._get_end2end()
 
         method = self.on_call2method[on_call]
 
         if hasattr(self, method):
             self.call = getattr(self, method).__getitem__
+            self._on_call = on_call
         else:
             msg = f'Неподдерживаемый переход: {on_call}"!'
             raise NotImplementedError(
                 msg,
             )
-
-        # Фиксируем текущий тип поведения:
-        self.on_call = on_call
 
     def __call__(self, label: str | int | None) -> str | int | None:
         """Возвращает новую метку в соответствии с on_call."""
@@ -575,6 +587,6 @@ class LabelsConvertor:
         df = df.copy()
 
         # Замета меток на номера суперклассов:
-        df["label"] = df["label"].apply(self)
+        df['label'] = df['label'].apply(self)
 
         return df

@@ -2314,9 +2314,9 @@ def istarmap(self, func, iterable, chunksize=1):
 
     task_batches = pool.Pool._get_tasks(func, iterable, chunksize)
     result = pool.IMapIterator(self)
-    self._taskqueue.put((self._guarded_task_generation(result._job     ,
+    self._taskqueue.put((self._guarded_task_generation(result._job,
                                                        pool.starmapstar,
-                                                       task_batches    ),
+                                                       task_batches),
                          result._set_length))
 
     return (item for chunk in result for item in chunk)
