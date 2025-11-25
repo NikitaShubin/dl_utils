@@ -2,6 +2,11 @@
 name = 'dl_utils'
 version = "0.1.0"
 
+
+######################
+#        Ruff        #
+######################
+
 # Базовые настройки Ruff:
 [tool.ruff]
 line-length = 80
@@ -38,12 +43,30 @@ ignore = [
 quote-style = "single"
 
 
+######################
+#    WPS & Flake8    #
+######################
 
 # Интеграция WPS во flake8:
 [tool.flake8]
-select = "WPS"  # Используем только правила WPS
-ignore = "ALL"  # Игнорируем все остальные правила
 max-line-length = 80
-format = "wemake"  # Формат вывода (опционально)
+select = "WPS"      # Используем только правила WPS
+ignore = "ALL"      # Игнорируем все остальные правила
+format = "wemake"   # Формат вывода (опционально)
 show-source = true  # Показываем коды ошибок
 statistics = true
+
+
+######################
+#       Pytest       #
+######################
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = ["-v", "--strict-markers", "--strict-config"]
+pythonpath = ["."]
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "integration: marks tests as integration tests"
+]
+filterwarnings = ["error"]
