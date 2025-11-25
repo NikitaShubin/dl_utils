@@ -232,7 +232,7 @@ def _make_labels2meanings(tree: Tree) -> (dict, dict):
             if label in labels2meanings:
                 # Выводим ошибку, если текущая расщифровка не совпадает с
                 # предыдущей:
-                cur_meaning = labels2meanings[label]  # noqa: WPS529
+                cur_meaning = labels2meanings[label]
                 if cur_meaning != meaning:
                     error_str = (
                         f'Для метки "{label}" встретились'
@@ -243,7 +243,7 @@ def _make_labels2meanings(tree: Tree) -> (dict, dict):
 
             # Добавляем метку, если она не встречалась:
             else:
-                labels2meanings[label] = meaning  # noqa: WPS529
+                labels2meanings[label] = meaning
 
         # Вносим существующие метки в gg-словарь:
         if synonym is not None:
@@ -254,7 +254,7 @@ def _make_labels2meanings(tree: Tree) -> (dict, dict):
             if synonym in synonyms2meanings:
                 # Выводим ошибку, если текущая расщифровка не совпадает с
                 # предыдущей:
-                cur_meaning = synonyms2meanings[synonym]  # noqa: WPS529
+                cur_meaning = synonyms2meanings[synonym]
                 if cur_meaning != meaning:
                     error_str = (
                         f'Для метки "{synonym}" встретились '
@@ -265,7 +265,7 @@ def _make_labels2meanings(tree: Tree) -> (dict, dict):
 
             # Добавляем метку, если она не встречалась:
             else:
-                synonyms2meanings[synonym] = meaning  # noqa: WPS529
+                synonyms2meanings[synonym] = meaning
 
     return labels2meanings, synonyms2meanings
 
@@ -306,7 +306,7 @@ def _make_meanings2superlabels2superinds(
 
         # Если такой индекс уже есть, проверяем совпадение:
         if superlabel in superlabels2superinds:
-            old_superind = superlabels2superinds[superlabel]  # noqa: WPS529
+            old_superind = superlabels2superinds[superlabel]
             if old_superind != superind:
                 msg = (
                     'Противоречивые записи в суперклассе '
@@ -316,12 +316,12 @@ def _make_meanings2superlabels2superinds(
 
         # Если такго индекса ещё нет, то вносим запись:
         else:
-            superlabels2superinds[superlabel] = superind  # noqa: WPS529
+            superlabels2superinds[superlabel] = superind
 
     return meanings2superlabels, superlabels2superinds
 
 
-class LabelsConvertor:
+class LabelsConvertor(dict):
     """Класс-утилита для замены имён меток в разметке.
 
     Используется следующая внутренняя терминология:
@@ -338,7 +338,7 @@ class LabelsConvertor:
     варианты.
 
     Чаще всего экземпляр класса используется как переход:
-        "end2end"          - использует масимально возможную часть полной
+        "auto"          - использует масимально возможную часть полной
                              цепочки перехода (многие варианты инициализации
                              объекта предологают лишь частичную определённость
                              полной цепочки);
@@ -357,7 +357,7 @@ class LabelsConvertor:
 
     # "Тип перехода -> соответствующий словарь"
     # в порядке убывания приоритета:
-    on_call2method: ClassVar[dict] = {
+    main_dict_name2attrib: ClassVar[dict] = {
         # label -> meaning -> superlabel -> superind:
         'label2superind': 'labels2superinds',
         # label -> meaning -> superlabel            :
@@ -451,7 +451,7 @@ class LabelsConvertor:
             for label, meaning in self.labels2meanings.items():
                 meanings2slabels = self.meanings2superlabels  # Краткое имя
                 if meaning in meanings2slabels:
-                    superlabel = meanings2slabels[meaning]  # noqa: WPS529
+                    superlabel = meanings2slabels[meaning]
                     self.labels2superlabels[label] = superlabel
 
             if hasattr(self, 'superlabels2superinds'):
@@ -459,14 +459,14 @@ class LabelsConvertor:
                 for label, superlabel in self.labels2superlabels.items():
                     slabels2sinds = self.superlabels2superinds  # Краткое имя
                     if superlabel in slabels2sinds:
-                        superind = slabels2sinds[superlabel]  # noqa: WPS529
+                        superind = slabels2sinds[superlabel]
                         self.labels2superinds[label] = superind
 
     def __init__(
         self,
         labels2meanings: str | dict,
         meanings2superlabels: str | dict | None = None,
-        on_call: str = 'end2end',
+        main_dict: str = 'auto',
     ) -> None:
         """Создание конвертора.
 
@@ -513,18 +513,21 @@ class LabelsConvertor:
         # Примеры содержимого Excel-файлов представлены файлами
         # labels_template.xlsx и superlabels_template.xlsx.
 
-        on_call отвечает за поведение экземпляра класса при использовании его
+        main_dict отвечает за поведение экземпляра класса при использовании его
         как функции от одного аргумента:
             'label2superind'   - переход от метки класса к номеру суперкласса
                                  (конвертация в YOLO-формат);
             'label2superlabel' - переход от метки класса к метке суперкласса
                                  (подмена одних меток другими, например, при
                                  обработке результатов авторазметки);
-             'end2end'         - переход, задейсвтующий все переданные данные.
+             'auto'            - переход, задейсвтующий все переданные данные.
                                  Начало и конец зависят от того, какие данные
                                  переданы. В пределе это - полная цепочка:
                                  label -> meaning -> superlabel -> superind.
         """
+        # Инициируем основной словарь:
+        super().__init__()
+
         # Сначала читаем указанные файлы:
         self._read_files(labels2meanings, meanings2superlabels)
 
@@ -538,48 +541,55 @@ class LabelsConvertor:
         # label/synonym -> meaning -> superlabel[ -> superind]:
         self._build_dicts()
 
-        # Устанавливаем функцию вызова:
-        self.on_call = on_call
+        # Устанавливаем основной словарь:
+        self.main_dict = main_dict
 
-    def _get_end2end(self) -> str:
+    def _get_auto_dict_name(self) -> str:
         """Определяет переход, захватывающий всю доступную часть цепочки."""
-        for on_call, method in self.on_call2method.items():
-            if hasattr(self, method):
-                return on_call
+        for main_dict_name, attrib in self.main_dict_name2attrib.items():
+            if hasattr(self, attrib):
+                return main_dict_name
         msg = 'Не найдено подходящих методов!'
         raise NotImplementedError(msg)
 
     @property
-    def on_call(self) -> str:
-        """Возвращает аттрибут on_call.
+    def main_dict(self) -> str:
+        """Возвращает аттрибут main_dict.
 
         Указывает тип поведения экземпляра класса в случае вызова как функции.
         """
-        return self._on_call
+        return self._main_dict_name
 
-    @on_call.setter
-    def on_call(self, on_call: str) -> None:
-        """Ставит аттрибут on_call.
+    @main_dict.setter
+    def main_dict(self, main_dict_name: str) -> None:
+        """Ставит аттрибут main_dict.
 
         Меняет поведения экземпляра класса в случае вызова как функции.
         """
-        if on_call == 'end2end':
-            on_call = self._get_end2end()
+        # Определяем главный словарь автоматически, если надо:
+        if main_dict_name == 'auto':
+            main_dict_name = self._get_auto_dict_name()
 
-        method = self.on_call2method[on_call]
+        # Находим имя соответствующего словаря:
+        attrib = self.main_dict_name2attrib[main_dict_name]
 
-        if hasattr(self, method):
-            self.call = getattr(self, method).__getitem__
-            self._on_call = on_call
+        # Очищаем главный словарь:
+        self.clear()
+
+        # Если нужный словарь имеется в арсенале, то копируем его в главный:
+        if hasattr(self, attrib):
+            self |= getattr(self, attrib)
+            self._main_dict_name = main_dict_name
+
         else:
-            msg = f'Неподдерживаемый переход: {on_call}"!'
+            msg = f'Неподдерживаемый переход: {main_dict_name}"!'
             raise NotImplementedError(
                 msg,
             )
 
     def __call__(self, label: str | int | None) -> str | int | None:
-        """Возвращает новую метку в соответствии с on_call."""
-        return self.call(label)
+        """Возвращает новую метку в соответствии с основным словарём."""
+        return self[label]
 
     def apply2df(self, df: pd.DataFrame) -> pd.DataFrame:
         """Применяет конвертор ко всем меткам в датафрейме."""
