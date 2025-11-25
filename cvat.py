@@ -670,7 +670,13 @@ def apply_func2df_columns(df, func, columns=None):
     return df
 
 
-def df_list2tuple(df, columns=['points', 'attributes', 'elements']):
+# Определяем столбцы со списками:
+columns_with_list = [column for column, val in df_default_vals.items()
+                     if isinstance(val, list)]
+# Нужно для следующих двух функций.
+
+
+def df_list2tuple(df, columns=columns_with_list):
     '''
     Переводит все ячейки датафрейма со списками в ячейки с кортежами.
     Используется для хеширования данных.
@@ -678,7 +684,7 @@ def df_list2tuple(df, columns=['points', 'attributes', 'elements']):
     return apply_func2df_columns(df, list2tuple, columns)
 
 
-def df_tuple2list(df, columns=['points', 'attributes', 'elements']):
+def df_tuple2list(df, columns=columns_with_list):
     '''
     Переводит все ячейки датафрейма со кортежами в ячейки с списками.
     Используется для восстановления данных после хеширования.
