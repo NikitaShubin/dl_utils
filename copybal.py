@@ -91,6 +91,10 @@ def build_unigue_track_id(file, task_id, subtask_id, track_id, label):
     '''
     Собирает строку идентификации объектов.
     '''
+    # Если имеется целый ряд файлов, фиксируем папку первого из них:
+    if isinstance(file, (list, tuple)):
+        file = os.path.join(os.path.dirname(file[0]), '*')
+
     # Разделяющий знак не должен встречаться в составляющих:
     assert sep_char not in file
     assert sep_char not in label
@@ -101,7 +105,7 @@ def build_unigue_track_id(file, task_id, subtask_id, track_id, label):
 def split_unigue_track_id(track_id):
     '''
     Разбивает строку идентификации объектов на составляющие.
-    Операция, обратная к build_unigue_track_id.
+    Операция, частично обратная к build_unigue_track_id.
     '''
     # Само разбиение:
     file, task_id, subtask_id, track_id, label = track_id.split(sep_char)
