@@ -362,6 +362,32 @@ class CoreLabelsConvertor(dict):
         """Возвращает сам словарь."""
         return dict(self)
 
+    def get_unknown_labels(
+        self, labels: list | tuple | set | pd.DataFrame
+    ) -> set:
+        """Возвращает множество "неизвестных" словарю меток.
+
+        Может исопльзоваться для проверки применимости словаря:
+        ```
+        unknown_labels = lc.get_unknown_labels(labels)
+        if unknown_labels:
+            raise KeyError(f"Неизвестные метки: {unknown_labels}!")
+        ```
+        """
+        # Преобразуем набор меток лбого типа во множество:
+        if isinstance(labels, pd.DataFrame):
+            labels = set(labels['labels'].unique())
+        elif isinstance(labels, (list, tuple)):
+            labels = set(labels)
+        elif isinstance(labels, set):
+            pass
+        else:
+            msg = f'Неподдерживаемый тип набора меток: {type(labels)}!'
+            raise TypeError(msg)
+
+        # Получаем множество неизвестных меток:
+        return labels - set(self)
+
 
 class LabelsConvertor(CoreLabelsConvertor):
     """Класс-утилита для замены имён меток в разметке.
