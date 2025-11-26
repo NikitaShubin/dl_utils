@@ -78,19 +78,22 @@ def _file2superlabels_df(file_path: str) -> pd.DataFrame:
         df[column] = df[column].apply(_fix_string)
 
     # Заполняем пропуски:
-    for ind in range(len(df)):
+    msgs = []  # Список ошибок при чтении
+    for ind, dfrow in enumerate(df.iloc):
         # Считываем текущие значения в строке:
-        cur_superlabel_name = df.iloc[ind][superlabel_column]  # Имя
-        cur_scl_number = df.iloc[ind][scl_number_column]  # Номер
-        cur_scl_priority = df.iloc[ind][scl_prrity_column]  # Приоритет
+        cur_superlabel_name = dfrow[superlabel_column]  # Имя
+        cur_scl_number = dfrow[scl_number_column]  # Номер
+        cur_scl_priority = dfrow[scl_prrity_column]  # Приоритет
 
         # Если cur_superlabel_name не NaN, значит это новый класс:
         if pd.notna(cur_superlabel_name):
             # Остальные параметры тоже должны быть не NaN:
             if pd.isna(cur_scl_number):
-                raise ValueError(cur_scl_number)
+                msg = f'[{ind}, {superlabel_column}] = NaN'
+                msgs.append(msg)
             if pd.isna(cur_scl_priority):
-                raise ValueError(cur_scl_priority)
+                msg = f'[{ind}, {scl_prrity_column}] = NaN'
+                msgs.append(msg)
 
             # Читаем из строки действительные значения для текущего
             # суперкласса:
@@ -102,14 +105,20 @@ def _file2superlabels_df(file_path: str) -> pd.DataFrame:
         else:
             # Остальные параметры тоже должны быть NaN:
             if pd.notna(cur_scl_number):
-                raise ValueError(cur_scl_number)
+                msg = f'[{ind}, {superlabel_column}] = {cur_scl_number}'
+                msgs.append(msg)
             if pd.notna(cur_scl_priority):
-                raise ValueError(cur_scl_priority)
+                msg = f'[{ind}, {scl_prrity_column}] = {cur_scl_priority}'
+                msgs.append(msg)
 
             # Пишем в строку пропущенные значения для текущего суперкласса:
             df.loc[ind, superlabel_column] = superlabel_name  # Имя
             df.loc[ind, scl_number_column] = scl_number  # Номер
             df.loc[ind, scl_prrity_column] = scl_priority  # Приоритет
+
+    # Если найдена хоть одна проблема - возвращаем ошибку:
+    if msgs:
+        raise ValueError(msgs.join('\n'))
 
     # Приводим номера суперклассов к целочислоенному типу и сдвигаем, чтобы
     # суперкласс неиспользуемых объектов был под номером -1, а остальные
