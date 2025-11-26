@@ -217,6 +217,20 @@ def _labels_df2tree(df: pd.DataFrame) -> Tree:
     return tree
 
 
+def _check_meanin_missmatch(label: str, meaning1: str, meaning2: str) -> None:
+    """Возвращает ошибку, если расшифровки не совпадают.
+
+    Используется в _make_labels2meanings.
+    """
+    if meaning1 != meaning2:
+        error_str = (
+            f'Для метки "{label}" встретились'
+            'следующие несовпадающие расшифровки:\n'
+            f'"{meaning1}" и "{meaning2}"!'
+        )
+        raise KeyError(error_str)
+
+
 def _make_labels2meanings(tree: Tree) -> (dict, dict):
     """Формируем словари перехода от меток к их расшифровкам."""
     labels2meanings = {}  # Label   -> расшифровка
@@ -242,13 +256,7 @@ def _make_labels2meanings(tree: Tree) -> (dict, dict):
                 # Выводим ошибку, если текущая расщифровка не совпадает с
                 # предыдущей:
                 cur_meaning = labels2meanings[label]
-                if cur_meaning != meaning:
-                    error_str = (
-                        f'Для метки "{label}" встретились'
-                        'следующие несовпадающие расшифровки:\n'
-                        f'"{cur_meaning}" и "{meaning}"!'
-                    )
-                    raise KeyError(error_str)
+                _check_meanin_missmatch(label, cur_meaning, meaning)
 
             # Добавляем метку, если она не встречалась:
             else:
@@ -264,13 +272,7 @@ def _make_labels2meanings(tree: Tree) -> (dict, dict):
                 # Выводим ошибку, если текущая расщифровка не совпадает с
                 # предыдущей:
                 cur_meaning = synonyms2meanings[synonym]
-                if cur_meaning != meaning:
-                    error_str = (
-                        f'Для метки "{synonym}" встретились '
-                        'следующие несовпадающие расшифровки:\n'
-                        f'"{cur_meaning}" и "{meaning}"!'
-                    )
-                    raise KeyError(error_str)
+                _check_meanin_missmatch(synonym, cur_meaning, meaning)
 
             # Добавляем метку, если она не встречалась:
             else:
