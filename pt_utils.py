@@ -67,6 +67,33 @@ class AutoDevice:
         return self.device
 
 
+def get_redused_shape(tensor, dim, keepdim):
+    """Получает форму выходного тензора после операции reduction."""
+    if dim is None:
+        # Возвращаем форму с единичными размерностями:
+        if keepdim:
+            return torch.Size([1] * tensor.dim())
+
+        # Скалярный результат:
+        else:
+            return torch.Size([])
+
+    # Приводим к кортежу и Нормализуем индексы размерностей:
+    if isinstance(dim, int):
+        dim = (dim,)
+    dim = tuple(d if d >= 0 else tensor.dim() + d for d in dim)
+
+    # Заменяем указанные размерности на 1:
+    if keepdim:
+        return torch.Size(s if i in dim else 1
+                          for i, s in enumerate(tensor.shape))
+
+    # Убираем указанные размерности:
+    else:
+        return torch.Size(s for i, s in enumerate(tensor.shape)
+                          if i not in dim)
+
+
 def has_var_sufficient_elements(tensor, dim, correction):
     """Проверяет, достаточно ли элементов для вычисления дисперсии.
 
