@@ -81,6 +81,7 @@ import numpy  as np
 from tqdm  import tqdm
 
 from utils import mpmap
+from pt_utils import safe_var
 
 
 # Знак, разделяющий строку идентификации объектов:
@@ -91,6 +92,10 @@ def build_unigue_track_id(file, task_id, subtask_id, track_id, label):
     '''
     Собирает строку идентификации объектов.
     '''
+    # Если имеется целый ряд файлов, фиксируем папку первого из них:
+    if isinstance(file, (list, tuple)):
+        file = os.path.join(os.path.dirname(file[0]), '*')
+
     # Разделяющий знак не должен встречаться в составляющих:
     assert sep_char not in file
     assert sep_char not in label
@@ -101,7 +106,7 @@ def build_unigue_track_id(file, task_id, subtask_id, track_id, label):
 def split_unigue_track_id(track_id):
     '''
     Разбивает строку идентификации объектов на составляющие.
-    Операция, обратная к build_unigue_track_id.
+    Операция, частично обратная к build_unigue_track_id.
     '''
     # Само разбиение:
     file, task_id, subtask_id, track_id, label = track_id.split(sep_char)
@@ -272,7 +277,7 @@ def torch_copy_bal(files                            : 'Список имён ф�
                     objects = torch.concat(objects, -1)
                     
                     # Подсчитываем дисперсию появления объектов в пределах одного класса:
-                    object_var = objects.var(-1, keepdim=True)
+                    object_var = safe_var(objects, dim=-1, keepdim=True)
                     
                     # Вносим эту дисперсию в список элементов функции потерь:
                     object_loss.append(object_var)
@@ -303,7 +308,7 @@ def torch_copy_bal(files                            : 'Список имён ф�
                     superclass = torch.concat(superclass, -1)
                     
                     # Получаем дисперсию и вносим её в список элементов функции потерь:
-                    class_var = superclass.var(-1, keepdim=True)
+                    class_var = safe_var(superclass, dim=-1, keepdim=True)
                     class_loss.append(class_var)
                     
                     # Объединяем все счётчики, получая общее число появлений суперкласса во всём датасете:
@@ -320,10 +325,10 @@ def torch_copy_bal(files                            : 'Список имён ф�
             class_loss = torch.concat(class_loss).mean()
             
             # Межсуперклассовая дисперсия:
-            superclass_loss = torch.concat(list(superclasses.values())).var()
+            superclass_loss = safe_var(torch.concat(list(superclasses.values())))
             
             # Дисперсия счётчиков дублей (для предотвращения слишком большой неровномерности дублирования):
-            files_counter_loss = files_counter.var()
+            files_counter_loss = safe_var(files_counter)
             
             # Общая функция потерь:
             loss = files_counter_loss + object_loss + class_loss + superclass_loss

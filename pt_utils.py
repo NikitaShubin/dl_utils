@@ -67,6 +67,88 @@ class AutoDevice:
         return self.device
 
 
+def get_redused_shape(tensor, dim, keepdim):
+    """Получает форму выходного тензора после операции reduction."""
+    if dim is None:
+        # Возвращаем форму с единичными размерностями:
+        if keepdim:
+            return torch.Size([1] * tensor.dim())
+
+        # Скалярный результат:
+        else:
+            return torch.Size([])
+
+    # Приводим к кортежу и Нормализуем индексы размерностей:
+    if isinstance(dim, int):
+        dim = (dim,)
+    dim = tuple(d if d >= 0 else tensor.dim() + d for d in dim)
+
+    # Заменяем указанные размерности на 1:
+    if keepdim:
+        return torch.Size(s if i in dim else 1
+                          for i, s in enumerate(tensor.shape))
+
+    # Убираем указанные размерности:
+    else:
+        return torch.Size(s for i, s in enumerate(tensor.shape)
+                          if i not in dim)
+
+
+def has_var_sufficient_elements(tensor, dim, correction):
+    """Проверяет, достаточно ли элементов для вычисления дисперсии.
+
+    Используется в safe_var.
+    """
+    # Для случая без размерности:
+    if dim is None:
+        return tensor.numel() > correction
+
+    # Для случая с размерностью:
+    else:
+        # Делаем размерности кортежем:
+        if isinstance(dim, int):
+            dim = (dim,)
+
+        # Оценка prod(size(dim)):
+        total_elements = 1
+        for d in dim:
+            d = d if d >= 0 else tensor.dim() + d
+            total_elements *= tensor.size(d)
+
+        return total_elements > correction
+
+
+def safe_var(tensor, dim=None, keepdim=False, correction=1, default_value=0.0):
+    """
+    Безопасное вычисление дисперсии с проверкой достаточности количества
+    элементов.
+
+    Args:
+        tensor        - входной тензор;
+        dim           - размерность или кортеж размерностей для вычисления
+                        дисперсии;
+        keepdim       - сохранять ли размерность;
+        correction    - поправка на степени свободы (аналог ddof);
+        default_value - значение по умолчанию при недостаточном количестве
+                        элементов.
+
+    Returns:
+        Тензор с дисперсией или default_value.
+    """
+    # Элементов достаточно - вычисляем дисперсию:
+    if has_var_sufficient_elements(tensor, dim, correction):
+        return tensor.var(dim=dim, keepdim=keepdim, correction=correction)
+
+    # Элементов недостаточно - возвращаем значение по умолчанию:
+
+    # Оцениваем размер итогового тензора:
+    redused_shape = get_redused_shape(tensor, dim=dim, keepdim=keepdim)
+
+    # Формируем итоговый тензор с нужными значениями:
+    return torch.full(redused_shape, default_value,
+                      device=tensor.device, dtype=tensor.dtype)
+
+
 class SegDataset(Dataset):
     '''
     Датасет для данных с сегментацией.
