@@ -19,13 +19,13 @@
 ### ⚙️ Авторазметка
 - **[samal.py](./docs/samal.md "Перейти к документации")**: Автоматическая сегментация изображений с [SAM](https://github.com/facebookresearch/segment-anything "Перейти к репозиторию")
 - **[sam2al.py](./docs/sam2al.md "Перейти к документации")**: Автоматическая сегментация видео с [SAM2](https://github.com/facebookresearch/sam2 "Перейти к репозиторию")
-- **[dinoal.py](./docs/dinoal.md "Перейти к документации")**: Автоматическая детекция объектов с [DINO](https://github.com/IDEA-Research/GroundingDINO "Перейти к репозиторию")
+- **[gdinoal.py](./docs/gdinoal.md "Перейти к документации")**: Автоматическая детекция объектов с [DINO](https://github.com/IDEA-Research/GroundingDINO "Перейти к репозиторию")
 
 ### 🏷️ Работа с CVAT
 - **[cvat.py](./docs/cvat.md "Перейти к документации")**: API клиент для CVAT
 - **[cvat_srv.py](./docs/cvat_srv.md "Перейти к документации")**: Утилиты для работы серверных задач CVAT
 - **[copybal.py](./docs/copybal.md "Перейти к документации")**: Балансировка датасетов между проектами CVAT
-- **[classes.py](./docs/classes.md "Перейти к документации")**: Работа с метками, используя таблицы [классов](classes_template.xlsx "перейти к примеру файла") и [суперклассов](superclasses_template.xlsx "перейти к примеру файла")
+- **[labels.py](./docs/labels.md "Перейти к документации")**: Работа с метками, используя таблицы [меток](./docs/labels_template.xlsx.md "перейти к документации") и [суперметок](./docs/superlabels_template.xlsx.md "перейти к документации")
 
 ### 🤖 Глубокое обучение
 - **[pt_utils.py](./docs/pt_utils.md "Перейти к документации")**: Утилиты для PyTorch (работа с моделями, данными)
@@ -41,56 +41,59 @@
 
 ```mermaid
 graph RL;
-    node_0[pt_utils];
-    node_1[copybal];
-    node_2[seg];
-    node_3[sam2al];
-    node_4[alb_utils];
-    node_5[ipy_utils];
-    node_6[tf_utils];
-    node_7[video_utils];
+    node_1[yolo];
+    node_2[tf_utils];
+    node_3[samal];
+    node_4[onnx_utils];
+    node_5[copybal];
+    node_6[utils];
+    node_7[tfmot_utils];
     node_8[cvat_srv];
-    node_9[cvat];
-    node_10[yolo];
-    node_11[onnx_utils];
-    node_12[cv_utils];
-    node_13[samal];
-    node_14[tfmot_utils];
-    node_15[keras_utils];
-    node_17[classes];
-    node_16[dinoal];
-    node_18[utils];
-    node_19[ml_utils];
+    node_9[ml_utils];
+    node_10[seg];
+    node_11[ipy_utils];
+    node_12[ul_utils];
+    node_13[keras_utils];
+    node_14[sam2al];
+    node_15[gdinoal];
+    node_16[labels];
+    node_17[cvat];
+    node_18[pt_utils];
+    node_19[alb_utils];
+    node_20[cv_utils];
+    node_21[video_utils];
     %% Выравнивание стоков на одном уровне
     subgraph SinkGroup [ ]
         direction LR
-        node_0
+        node_6
         node_18
     end
     style SinkGroup fill:none,stroke:none;
-    node_1 --> node_18;
-    node_2 --> node_9;
-    node_3 --> node_13;
-    node_4 --> node_18;
-    node_5 --> node_9;
-    node_6 --> node_4;
-    node_7 --> node_18;
-    node_8 --> node_9;
-    node_9 --> node_7;
-    node_9 --> node_12;
-    node_10 --> node_1;
-    node_10 --> node_19;
-    node_10 --> node_9;
-    node_11 --> node_19;
-    node_12 --> node_18;
-    node_13 --> node_0;
-    node_13 --> node_9;
-    node_14 --> node_15;
+    node_1 --> node_9;
+    node_1 --> node_17;
+    node_1 --> node_5;
+    node_2 --> node_19;
+    node_3 --> node_18;
+    node_3 --> node_17;
+    node_4 --> node_9;
+    node_5 --> node_6;
+    node_7 --> node_13;
+    node_8 --> node_17;
+    node_9 --> node_6;
+    node_10 --> node_17;
+    node_11 --> node_17;
+    node_12 --> node_17;
+    node_13 --> node_6;
+    node_14 --> node_18;
+    node_14 --> node_10;
     node_15 --> node_18;
-    node_16 --> node_0;
-    node_16 --> node_9;
-    node_17 --> node_18;
-    node_19 --> node_18;
+    node_15 --> node_17;
+    node_16 --> node_6;
+    node_17 --> node_20;
+    node_17 --> node_21;
+    node_19 --> node_6;
+    node_20 --> node_6;
+    node_21 --> node_6;
 ```
 </details>
 
