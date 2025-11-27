@@ -67,6 +67,30 @@ class AutoDevice:
         return self.device
 
 
+def has_var_sufficient_elements(tensor, dim, correction):
+    """Проверяет, достаточно ли элементов для вычисления дисперсии.
+
+    Используется в safe_var.
+    """
+    # Для случая без размерности:
+    if dim is None:
+        return tensor.numel() > correction
+
+    # Для случая с размерностью:
+    else:
+        # Делаем размерности кортежем:
+        if isinstance(dim, int):
+            dim = (dim,)
+
+        # Оценка prod(size(dim)):
+        total_elements = 1
+        for d in dim:
+            d = d if d >= 0 else tensor.dim() + d
+            total_elements *= tensor.size(d)
+
+        return total_elements > correction
+
+
 class SegDataset(Dataset):
     '''
     Датасет для данных с сегментацией.
