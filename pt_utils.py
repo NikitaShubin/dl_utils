@@ -118,6 +118,37 @@ def has_var_sufficient_elements(tensor, dim, correction):
         return total_elements > correction
 
 
+def safe_var(tensor, dim=None, keepdim=False, correction=1, default_value=0.0):
+    """
+    Безопасное вычисление дисперсии с проверкой достаточности количества
+    элементов.
+
+    Args:
+        tensor        - входной тензор;
+        dim           - размерность или кортеж размерностей для вычисления
+                        дисперсии;
+        keepdim       - сохранять ли размерность;
+        correction    - поправка на степени свободы (аналог ddof);
+        default_value - значение по умолчанию при недостаточном количестве
+                        элементов.
+
+    Returns:
+        Тензор с дисперсией или default_value.
+    """
+    # Элементов достаточно - вычисляем дисперсию:
+    if has_var_sufficient_elements(tensor, dim, correction):
+        return tensor.var(dim=dim, keepdim=keepdim, correction=correction)
+
+    # Элементов недостаточно - возвращаем значение по умолчанию:
+
+    # Оцениваем размер итогового тензора:
+    redused_shape = get_redused_shape(tensor, dim=dim, keepdim=keepdim)
+
+    # Формируем итоговый тензор с нужными значениями:
+    return torch.full(redused_shape, default_value,
+                      device=tensor.device, dtype=tensor.dtype)
+
+
 class SegDataset(Dataset):
     '''
     Датасет для данных с сегментацией.
