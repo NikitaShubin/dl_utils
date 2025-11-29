@@ -356,7 +356,7 @@ class CoreLabelsConvertor(dict):
         df = df.copy()
 
         # Замета меток на номера суперклассов:
-        df['label'] = df['label'].apply(self)
+        df['label'] = df['label'].map(self)
 
         return df
 
@@ -378,7 +378,7 @@ class CoreLabelsConvertor(dict):
         """
         # Преобразуем набор меток лбого типа во множество:
         if isinstance(labels, pd.DataFrame):
-            labels = set(labels['labels'].unique())
+            labels = set(labels['label'].unique())
         elif isinstance(labels, (list, tuple)):
             labels = set(labels)
         elif isinstance(labels, set):
