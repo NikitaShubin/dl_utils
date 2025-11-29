@@ -343,7 +343,8 @@ def torch_copy_bal(files                            : 'Список имён ф�
                 grads[grads > 0] = 0
                 
                 # Отсекаем все первышения значений счётчиков по порогу:
-                files_counter[files_counter > max_file_copy_num] = max_file_copy_num
+                if max_file_copy_num is not None:
+                    files_counter[files_counter > max_file_copy_num] = max_file_copy_num
                 
                 # Получаем вектор прирощения счётчика:
                 files_counter_diff = -lr * grads                     # Размер прирощения
