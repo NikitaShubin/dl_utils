@@ -1,39 +1,35 @@
-'''
+"""pt_utils.py
 ********************************************
 *   Набор самописных утилит для PyTorch.   *
 *                                          *
 ********************************************
-'''
+"""
 
 # if using Apple MPS, fall back to CPU for unsupported ops
 import os
-os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
 
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
-from torch.utils.data import Dataset
+os.environ['PYTORCH_ENABLE_MPS_FALLBACK'] = '1'
 
-from tqdm import tqdm
-import numpy as np
 import cv2
+import numpy as np
+import torch
+from torch import nn
+from torch.utils.data import Dataset
 
 
 class AutoDevice:
-    '''
-    Объект, упрощающий работу с вычислительными устройствами.
+    """Объект, упрощающий работу с вычислительными устройствами.
 
     Основан на https://github.com/facebookresearch/sam2/blob/main/notebooks/
     video_predictor_example.ipynb (Он же в коллабе: colab.research.google.com/
     github/facebookresearch/sam2/blob/main/notebooks/
     video_predictor_example.ipynb)
-    '''
+    """
 
     @staticmethod
     def get_avliable_device():
-        '''
-        Возвращает лучшее из доступных устройств для вычислений.
-        '''
+        """Возвращает лучшее из доступных устройств для вычислений.
+        """
         if torch.cuda.is_available():
             device = torch.device('cuda')
         elif torch.backends.mps.is_available():
@@ -44,9 +40,8 @@ class AutoDevice:
 
     @staticmethod
     def prepare_device(device):
-        '''
-        Подготавливает Torch к использованию заданного устройства.
-        '''
+        """Подготавливает Torch к использованию заданного устройства.
+        """
         if device.type == 'cuda':
             # use bfloat16 for the entire notebook
             torch.autocast('cuda', dtype=torch.bfloat16).__enter__()
@@ -75,8 +70,7 @@ def get_redused_shape(tensor, dim, keepdim):
             return torch.Size([1] * tensor.dim())
 
         # Скалярный результат:
-        else:
-            return torch.Size([])
+        return torch.Size([])
 
     # Приводим к кортежу и Нормализуем индексы размерностей:
     if isinstance(dim, int):
@@ -85,13 +79,12 @@ def get_redused_shape(tensor, dim, keepdim):
 
     # Заменяем указанные размерности на 1:
     if keepdim:
-        return torch.Size(s if i in dim else 1
-                          for i, s in enumerate(tensor.shape))
+        return torch.Size(
+            s if i in dim else 1 for i, s in enumerate(tensor.shape)
+        )
 
     # Убираем указанные размерности:
-    else:
-        return torch.Size(s for i, s in enumerate(tensor.shape)
-                          if i not in dim)
+    return torch.Size(s for i, s in enumerate(tensor.shape) if i not in dim)
 
 
 def has_var_sufficient_elements(tensor, dim, correction):
@@ -104,23 +97,21 @@ def has_var_sufficient_elements(tensor, dim, correction):
         return tensor.numel() > correction
 
     # Для случая с размерностью:
-    else:
-        # Делаем размерности кортежем:
-        if isinstance(dim, int):
-            dim = (dim,)
+    # Делаем размерности кортежем:
+    if isinstance(dim, int):
+        dim = (dim,)
 
-        # Оценка prod(size(dim)):
-        total_elements = 1
-        for d in dim:
-            d = d if d >= 0 else tensor.dim() + d
-            total_elements *= tensor.size(d)
+    # Оценка prod(size(dim)):
+    total_elements = 1
+    for d in dim:
+        d = d if d >= 0 else tensor.dim() + d
+        total_elements *= tensor.size(d)
 
-        return total_elements > correction
+    return total_elements > correction
 
 
 def safe_var(tensor, dim=None, keepdim=False, correction=1, default_value=0.0):
-    """
-    Безопасное вычисление дисперсии с проверкой достаточности количества
+    """Безопасное вычисление дисперсии с проверкой достаточности количества
     элементов.
 
     Args:
@@ -134,6 +125,7 @@ def safe_var(tensor, dim=None, keepdim=False, correction=1, default_value=0.0):
 
     Returns:
         Тензор с дисперсией или default_value.
+
     """
     # Элементов достаточно - вычисляем дисперсию:
     if has_var_sufficient_elements(tensor, dim, correction):
@@ -145,14 +137,14 @@ def safe_var(tensor, dim=None, keepdim=False, correction=1, default_value=0.0):
     redused_shape = get_redused_shape(tensor, dim=dim, keepdim=keepdim)
 
     # Формируем итоговый тензор с нужными значениями:
-    return torch.full(redused_shape, default_value,
-                      device=tensor.device, dtype=tensor.dtype)
+    return torch.full(
+        redused_shape, default_value, device=tensor.device, dtype=tensor.dtype
+    )
 
 
 class SegDataset(Dataset):
-    '''
-    Датасет для данных с сегментацией.
-    '''
+    """Датасет для данных с сегментацией.
+    """
 
     def __init__(self, path, transforms=None, num_classes=None):
         # Определяем имена подпапок:
@@ -167,21 +159,22 @@ class SegDataset(Dataset):
         assert set(source_files) == set(target_files)
 
         # Дополняем имена путями до их папок:
-        source_files = [os.path.join(source_path, file)
-                        for file in sorted(source_files)]
-        target_files = [os.path.join(target_path, file)
-                        for file in sorted(target_files)]
+        source_files = [
+            os.path.join(source_path, file) for file in sorted(source_files)
+        ]
+        target_files = [
+            os.path.join(target_path, file) for file in sorted(target_files)
+        ]
 
         # Фиксируем список пар файлов вход-выход:
         self.files = list(zip(source_files, target_files))
-        self.transforms = transforms    # Сохраняем трансформации
+        self.transforms = transforms  # Сохраняем трансформации
         self.num_classes = num_classes  # Сохраняем число классов
 
     def __len__(self):
         return len(self.files)
 
     def __getitem__(self, idx):
-
         # Открываем изображения:
         source_file, target_file = self.files[idx]
 
@@ -200,9 +193,8 @@ class SegDataset(Dataset):
 
 
 class Sender(nn.Module):
-    '''
-    Отправитель адресных сообщений.
-    '''
+    """Отправитель адресных сообщений.
+    """
 
     def __init__(self, in_channels, out_channels, kernel_size=3, **kwargs):
         super(Sender, self).__init__()
@@ -220,15 +212,14 @@ class Sender(nn.Module):
 
 
 class Receiver(nn.Module):
-    '''
-    Получатель адресных сообщений.
-    '''
+    """Получатель адресных сообщений.
+    """
+
     @staticmethod
     def pair(inp):
-        '''
-        Принудительно дублирует входную переменную если надо.
+        """Принудительно дублирует входную переменную если надо.
         Аналог troch.nn.modules.utils._pair.
-        '''
+        """
         if isinstance(inp, (list, tuple)):
             return inp
         return (inp, inp)
@@ -237,8 +228,8 @@ class Receiver(nn.Module):
         super(Receiver, self).__init__()
 
         kernel_h, kernel_w = self.pair(kernel_size)
-        padding_h = (kernel_h ** 2 - kernel_h * 3) // 2 + 1
-        padding_w = (kernel_w ** 2 - kernel_w * 3) // 2 + 1
+        padding_h = (kernel_h**2 - kernel_h * 3) // 2 + 1
+        padding_w = (kernel_w**2 - kernel_w * 3) // 2 + 1
         kwargs['in_channels'] = in_channels
         kwargs['out_channels'] = out_channels
         kwargs['kernel_size'] = kernel_size
@@ -252,7 +243,7 @@ class Receiver(nn.Module):
         return self.conv(*args, **kwargs)
 
 
-'''
+"""
 #######################################################
 # Проверка корректности размеров получаемых тензоров: #
 #######################################################
@@ -300,4 +291,4 @@ for kernel_size in tqdm(range(2, 20)):
         hid_h, hid_w = out_map.shape[-2:]
         assert hid_h == h
         assert hid_w == w
-'''
+"""

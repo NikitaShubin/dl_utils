@@ -1,6 +1,5 @@
 """Тесты для labels.py."""
 
-
 import pandas as pd
 import pytest
 
@@ -39,9 +38,7 @@ class TestLabelsConvertor:
 
     def test_init_with_both_files(self) -> None:
         """Тест инициализации с обоими файлами."""
-        lc = LabelsConvertor(
-            'labels_template.xlsx', 'superlabels_template.xlsx'
-        )
+        lc = LabelsConvertor('labels_template.xlsx', 'superlabels_template.xlsx')
         assert lc.main_dict == 'label2superind'
 
     def test_init_with_superlabels_file_only(self) -> None:
@@ -54,9 +51,7 @@ class TestLabelsConvertor:
         lc = LabelsConvertor('labels_template.xlsx')
         assert lc.main_dict == 'label2meaning'
 
-    def test_init_with_single_dict(
-        self, labels2meanings: dict[str, str]
-    ) -> None:
+    def test_init_with_single_dict(self, labels2meanings: dict[str, str]) -> None:
         """Тест инициализации с одним словарём."""
         lc = LabelsConvertor(labels2meanings)
         assert lc.main_dict == 'label2meaning'
@@ -84,11 +79,9 @@ class TestLabelsConvertor:
     ) -> None:
         """Тест поведения вызова для разных конфигураций."""
         test_cases = [
-            # (конвертор, ожидаемые преобразования)
+            # (конвертор, ожидаемые преобразования):
             (
-                LabelsConvertor(
-                    'labels_template.xlsx', 'superlabels_template.xlsx'
-                ),
+                LabelsConvertor('labels_template.xlsx', 'superlabels_template.xlsx'),
                 {'class': 1},  # label2superind
             ),
             (
@@ -109,21 +102,19 @@ class TestLabelsConvertor:
             for label, expected_result in expected.items():
                 assert lc(label) == expected_result
 
-    def test_get_unknown_labels(
-        self, labels2meanings: dict[str, str]
-    ) -> None:
+    def test_get_unknown_labels(self, labels2meanings: dict[str, str]) -> None:
         """Тест получения неизвестных меток."""
         lc = LabelsConvertor(labels2meanings)
 
-        # Тест с списком меток
+        # Тест с списком меток:
         unknown = lc.get_unknown_labels(['domain', 'unknown_label', 'class'])
         assert unknown == {'unknown_label'}
 
-        # Тест с множеством меток
+        # Тест с множеством меток:
         unknown = lc.get_unknown_labels({'unknown1', 'unknown2'})
         assert unknown == {'unknown1', 'unknown2'}
 
-        # Тест с DataFrame
+        # Тест с DataFrame:
         df = pd.DataFrame({'label': ['domain', 'unknown_label']})
         unknown = lc.get_unknown_labels(df)
         assert unknown == {'unknown_label'}
@@ -133,16 +124,16 @@ class TestLabelsConvertor:
         lc = LabelsConvertor(labels2meanings)
 
         df = pd.DataFrame(
-            {'label': ['domain', 'class', 'kingdom'],
-             'other_column': [1, 2, 3]}
+            {'label': ['domain', 'class', 'kingdom'], 'other_column': [1, 2, 3]}
         )
 
         result_df = lc.apply2df(df)
 
-        # Проверяем, что метки были преобразованы
+        # Проверяем, что метки были преобразованы:
         expected_labels = ['Домен', 'Класс', 'Царство']
         assert result_df['label'].tolist() == expected_labels
-        # Другие колонки не должны меняться
+
+        # Другие колонки не должны меняться:
         assert result_df['other_column'].tolist() == [1, 2, 3]
 
     def test_asdict(self, labels2meanings: dict[str, str]) -> None:
@@ -151,25 +142,22 @@ class TestLabelsConvertor:
         result_dict = lc.asdict()
 
         assert isinstance(result_dict, dict)
-        # Должен возвращать тот же словарь
-        assert result_dict == dict(lc)
+        assert result_dict == dict(lc)  # Должен возвращать тот же словарь
 
     def test_iteration(self) -> None:
         """Тест итерации по конвертору."""
         lc = LabelsConvertor('labels_template.xlsx')
 
-        # Конвертор должен быть итерируемым (как словарь)
+        # Конвертор должен быть итерируемым (как словарь):
         labels = list(lc)
         assert len(labels) > 0
         assert all(isinstance(label, str) for label in labels)
 
-    def test_unknown_label_handling(
-        self, labels2meanings: dict[str, str]
-    ) -> None:
+    def test_unknown_label_handling(self, labels2meanings: dict[str, str]) -> None:
         """Тест обработки неизвестных меток."""
         lc = LabelsConvertor(labels2meanings)
 
-        # Неизвестная метка должна вызывать KeyError при вызове
+        # Неизвестная метка должна вызывать KeyError при вызове:
         with pytest.raises(KeyError):
             lc('unknown_label')
 
@@ -202,13 +190,11 @@ class TestLabelsConvertor:
         """Тест установки неподдерживаемых типов основного словаря."""
         lc = LabelsConvertor(labels2meanings, meanings2superlabels)
 
-        # label2superind не поддерживается в этой конфигурации
+        # label2superind не поддерживается в этой конфигурации:
         with pytest.raises(NotImplementedError):
             lc.main_dict = 'label2superind'
 
-    def test_invalid_main_dict_type(
-        self, labels2meanings: dict[str, str]
-    ) -> None:
+    def test_invalid_main_dict_type(self, labels2meanings: dict[str, str]) -> None:
         """Тест установки неподдерживаемого типа основного словаря."""
         lc = LabelsConvertor(labels2meanings)
 

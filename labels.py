@@ -53,9 +53,7 @@ def _file2labels_df(file_path: str) -> pd.DataFrame:
     df = pd.read_excel(file_path, engine='openpyxl')
 
     # Отбрасываем столбцы, чьи имена не заданы явно:
-    df = df.drop(
-        columns=[column for column in df.columns if 'Unnamed: ' in column]
-    )
+    df = df.drop(columns=[column for column in df.columns if 'Unnamed: ' in column])
 
     # Подчищаем данные в таблице:
     for column in df.columns:
@@ -364,9 +362,7 @@ class CoreLabelsConvertor(dict):
         """Возвращает сам словарь."""
         return dict(self)
 
-    def get_unknown_labels(
-        self, labels: list | tuple | set | pd.DataFrame
-    ) -> set:
+    def get_unknown_labels(self, labels: list | tuple | set | pd.DataFrame) -> set:
         """Возвращает множество "неизвестных" словарю меток.
 
         Может исопльзоваться для проверки применимости словаря:
@@ -517,9 +513,7 @@ class LabelsConvertor(CoreLabelsConvertor):
 
     def _build_dicts(self) -> None:
         """Строит всевозможные словари перехода."""
-        if hasattr(self, 'labels2meanings') and hasattr(
-            self, 'meanings2superlabels'
-        ):
+        if hasattr(self, 'labels2meanings') and hasattr(self, 'meanings2superlabels'):
             self.labels2superlabels = {}
             for label, meaning in self.labels2meanings.items():
                 meanings2slabels = self.meanings2superlabels  # Краткое имя
