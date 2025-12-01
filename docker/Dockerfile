@@ -24,6 +24,11 @@ ARG APPLICATIONS="                                    \
     # Утилиты для работы с пакетами:                  \
     apt-utils                                         \
                                                       \
+    # Линтеры:                                        \
+    shellcheck                                        \
+    # nodejs и npm нужны только для установки         \
+    # markdownlint-cli.                               \
+                                                      \
     # Для работы в Python:                            \
     graphviz pandoc                                   \
                                                       \
@@ -71,7 +76,15 @@ RUN apt-get update                                           && \
     rm -rf /var/lib/apt/lists/*
 # Удаление python3-blinker необходимо для нормальной установки open3d
 
-# See http://bugs.python.org/issue19846
+# Установка Hadolint и markdownlint-cli:
+RUN wget -O /bin/hadolint "https://github.com/hadolint/hadolint/releases/latest/download/hadolint-Linux-x86_64" && \
+    chmod +x /bin/hadolint && \
+    curl -fsSL https://deb.nodesource.com/setup_lts.x | bash - && \
+    apt-get install -y nodejs && \
+    npm install -g markdownlint-cli
+# Установка Node.js из NodeSource (вместо старых версий из репозитория)
+
+# См. http://bugs.python.org/issue19846
 ENV LANG C.UTF-8
 
 # Устанавливаем необходимые python-библиотеки:
@@ -205,7 +218,6 @@ RUN useradd -ms "${SHELL_PATH}" "${USERNAME}"         && \
     adduser "${USERNAME}" sudo                        && \
     echo "${USERNAME}" ALL = NOPASSWD: ALL >> /etc/sudoers
 USER "${USERNAME}"
-
 
 # Выключаем поддержку voila, т.к. внтури JupyterLab она всё равно не работает:
 #RUN jupyter server extension disable voila
