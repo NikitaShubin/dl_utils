@@ -59,6 +59,9 @@ print_step() {
     echo -e "${CYAN}🔹 $1${NC}"
 }
 
+# Сбор аргументов для ruff check
+RUFF_CHECK_ARGS=("$@")
+
 # Основной скрипт:
 clear
 ruff clean  # Очистка кеша Ruff
@@ -80,8 +83,8 @@ for file in "${ROOT_FILES[@]}"; do
         fi
 
         print_separator "Ruff check: $file" "$CYAN"
-        print_step "Проверка файла $file..."
-        if ruff check "$file"; then
+        print_step "Проверка файла $file с аргументами: ${RUFF_CHECK_ARGS[*]}..."
+        if ruff check "${RUFF_CHECK_ARGS[@]}" "$file"; then
             print_success "Проверка $file завершена"
         else
             print_error "Найдены проблемы в $file"
@@ -114,8 +117,8 @@ if [[ -d "tests" ]]; then
     fi
 
     print_separator "Ruff check: tests" "$MAGENTA"
-    print_step "Проверка тестов..."
-    if ruff check tests; then
+    print_step "Проверка тестов с аргументами: ${RUFF_CHECK_ARGS[*]}..."
+    if ruff check "${RUFF_CHECK_ARGS[@]}" tests; then
         print_success "Проверка тестов завершена"
     else
         print_error "Найдены проблемы в тестах"
