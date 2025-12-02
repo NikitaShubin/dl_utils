@@ -1,9 +1,12 @@
-"""Тесты для labels.py."""
+"""Тесты для labels.py.
+
+Модуль содержит тесты для классов LabelsConvertor и ForbiddenLabelError.
+"""
 
 import pandas as pd
 import pytest
 
-from labels import LabelsConvertor
+from labels import ForbiddenLabelError, LabelsConvertor
 
 
 class TestLabelsConvertor:
@@ -200,3 +203,219 @@ class TestLabelsConvertor:
 
         with pytest.raises(KeyError):
             lc.main_dict = 'invalid_type'
+
+    # Убираем тесты приватных методов, так как они не должны быть доступны извне
+    # Вместо этого тестируем их через публичный интерфейс df_convertor
+
+    def test_df_convertor_no_postprocessing(
+        self, labels2meanings: dict[str, str]
+    ) -> None:
+        """Тест df_convertor без постобработки (только конвертация)."""
+        lc = LabelsConvertor(labels2meanings)
+
+        # Создаем тестовый DataFrame
+        df = pd.DataFrame(
+            {
+                'frame': [1, 2, 3],
+                'label': ['domain', 'class', 'kingdom'],
+                'other_column': [10, 20, 30],
+            }
+        )
+
+        # Получаем функтор без обработки удаления/исключений
+        convertor_func = lc.df_convertor()
+
+        # Применяем конвертацию
+        result = convertor_func(df)
+
+        # Проверяем, что метки преобразованы
+        expected_labels = ['Домен', 'Класс', 'Царство']
+        assert result['label'].tolist() == expected_labels
+        assert result['other_column'].tolist() == [10, 20, 30]
+
+    def test_df_convertor_with_labels2del_only(
+        self, labels2meanings: dict[str, str]
+    ) -> None:
+        """Тест df_convertor только с удалением меток."""
+        lc = LabelsConvertor(labels2meanings)
+
+        # Создаем тестовый DataFrame
+        df = pd.DataFrame(
+            {
+                'frame': [1, 2, 3, 4],
+                'label': ['domain', 'class', 'kingdom', 'phylum'],
+                'other_column': [10, 20, 30, 40],
+            }
+        )
+
+        # Получаем функтор с удалением 'Домен' (после конвертации)
+        convertor_func = lc.df_convertor(labels2del={'Домен'})
+
+        # Применяем конвертацию
+        result = convertor_func(df)
+
+        # Проверяем, что 'domain' (который станет 'Домен') удален
+        assert len(result) == 3
+        assert set(result['label'].unique()) == {'Класс', 'Царство', 'Отдел'}
+        assert result['other_column'].tolist() == [20, 30, 40]
+
+    def test_df_convertor_with_labels2raise_only(
+        self, labels2meanings: dict[str, str]
+    ) -> None:
+        """Тест df_convertor только с проверкой запрещенных меток."""
+        lc = LabelsConvertor(labels2meanings)
+
+        # Создаем тестовый DataFrame
+        df = pd.DataFrame(
+            {
+                'frame': [1, 2, 3],
+                'label': ['domain', 'class', 'kingdom'],
+                'other_column': [10, 20, 30],
+            }
+        )
+
+        # Получаем функтор с проверкой на 'Домен'
+        convertor_func = lc.df_convertor(labels2raise={'Домен'})
+
+        # Применяем конвертацию - должно вызвать исключение
+        with pytest.raises(ForbiddenLabelError) as exc_info:
+            convertor_func(df)
+
+        assert 'В кадрах {1} найдены запрещённые объекты' in str(exc_info.value)
+
+        # Тест без запрещенных меток
+        df_safe = pd.DataFrame(
+            {'frame': [1, 2], 'label': ['class', 'kingdom'], 'other_column': [20, 30]}
+        )
+
+        result = convertor_func(df_safe)
+        expected_labels = ['Класс', 'Царство']
+        assert result['label'].tolist() == expected_labels
+
+    def test_df_convertor_with_both_labels2del_and_labels2raise(
+        self, labels2meanings: dict[str, str]
+    ) -> None:
+        """Тест df_convertor с удалением одних меток и проверкой других."""
+        lc = LabelsConvertor(labels2meanings)
+
+        # Создаем тестовый DataFrame
+        df = pd.DataFrame(
+            {
+                'frame': [1, 2, 3, 4],
+                'label': ['domain', 'class', 'kingdom', 'phylum'],
+                'other_column': [10, 20, 30, 40],
+            }
+        )
+
+        # Удаляем 'Отдел', проверяем на 'Домен'
+        convertor_func = lc.df_convertor(labels2del={'Отдел'}, labels2raise={'Домен'})
+
+        # Применяем - должно вызвать исключение из-за 'Домен'
+        with pytest.raises(ForbiddenLabelError) as exc_info:
+            convertor_func(df)
+
+        assert 'В кадрах {1} найдены запрещённые объекты' in str(exc_info.value)
+
+        # Тест без запрещенных меток, но с удалением
+        df_safe = pd.DataFrame(
+            {
+                'frame': [2, 3, 4],
+                'label': ['class', 'kingdom', 'phylum'],
+                'other_column': [20, 30, 40],
+            }
+        )
+
+        result = convertor_func(df_safe)
+        # 'phylum' -> 'Отдел' должно быть удалено
+        assert len(result) == 2
+        assert set(result['label'].unique()) == {'Класс', 'Царство'}
+        assert result['other_column'].tolist() == [20, 30]
+
+    def test_df_convertor_with_none_values(
+        self, labels2meanings: dict[str, str]
+    ) -> None:
+        """Тест df_convertor с None значениями в параметрах."""
+        lc = LabelsConvertor(labels2meanings)
+
+        df = pd.DataFrame(
+            {'frame': [1, 2], 'label': ['domain', 'class'], 'other_column': [10, 20]}
+        )
+
+        # Все параметры None - просто конвертация
+        convertor_func = lc.df_convertor(None, None)
+        result = convertor_func(df)
+        assert result['label'].tolist() == ['Домен', 'Класс']
+
+        # Только labels2del = None
+        convertor_func = lc.df_convertor(labels2del=None, labels2raise={'Домен'})
+        with pytest.raises(ForbiddenLabelError):
+            convertor_func(df)
+
+        # Только labels2raise = None
+        convertor_func = lc.df_convertor(labels2del={'Домен'}, labels2raise=None)
+        result = convertor_func(df)
+        assert len(result) == 1
+        assert result['label'].tolist() == ['Класс']
+
+    def test_df_convertor_with_various_input_types(
+        self, labels2meanings: dict[str, str]
+    ) -> None:
+        """Тест df_convertor с различными типами входных данных."""
+        lc = LabelsConvertor(labels2meanings)
+
+        df = pd.DataFrame(
+            {
+                'frame': [1, 2, 3],
+                'label': ['domain', 'class', 'kingdom'],
+                'other_column': [10, 20, 30],
+            }
+        )
+
+        # Тест с list для labels2del
+        convertor_func = lc.df_convertor(labels2del=['Домен', 'Царство'])
+        result = convertor_func(df)
+        assert len(result) == 1
+        assert result['label'].tolist() == ['Класс']
+
+        # Тест с tuple для labels2raise
+        convertor_func = lc.df_convertor(labels2raise=('Домен', 'Царство'))
+        with pytest.raises(ForbiddenLabelError):
+            convertor_func(df)
+
+        # Тест с одиночным значением
+        convertor_func = lc.df_convertor(labels2del='Домен')
+        result = convertor_func(df)
+        assert len(result) == 2
+        assert set(result['label'].unique()) == {'Класс', 'Царство'}
+
+
+class TestForbiddenLabelError:
+    """Тесты для класса ForbiddenLabelError."""
+
+    def test_forbidden_label_error_init(self) -> None:
+        """Тест инициализации ForbiddenLabelError."""
+        # С пользовательским сообщением
+        error = ForbiddenLabelError('обнаружены запретные метки в кадрах 1, 2, 3')
+        assert error.msg == 'обнаружены запретные метки в кадрах 1, 2, 3'
+
+        # С сообщением по умолчанию
+        error = ForbiddenLabelError()
+        assert error.msg == 'обнаружены запретные метки'
+
+    def test_forbidden_label_error_str(self) -> None:
+        """Тест строкового представления ForbiddenLabelError."""
+        error = ForbiddenLabelError('тестовое сообщение')
+        assert str(error) == 'ForbiddenLabelError: тестовое сообщение!'
+
+        error = ForbiddenLabelError()
+        assert str(error) == 'ForbiddenLabelError: обнаружены запретные метки!'
+
+    def test_forbidden_label_error_raise(self) -> None:
+        """Тест возбуждения ForbiddenLabelError."""
+        msg = 'кастомное сообщение'
+        with pytest.raises(ForbiddenLabelError) as exc_info:
+            raise ForbiddenLabelError(msg)
+
+        assert str(exc_info.value) == 'ForbiddenLabelError: кастомное сообщение!'
+
+        assert str(exc_info.value) == 'ForbiddenLabelError: кастомное сообщение!'

@@ -19,6 +19,7 @@
 .
 """
 
+from collections.abc import Callable
 from pathlib import Path
 from typing import ClassVar
 
@@ -387,6 +388,18 @@ class CoreLabelsConvertor(dict):
         return labels - set(self)
 
 
+class ForbiddenLabelError(Exception):
+    """Исключение, возвращаемое в случае обнаружения запретной метки."""
+
+    def __init__(self, msg: str = 'обнаружены запретные метки') -> Exception:
+        """Инициализация исключения."""
+        self.msg = msg
+
+    def __str__(self) -> str:
+        """Сообщение об ошибке."""
+        return f'ForbiddenLabelError: {self.msg}!'
+
+
 class LabelsConvertor(CoreLabelsConvertor):
     """Класс-утилита для замены имён меток в разметке.
 
@@ -650,3 +663,81 @@ class LabelsConvertor(CoreLabelsConvertor):
             raise NotImplementedError(
                 msg,
             )
+
+    @staticmethod
+    def _iterable2set(obj: object) -> set | None:
+        """Переводит любой объект во множество.
+
+        Если объект - не список, кортеж или множество, то он берётся целиком.
+        Используется в df_convertor.
+        """
+        if isinstance(obj, set):  # set[objs] -> set[objs]
+            return obj
+        if isinstance(obj, (list, tuple)):  # (list | tuple)[objs] -> set[objs]
+            return set(obj)
+        if obj is None:  # None -> None
+            return None
+        return {obj}  # obj -> set[obj}
+
+    @staticmethod
+    def _process_labels2del(df: pd.DataFrame, labels2del: set) -> pd.DataFrame:
+        """Удаляет строки датафрема, содержащие неиспользуемые объекты."""
+        return df[~df['label'].isin(labels2del)]
+
+    @staticmethod
+    def _process_labels2raise(df: pd.DataFrame, labels2raise: set) -> pd.DataFrame:
+        """Возвращает исключение, если в датафрейме есть запрещённые объекты."""
+        problem_frames = df[df['label'].isin(labels2raise)]['frame'].unique()
+        if len(problem_frames):
+            msg = (
+                'В кадрах {'
+                + ', '.join(map(str, sorted(problem_frames)))
+                + '} найдены запрещённые объекты'
+            )
+            raise ForbiddenLabelError(msg)
+        return df
+
+    def df_convertor(
+        self,
+        labels2del: list | tuple | set | object | None = None,
+        labels2raise: list | tuple | set | object | None = None,
+    ) -> Callable:
+        """Создаёт умный функтор обработки датафреймов.
+
+        Отличается от apply2df тем, что, в случае меток из набора labels2del,
+        соотвествующая запись из датафрейма выкидывается, а при обнаружении хоть
+        одной метки из labels2raise - возвращается ошибка ForbiddenLabelError.
+        """
+        # Адаптируем типы входных данных:
+        labels2del = self._iterable2set(labels2del)
+        labels2raise = self._iterable2set(labels2raise)
+
+        # Формируем нужную функцию:
+        if labels2del:
+            # Если надо обрабатывать и неиспользуемые, и запрещённые объекты:
+            if labels2raise:
+
+                def apply2df(df: pd.DataFrame) -> pd.DataFrame:
+                    df = self.apply2df(df)
+                    df = self._process_labels2raise(df, labels2raise)
+                    return self._process_labels2del(df, labels2del)
+
+            # Если надо обрабатывать только неиспользуемые объекты:
+            else:
+
+                def apply2df(df: pd.DataFrame) -> pd.DataFrame:
+                    df = self.apply2df(df)
+                    return self._process_labels2del(df, labels2del)
+
+        # Если надо обрабатывать только запрещённые объекты:
+        elif labels2raise:
+
+            def apply2df(df: pd.DataFrame) -> pd.DataFrame:
+                df = self.apply2df(df)
+                return self._process_labels2raise(df, labels2raise)
+
+        # Если нужна лишь сама конвертация меток, без постобработок:
+        else:
+            apply2df = self.apply2df
+
+        return apply2df
