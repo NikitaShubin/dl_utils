@@ -26,8 +26,6 @@ ARG APPLICATIONS="                                    \
                                                       \
     # Линтеры:                                        \
     shellcheck                                        \
-    # nodejs и npm нужны только для установки         \
-    # markdownlint-cli.                               \
                                                       \
     # Для работы в Python:                            \
     graphviz pandoc                                   \
@@ -146,7 +144,7 @@ com/PublicPackages/_packaging/onnxruntime-cuda-12/pypi/simple/           \
                                                                          \
     # Линтеры, стайлчекеры, тестеры и прочие утилиты работы с кодом:     \
     cookiecutter-data-science pytest-cov pycodestyle pycodestyle_magic   \
-    python-lsp-server[all] jupyterlab-lsp black[jupyter] ruff            \
+    python-lsp-server[all] jupyterlab-lsp black[jupyter] ruff mypy       \
     isort[requirements_deprecated_finder,pipfile_deprecated_finder]      \
     flake8 nbqa pylint wemake-python-styleguide ondivi                   \
                                                                          \
@@ -195,7 +193,10 @@ com/PublicPackages/_packaging/onnxruntime-cuda-12/pypi/simple/           \
 RUN ${PIP} install $PIPPARAMS --upgrade pip && \
     export TFVER=`${PIP} show tensorflow | grep Vers | awk '{print $2}'` && \
     ${PIP} install $PIPPARAMS tensorflow==${TFVER} $PYTHONMODULES --upgrade && \
-    ${PIP} cache purge
+    ${PIP} cache purge && \
+    jupyter lab build --minimize=False
+# Приходится пересобирать Jupyter Lab, т.к. установка Node.js из NodeSource приводит к поломкам зависимостей.
+
 # Установка всех необходимых пакетов при фиксации версии уже установленного Tensorflow.
 #    ${PIP} install $PIPPARAMS tensorflow==${TFVER} $PYTHONMODULES --upgrade --no-deps && \
 #    ${PIP} install $PIPPARAMS $PYTHONMODULES && \
