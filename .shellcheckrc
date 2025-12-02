@@ -1,0 +1,4 @@
+# Базовые настройки для shellcheck
+shell=bash
+severity=style
+# exclude=SC1090,SC1091,SC2001,SC2086
