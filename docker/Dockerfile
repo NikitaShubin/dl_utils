@@ -146,7 +146,8 @@ com/PublicPackages/_packaging/onnxruntime-cuda-12/pypi/simple/           \
     cookiecutter-data-science pytest-cov pycodestyle pycodestyle_magic   \
     python-lsp-server[all] jupyterlab-lsp black[jupyter] ruff mypy       \
     isort[requirements_deprecated_finder,pipfile_deprecated_finder]      \
-    flake8 nbqa pylint wemake-python-styleguide ondivi                   \
+    flake8 nbqa pylint wemake-python-styleguide ondivi pandas-stubs      \
+    # pandas-stubs нужен для работы с pandas в mypy                      \
                                                                          \
                                                                          \
     # Python-компилятор                                                  \
