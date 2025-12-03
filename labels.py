@@ -19,14 +19,17 @@
 .
 """
 
-from collections.abc import Callable
 from pathlib import Path
-from typing import ClassVar
+from typing import ClassVar, cast
 
 import pandas as pd
 from treelib import Tree
 
 from utils import rim2arabic
+
+# Задаём тип меток и их наборов:
+Label = str | int | None
+Labels = list[Label] | tuple[Label] | set[Label]
 
 # Имена столбцов в labels.xlsx:
 label_column = 'Метка в CVAT'  # Имя класса (метка)
@@ -64,7 +67,7 @@ def _file2labels_df(file_path: str) -> pd.DataFrame:
     df = df.set_index(df.columns[0])
 
     # Отбрасывание пустых строк:
-    return df[~df.index.isna()]
+    return df[df.index.notna()]
 
 
 def _file2superlabels_df(file_path: str) -> pd.DataFrame:
@@ -77,8 +80,11 @@ def _file2superlabels_df(file_path: str) -> pd.DataFrame:
         df[column] = df[column].apply(_fix_string)
 
     # Заполняем пропуски:
-    msgs = []  # Список ошибок при чтении
-    for ind, dfrow in enumerate(df.iloc):
+    msgs: list[str] = []  # Список ошибок при чтении
+    for ind, dfrow_tuple in enumerate(df.iterrows()):
+        # Распаковываем кортеж:
+        _, dfrow = dfrow_tuple
+
         # Считываем текущие значения в строке:
         cur_superlabel_name = dfrow[superlabel_column]  # Имя
         cur_scl_number = dfrow[scl_number_column]  # Номер
@@ -117,7 +123,7 @@ def _file2superlabels_df(file_path: str) -> pd.DataFrame:
 
     # Если найдена хоть одна проблема - возвращаем ошибку:
     if msgs:
-        raise ValueError(msgs.join('\n'))
+        raise ValueError('\n'.join(msgs))
 
     # Приводим номера суперклассов к целочислоенному типу и сдвигаем, чтобы
     # суперкласс неиспользуемых объектов был под номером -1, а остальные
@@ -128,7 +134,7 @@ def _file2superlabels_df(file_path: str) -> pd.DataFrame:
     return df
 
 
-def _any_file2df(file_path: str) -> (pd.DataFrame, str):
+def _any_file2df(file_path: str) -> tuple[pd.DataFrame, str]:
     """Читает файл классов или суперклассов.
 
     Возвращает датафейрм и тип сожержимого (labels / superlabels).
@@ -230,10 +236,12 @@ def _check_meanin_missmatch(label: str, meaning1: str, meaning2: str) -> None:
         raise KeyError(error_str)
 
 
-def _make_labels2meanings(tree: Tree) -> (dict, dict):
+def _make_labels2meanings(
+    tree: Tree,
+) -> tuple[dict[Label, str], dict[Label, str]]:
     """Формируем словари перехода от меток к их расшифровкам."""
-    labels2meanings = {}  # Label   -> расшифровка
-    synonyms2meanings = {}  # Synonym -> расшифровка
+    labels2meanings: dict[Label, str] = {}  # Label   -> расшифровка
+    synonyms2meanings: dict[Label, str] = {}  # Synonym -> расшифровка
 
     # Перебираем все строки таблицы классов:
     for node in tree.expand_tree(mode=Tree.DEPTH):
@@ -247,9 +255,6 @@ def _make_labels2meanings(tree: Tree) -> (dict, dict):
 
         # Вносим существующие метки в cvat-словарь:
         if label is not None:
-            # Перевод в нижний регистр:
-            label = label.lower()
-
             # Если такая метка уже встречалась:
             if label in labels2meanings:
                 # Выводим ошибку, если текущая расщифровка не совпадает с
@@ -280,24 +285,44 @@ def _make_labels2meanings(tree: Tree) -> (dict, dict):
     return labels2meanings, synonyms2meanings
 
 
+def _make_meanings_2_superlabels2del_and_2raise(
+    superlabels_df: pd.DataFrame,
+) -> tuple[set[Label], set[Label]]:
+    """Парсит датафрейм суперклассов.
+
+    Строит множество неиспользуемых и игнорируемых суперклассов.
+    """
+
+    def scl_number2superlabels(scl_number: int) -> set:
+        """Извлекает множество суперклассов с заданным индексом."""
+        mask = superlabels_df[scl_number_column] == scl_number
+        return set(superlabels_df[mask][superlabel_column].unique())
+
+    # Множества неиспользуемых и запрещённых суперклассов:
+    return scl_number2superlabels(-1), scl_number2superlabels(-2)
+
+
 def _make_meanings2superlabels2superinds(
     superlabels_df: pd.DataFrame,
-) -> (dict, dict):
+) -> tuple[dict[str, Label], dict[Label, int]]:
     """Парсит датафрейм суперклассов.
 
     Строит из датафрейма словарь перехода от имени класса к имени
     соответствующего суперкласса.
     """
     # Заполняемые словари:
-    meanings2superlabels = {}
-    superlabels2superinds = {}
+    meanings2superlabels: dict[str, Label] = {}
+    superlabels2superinds: dict[Label, int] = {}
 
     # Перебираем все строки датафрейма суперклассов:
-    for row in superlabels_df.iloc:
+    for dfrow_tuple in superlabels_df.iterrows():
+        # Распаковываем кортеж:
+        _, dfrow = dfrow_tuple
+
         # Берём из строки нужные данные:
-        meaning = row[scl_clsnme_column]
-        superlabel = row[superlabel_column]
-        superind = row[scl_number_column]
+        meaning = str(dfrow[scl_clsnme_column])
+        superlabel = cast('Label', dfrow[superlabel_column])
+        superind = int(dfrow[scl_number_column])
 
         # Если такая расшифровка уже внесена в словарь:
         if meaning in meanings2superlabels:
@@ -331,6 +356,18 @@ def _make_meanings2superlabels2superinds(
     return meanings2superlabels, superlabels2superinds
 
 
+class ForbiddenLabelError(Exception):
+    """Исключение, возвращаемое в случае обнаружения запретной метки."""
+
+    def __init__(self, msg: str = 'обнаружены запретные метки') -> None:
+        """Инициализация исключения."""
+        self.msg = msg
+
+    def __str__(self) -> str:
+        """Сообщение об ошибке."""
+        return f'ForbiddenLabelError: {self.msg}!'
+
+
 class CoreLabelsConvertor(dict):
     """Ядро класс-утилиты для замены имён меток в разметке.
 
@@ -341,11 +378,22 @@ class CoreLabelsConvertor(dict):
     меток.
     """
 
-    def __init__(self, main_dict: dict) -> None:
+    def __init__(
+        self,
+        main_dict: dict[Label, Label],
+        values2del: set | None = None,
+        values2raise: set | None = None,
+    ) -> None:
         """Инициация словарём."""
+        if values2raise is None:
+            values2raise = set()
+        if values2del is None:
+            values2del = set()
         self |= main_dict
+        self.values2del = values2del
+        self.values2raise = values2raise
 
-    def __call__(self, label: str | int | None) -> str | int | None:
+    def __call__(self, label: Label) -> Label:
         """Возвращает новую метку в соответствии с основным словарём."""
         return self[label]
 
@@ -355,23 +403,94 @@ class CoreLabelsConvertor(dict):
         df = df.copy()
 
         # Замета меток на номера суперклассов:
-        df['label'] = df['label'].map(self)
+        labels = df['label'].map(self)
+        df['label'] = labels
+
+        # Ищем запрещённые объекты, если надо:
+        if self.values2raise:
+            problem_frames = df[labels.isin(self.values2raise)]['frame'].unique()
+            if problem_frames:
+                msg = (
+                    'В кадрах {'
+                    + ', '.join(map(str, sorted(problem_frames)))
+                    + '} найдены запрещённые объекты'
+                )
+                raise ForbiddenLabelError(msg)
+
+        # Удаляем ненужные объекты, если надо:
+        if self.values2del:
+            df = df[~labels.isin(self.values2del)]
 
         return df
 
-    def asdict(self) -> dict:
+    def apply2objs(self, objs: list | tuple) -> list:
+        """Выполняет замену меток в списках объектов.
+
+        Применяется к спискам экземлпяров таких классов, как BBox и Mask из модуля
+        cv_utils.py, но работает со списками и кортежами любых объектов, если метки
+        хранятся у них в obj.attribs['label'], а сами они поддерживают метод copy().
+        """
+        # Проверка наличия нужного атрибута в объектах:
+        no_attribs_inds = [
+            ind for ind, obj in enumerate(objs) if not hasattr(obj, 'attribs')
+        ]
+        if no_attribs_inds:
+            msg = (
+                'Объекты с номерами {'
+                + ', '.join(map(str, no_attribs_inds))
+                + '} не имеют поля "attribs"!'
+            )
+            raise TypeError(msg)
+
+        # Проверка наличия нужного ключа в атрибутах:
+        no_label_inds = [
+            ind for ind, obj in enumerate(objs) if 'label' not in obj.attribs
+        ]
+        if no_label_inds:
+            msg = (
+                'Объекты с номерами {'
+                + ', '.join(map(str, no_label_inds))
+                + '} не имеют ключа "label" в словаре attribs!'
+            )
+            raise KeyError(msg)
+
+        new_objs = []  # Итоговый список объектов
+        error_inds = []  # Индексы объектов с запрещённой меткой
+        for ind, obj in enumerate(objs):
+            # Новая метка:
+            value = self(obj.attribs['label'])
+
+            # Вносим индекс в список номеров запрещённых объектов, если надо:
+            if value in self.values2raise:
+                error_inds.append(ind)
+
+            # Пополняем итоговый список, если метка не в списке неиспользуемых:
+            elif value not in self.values2del:
+                new_obj = obj.copy()
+                new_obj.attribs['label'] = value
+                new_objs.append(new_obj)
+
+        if error_inds:
+            msg = (
+                'объекты с номерами {'
+                + ', '.join(map(str, error_inds))
+                + '} имеют запрещённые метки'
+            )
+            raise ForbiddenLabelError(msg)
+
+        return new_objs
+
+    def asdict(self) -> dict[Label, Label]:
         """Возвращает сам словарь."""
         return dict(self)
 
-    def get_unknown_labels(self, labels: list | tuple | set | pd.DataFrame) -> set:
+    def get_unknown_labels(self, labels: Labels | pd.DataFrame) -> set:
         """Возвращает множество "неизвестных" словарю меток.
 
         Может исопльзоваться для проверки применимости словаря:
-        ```
-        unknown_labels = lc.get_unknown_labels(labels)
-        if unknown_labels:
-            raise KeyError(f"Неизвестные метки: {unknown_labels}!")
-        ```
+            unknown_labels = lc.get_unknown_labels(labels)
+            if unknown_labels:
+                raise KeyError(f"Неизвестные метки: {unknown_labels}!")
         """
         # Преобразуем набор меток лбого типа во множество:
         if isinstance(labels, pd.DataFrame):
@@ -386,18 +505,6 @@ class CoreLabelsConvertor(dict):
 
         # Получаем множество неизвестных меток:
         return labels - set(self)
-
-
-class ForbiddenLabelError(Exception):
-    """Исключение, возвращаемое в случае обнаружения запретной метки."""
-
-    def __init__(self, msg: str = 'обнаружены запретные метки') -> Exception:
-        """Инициализация исключения."""
-        self.msg = msg
-
-    def __str__(self) -> str:
-        """Сообщение об ошибке."""
-        return f'ForbiddenLabelError: {self.msg}!'
 
 
 class LabelsConvertor(CoreLabelsConvertor):
@@ -456,8 +563,8 @@ class LabelsConvertor(CoreLabelsConvertor):
 
     def _read_files(
         self,
-        labels2meanings: str | dict,
-        meanings2superlabels: str | dict | None,
+        labels2meanings: str | dict[Label, str],
+        meanings2superlabels: str | dict[str, Label] | None,
     ) -> None:
         """Пытается читать файлы."""
         if isinstance(labels2meanings, str):
@@ -488,24 +595,30 @@ class LabelsConvertor(CoreLabelsConvertor):
 
     def _read_dicts(
         self,
-        labels2meanings: str | dict,
-        meanings2superlabels: str | dict | None,
+        labels2meanings: str | dict[Label, str] | dict[str, Label],
+        meanings2superlabels: str | dict[Label, str] | dict[str, Label] | None,
     ) -> None:
         """Пытается читать словари."""
         if isinstance(labels2meanings, dict):
             if hasattr(self, 'labels_df'):
-                self.meanings2superlabels = labels2meanings
+                self.meanings2superlabels = cast('dict[str, Label]', labels2meanings)
             else:
-                self.labels2meanings = labels2meanings
+                self.labels2meanings = cast('dict[Label, str]', labels2meanings)
 
         if isinstance(meanings2superlabels, dict):
             if hasattr(self, 'superlabels_df'):
-                self.labels2meanings = meanings2superlabels
+                self.labels2meanings = cast('dict[Label, str]', meanings2superlabels)
             else:
-                self.meanings2superlabels = meanings2superlabels
+                self.meanings2superlabels = cast(
+                    'dict[str, Label]', meanings2superlabels
+                )
+
+        # Приходится явно указывать то, какие типы будут у meanings2superlabels и
+        # labels2meanings, т.к. mypy эту логику отследить не может.
 
     def _parse_dfs(self) -> None:
         """Пытается парсить датафреймы."""
+        # Работаем с датафреймом меток:
         if hasattr(self, 'labels_df'):
             tree = _labels_df2tree(self.labels_df)
             labels2meanings, synonyms2meanings = _make_labels2meanings(tree)
@@ -517,6 +630,7 @@ class LabelsConvertor(CoreLabelsConvertor):
             # Объединяем словари меток и их синонимов:
             self.labels2meanings = labels2meanings | synonyms2meanings
 
+        # Работаем с датафреймом суперметок:
         if hasattr(self, 'superlabels_df'):
             meanings2superlabels, superlabels2superinds = (
                 _make_meanings2superlabels2superinds(self.superlabels_df)
@@ -524,29 +638,83 @@ class LabelsConvertor(CoreLabelsConvertor):
             self.meanings2superlabels = meanings2superlabels
             self.superlabels2superinds = superlabels2superinds
 
+            # Определяем суперметки неиспользуемых и запрещённых объектов:
+            superlabels2del, superlabels2raise = (
+                _make_meanings_2_superlabels2del_and_2raise(self.superlabels_df)
+            )
+            self.superlabels2del = superlabels2del
+            self.superlabels2raise = superlabels2raise
+
     def _build_dicts(self) -> None:
         """Строит всевозможные словари перехода."""
         if hasattr(self, 'labels2meanings') and hasattr(self, 'meanings2superlabels'):
             self.labels2superlabels = {}
             for label, meaning in self.labels2meanings.items():
-                meanings2slabels = self.meanings2superlabels  # Краткое имя
-                if meaning in meanings2slabels:
-                    superlabel = meanings2slabels[meaning]
+                if meaning in self.meanings2superlabels:
+                    superlabel = self.meanings2superlabels[meaning]
                     self.labels2superlabels[label] = superlabel
 
             if hasattr(self, 'superlabels2superinds'):
                 self.labels2superinds = {}
                 for label, superlabel in self.labels2superlabels.items():
-                    slabels2sinds = self.superlabels2superinds  # Краткое имя
-                    if superlabel in slabels2sinds:
-                        superind = slabels2sinds[superlabel]
+                    if superlabel in self.superlabels2superinds:
+                        superind = self.superlabels2superinds[superlabel]
                         self.labels2superinds[label] = superind
+
+    @staticmethod
+    def _iterable2set(obj: Label | Labels) -> Labels | None:
+        """Переводит любой объект во множество.
+
+        Если объект - не список, кортеж или множество, то он берётся целиком.
+        Используется в df_convertor.
+        """
+        if isinstance(obj, set):  # set[objs] -> set[objs]
+            return obj
+        if isinstance(obj, (list, tuple)):  # (list | tuple)[objs] -> set[objs]
+            return set(obj)
+        if obj is None:  # None -> None
+            return None
+        return {obj}  # obj -> set[obj}
+
+    def _set_values2del_and_2raise(
+        self,
+        values2del: Label | Labels = None,
+        values2raise: Label | Labels = None,
+    ) -> None:
+        """Установка значений values2del и values2raise."""
+        # Принудительно превращаем наборы во множества:
+        values2del = self._iterable2set(values2del)
+        values2raise = self._iterable2set(values2raise)
+
+        # Доопределяем набор неиспользуемых значений:
+        if isinstance(values2del, set):
+            self.values2del = values2del
+        elif '2superind' in self._main_dict_name:
+            self.values2del = {-1}
+        elif '2superlabel' in self._main_dict_name and hasattr(self, 'superlabels2del'):
+            self.values2del = self.superlabels2del
+        else:
+            self.values2del = set()
+
+        # Доопределяем набор запрещённых значений:
+        if isinstance(values2raise, set):
+            self.values2raise = values2raise
+        elif '2superind' in self._main_dict_name:
+            self.values2raise = {-2}
+        elif '2superlabel' in self._main_dict_name and hasattr(
+            self, 'superlabels2raise'
+        ):
+            self.values2raise = self.superlabels2raise
+        else:
+            self.values2raise = set()
 
     def __init__(
         self,
-        labels2meanings: str | dict,
-        meanings2superlabels: str | dict | None = None,
+        labels2meanings: str | dict[Label, str],
+        meanings2superlabels: str | dict[str, Label] | None = None,
         main_dict: str = 'auto',
+        values2del: Label | Labels = None,
+        values2raise: Label | Labels = None,
     ) -> None:
         """Создание конвертора.
 
@@ -590,8 +758,8 @@ class LabelsConvertor(CoreLabelsConvertor):
             # или просто:
             lc = LabelsConvertor('superlabels.xlsx')
 
-        # Примеры содержимого Excel-файлов представлены файлами
-        # labels_template.xlsx и superlabels_template.xlsx.
+            # Примеры содержимого Excel-файлов представлены файлами
+            # labels_template.xlsx и superlabels_template.xlsx.
 
         main_dict отвечает за поведение экземпляра класса при использовании его
         как функции от одного аргумента:
@@ -604,6 +772,24 @@ class LabelsConvertor(CoreLabelsConvertor):
                                  Начало и конец зависят от того, какие данные
                                  переданы. В пределе это - полная цепочка:
                                  label -> meaning -> superlabel -> superind.
+
+        values2del - одно или несколько значений итоговой метки неиспользуемого
+        объекта. Т.е. такие объекты пропускаются в случае вызова методов apply2df
+        и apply2obj.
+        values2raise - одно или несколько значений итоговой метки запрещённого
+        объекта. Т.е. при обнаружении таких объектов в случае вызова методов apply2df
+        и apply2obj возникает ошибка ForbiddenLabelError.
+        values2del и values2raise ИГНОРИРУЮТСЯ в случае использования объекта как
+        функтора:
+            lc = LabelsConvertor(...)
+            new_label = lc(old_label)
+            # Новая метка будет возвращена без ошибок, даже если она в списке
+            # values2del или values2raise!
+        Если значения values2del и values2raise не указаны явно (= None), но при
+        инициализации передан xlsx-файл суперметок, то значения читаются оттуда, в
+        противном случае списки будут пусты. Чтобы очистить списки даже при заданном
+        файле суперклассов, нужно явно указать пустой список:
+            lc = LabelsConvertor('superlabels.xlsx', values2del=[], values2raise=[])
         """
         # Сначала читаем указанные файлы:
         self._read_files(labels2meanings, meanings2superlabels)
@@ -620,6 +806,11 @@ class LabelsConvertor(CoreLabelsConvertor):
 
         # Устанавливаем основной словарь:
         self.main_dict = main_dict
+
+        # Фиксация наборов нениспользуемых и запрещённых меток:
+        self._set_values2del_and_2raise(
+            self._iterable2set(values2del), self._iterable2set(values2raise)
+        )
 
     def _get_auto_dict_name(self) -> str:
         """Определяет переход, захватывающий всю доступную часть цепочки."""
@@ -660,84 +851,4 @@ class LabelsConvertor(CoreLabelsConvertor):
 
         else:
             msg = f'Неподдерживаемый переход: {main_dict_name}"!'
-            raise NotImplementedError(
-                msg,
-            )
-
-    @staticmethod
-    def _iterable2set(obj: object) -> set | None:
-        """Переводит любой объект во множество.
-
-        Если объект - не список, кортеж или множество, то он берётся целиком.
-        Используется в df_convertor.
-        """
-        if isinstance(obj, set):  # set[objs] -> set[objs]
-            return obj
-        if isinstance(obj, (list, tuple)):  # (list | tuple)[objs] -> set[objs]
-            return set(obj)
-        if obj is None:  # None -> None
-            return None
-        return {obj}  # obj -> set[obj}
-
-    @staticmethod
-    def _process_labels2del(df: pd.DataFrame, labels2del: set) -> pd.DataFrame:
-        """Удаляет строки датафрема, содержащие неиспользуемые объекты."""
-        return df[~df['label'].isin(labels2del)]
-
-    @staticmethod
-    def _process_labels2raise(df: pd.DataFrame, labels2raise: set) -> pd.DataFrame:
-        """Возвращает исключение, если в датафрейме есть запрещённые объекты."""
-        problem_frames = df[df['label'].isin(labels2raise)]['frame'].unique()
-        if len(problem_frames):
-            msg = (
-                'В кадрах {'
-                + ', '.join(map(str, sorted(problem_frames)))
-                + '} найдены запрещённые объекты'
-            )
-            raise ForbiddenLabelError(msg)
-        return df
-
-    def df_convertor(
-        self,
-        labels2del: list | tuple | set | object | None = None,
-        labels2raise: list | tuple | set | object | None = None,
-    ) -> Callable:
-        """Создаёт умный функтор обработки датафреймов.
-
-        Отличается от apply2df тем, что, в случае меток из набора labels2del,
-        соотвествующая запись из датафрейма выкидывается, а при обнаружении хоть
-        одной метки из labels2raise - возвращается ошибка ForbiddenLabelError.
-        """
-        # Адаптируем типы входных данных:
-        labels2del = self._iterable2set(labels2del)
-        labels2raise = self._iterable2set(labels2raise)
-
-        # Формируем нужную функцию:
-        if labels2del:
-            # Если надо обрабатывать и неиспользуемые, и запрещённые объекты:
-            if labels2raise:
-
-                def apply2df(df: pd.DataFrame) -> pd.DataFrame:
-                    df = self.apply2df(df)
-                    df = self._process_labels2raise(df, labels2raise)
-                    return self._process_labels2del(df, labels2del)
-
-            # Если надо обрабатывать только неиспользуемые объекты:
-            else:
-
-                def apply2df(df: pd.DataFrame) -> pd.DataFrame:
-                    df = self.apply2df(df)
-                    return self._process_labels2del(df, labels2del)
-
-        # Если надо обрабатывать только запрещённые объекты:
-        elif labels2raise:
-
-            def apply2df(df: pd.DataFrame) -> pd.DataFrame:
-                df = self.apply2df(df)
-                return self._process_labels2raise(df, labels2raise)
-
-        # Если нужна лишь сама конвертация меток, без постобработок:
-        else:
-            apply2df = self.apply2df
-
-        return apply2df
+            raise NotImplementedError(msg)
