@@ -472,7 +472,7 @@ def put_text_carefully(text         : 'Растеризируемый текст
                          f'Получено {img}!')
 
     # Размер текстового спрайта:
-    textsize = text_img.shape
+    textsize = text_img.shape[:2]
 
     # Уменьшаем размер спрайта, если он не влезает в изображение:
     resize_scale = 1.

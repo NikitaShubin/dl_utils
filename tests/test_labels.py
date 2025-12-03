@@ -233,7 +233,7 @@ class TestLabelsConvertor:
         assert result['label'].tolist() == expected_labels
         assert result['other_column'].tolist() == [10, 20, 30]
 
-    def test_df_convertor_with_labels2del_only(
+    def test_df_convertor_with_values2del_only(
         self, labels2meanings: dict[str, str]
     ) -> None:
         """Тест df_convertor только с удалением меток."""
@@ -249,7 +249,7 @@ class TestLabelsConvertor:
         )
 
         # Получаем функтор с удалением 'Домен' (после конвертации)
-        convertor_func = lc.df_convertor(labels2del={'Домен'})
+        convertor_func = lc.df_convertor(values2del={'Домен'})
 
         # Применяем конвертацию
         result = convertor_func(df)
@@ -259,7 +259,7 @@ class TestLabelsConvertor:
         assert set(result['label'].unique()) == {'Класс', 'Царство', 'Отдел'}
         assert result['other_column'].tolist() == [20, 30, 40]
 
-    def test_df_convertor_with_labels2raise_only(
+    def test_df_convertor_with_values2raise_only(
         self, labels2meanings: dict[str, str]
     ) -> None:
         """Тест df_convertor только с проверкой запрещенных меток."""
@@ -275,7 +275,7 @@ class TestLabelsConvertor:
         )
 
         # Получаем функтор с проверкой на 'Домен'
-        convertor_func = lc.df_convertor(labels2raise={'Домен'})
+        convertor_func = lc.df_convertor(values2raise={'Домен'})
 
         # Применяем конвертацию - должно вызвать исключение
         with pytest.raises(ForbiddenLabelError) as exc_info:
@@ -292,7 +292,7 @@ class TestLabelsConvertor:
         expected_labels = ['Класс', 'Царство']
         assert result['label'].tolist() == expected_labels
 
-    def test_df_convertor_with_both_labels2del_and_labels2raise(
+    def test_df_convertor_with_both_values2del_and_values2raise(
         self, labels2meanings: dict[str, str]
     ) -> None:
         """Тест df_convertor с удалением одних меток и проверкой других."""
@@ -308,7 +308,7 @@ class TestLabelsConvertor:
         )
 
         # Удаляем 'Отдел', проверяем на 'Домен'
-        convertor_func = lc.df_convertor(labels2del={'Отдел'}, labels2raise={'Домен'})
+        convertor_func = lc.df_convertor(values2del={'Отдел'}, values2raise={'Домен'})
 
         # Применяем - должно вызвать исключение из-за 'Домен'
         with pytest.raises(ForbiddenLabelError) as exc_info:
@@ -346,13 +346,13 @@ class TestLabelsConvertor:
         result = convertor_func(df)
         assert result['label'].tolist() == ['Домен', 'Класс']
 
-        # Только labels2del = None
-        convertor_func = lc.df_convertor(labels2del=None, labels2raise={'Домен'})
+        # Только values2del = None
+        convertor_func = lc.df_convertor(values2del=None, values2raise={'Домен'})
         with pytest.raises(ForbiddenLabelError):
             convertor_func(df)
 
-        # Только labels2raise = None
-        convertor_func = lc.df_convertor(labels2del={'Домен'}, labels2raise=None)
+        # Только values2raise = None
+        convertor_func = lc.df_convertor(values2del={'Домен'}, values2raise=None)
         result = convertor_func(df)
         assert len(result) == 1
         assert result['label'].tolist() == ['Класс']
@@ -371,19 +371,19 @@ class TestLabelsConvertor:
             }
         )
 
-        # Тест с list для labels2del
-        convertor_func = lc.df_convertor(labels2del=['Домен', 'Царство'])
+        # Тест с list для values2del
+        convertor_func = lc.df_convertor(values2del=['Домен', 'Царство'])
         result = convertor_func(df)
         assert len(result) == 1
         assert result['label'].tolist() == ['Класс']
 
-        # Тест с tuple для labels2raise
-        convertor_func = lc.df_convertor(labels2raise=('Домен', 'Царство'))
+        # Тест с tuple для values2raise
+        convertor_func = lc.df_convertor(values2raise=('Домен', 'Царство'))
         with pytest.raises(ForbiddenLabelError):
             convertor_func(df)
 
         # Тест с одиночным значением
-        convertor_func = lc.df_convertor(labels2del='Домен')
+        convertor_func = lc.df_convertor(values2del='Домен')
         result = convertor_func(df)
         assert len(result) == 2
         assert set(result['label'].unique()) == {'Класс', 'Царство'}
