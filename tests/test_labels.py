@@ -28,7 +28,7 @@ class TestLabelsConvertor:
 
     @pytest.fixture
     def meanings2superlabels(self) -> dict[str, str]:
-        """Фикстура с расшифровками и суперклассами."""
+        """Фикстура с расшифровки и суперклассами."""
         return {
             'Род': 'Виды и рода',
             'Вид': 'Виды и рода',
@@ -37,6 +37,7 @@ class TestLabelsConvertor:
             'Семейство': 'Классы, отряды и семейства',
             'Отдел': 'Неиспользуемые объекты',
             'Домен': 'Исключаемые объекты',
+            'Царство': 'Другая категория',
         }
 
     def test_init_with_both_files(self) -> None:
@@ -81,29 +82,22 @@ class TestLabelsConvertor:
         meanings2superlabels: dict[str, str],
     ) -> None:
         """Тест поведения вызова для разных конфигураций."""
-        test_cases = [
-            # (конвертор, ожидаемые преобразования):
-            (
-                LabelsConvertor('labels_template.xlsx', 'superlabels_template.xlsx'),
-                {'class': 1},  # label2superind
-            ),
-            (
-                LabelsConvertor('superlabels_template.xlsx'),
-                {'Класс': 'Классы, отряды и семейства'},  # meaning2superlabel
-            ),
-            (
-                LabelsConvertor('labels_template.xlsx'),
-                {'class': 'Класс', 'kingdom': 'Царство'},  # label2meaning
-            ),
-            (
-                LabelsConvertor(labels2meanings, meanings2superlabels),
-                {'class': 'Классы, отряды и семейства'},  # label2superlabel
-            ),
-        ]
+        # Тест 1: label2superind
+        lc1 = LabelsConvertor('labels_template.xlsx', 'superlabels_template.xlsx')
+        assert lc1('class') == 1
 
-        for lc, expected in test_cases:
-            for label, expected_result in expected.items():
-                assert lc(label) == expected_result
+        # Тест 2: meaning2superlabel
+        lc2 = LabelsConvertor('superlabels_template.xlsx')
+        assert lc2('Класс') == 'Классы, отряды и семейства'
+
+        # Тест 3: label2meaning
+        lc3 = LabelsConvertor('labels_template.xlsx')
+        assert lc3('class') == 'Класс'
+        assert lc3('kingdom') == 'Царство'
+
+        # Тест 4: label2superlabel
+        lc4 = LabelsConvertor(labels2meanings, meanings2superlabels)
+        assert lc4('class') == 'Классы, отряды и семейства'
 
     def test_get_unknown_labels(self, labels2meanings: dict[str, str]) -> None:
         """Тест получения неизвестных меток."""
@@ -145,7 +139,7 @@ class TestLabelsConvertor:
         result_dict = lc.asdict()
 
         assert isinstance(result_dict, dict)
-        assert result_dict == dict(lc)  # Должен возвращать тот же словарь
+        assert result_dict == dict(lc)
 
     def test_iteration(self) -> None:
         """Тест итерации по конвертору."""
@@ -204,189 +198,175 @@ class TestLabelsConvertor:
         with pytest.raises(KeyError):
             lc.main_dict = 'invalid_type'
 
-    # Убираем тесты приватных методов, так как они не должны быть доступны извне
-    # Вместо этого тестируем их через публичный интерфейс df_convertor
-
-    def test_df_convertor_no_postprocessing(
-        self, labels2meanings: dict[str, str]
+    def test_apply2df_with_values2del(
+        self,
+        labels2meanings: dict[str, str],
     ) -> None:
-        """Тест df_convertor без постобработки (только конвертация)."""
-        lc = LabelsConvertor(labels2meanings)
-
-        # Создаем тестовый DataFrame
-        df = pd.DataFrame(
-            {
-                'frame': [1, 2, 3],
-                'label': ['domain', 'class', 'kingdom'],
-                'other_column': [10, 20, 30],
-            }
+        """Тест применения конвертора к DataFrame с удалением меток."""
+        lc = LabelsConvertor(
+            labels2meanings,
+            main_dict='label2meaning',
+            values2del='Отдел',
         )
 
-        # Получаем функтор без обработки удаления/исключений
-        convertor_func = lc.df_convertor()
-
-        # Применяем конвертацию
-        result = convertor_func(df)
-
-        # Проверяем, что метки преобразованы
-        expected_labels = ['Домен', 'Класс', 'Царство']
-        assert result['label'].tolist() == expected_labels
-        assert result['other_column'].tolist() == [10, 20, 30]
-
-    def test_df_convertor_with_values2del_only(
-        self, labels2meanings: dict[str, str]
-    ) -> None:
-        """Тест df_convertor только с удалением меток."""
-        lc = LabelsConvertor(labels2meanings)
-
-        # Создаем тестовый DataFrame
         df = pd.DataFrame(
             {
-                'frame': [1, 2, 3, 4],
                 'label': ['domain', 'class', 'kingdom', 'phylum'],
-                'other_column': [10, 20, 30, 40],
-            }
-        )
-
-        # Получаем функтор с удалением 'Домен' (после конвертации)
-        convertor_func = lc.df_convertor(values2del={'Домен'})
-
-        # Применяем конвертацию
-        result = convertor_func(df)
-
-        # Проверяем, что 'domain' (который станет 'Домен') удален
-        assert len(result) == 3
-        assert set(result['label'].unique()) == {'Класс', 'Царство', 'Отдел'}
-        assert result['other_column'].tolist() == [20, 30, 40]
-
-    def test_df_convertor_with_values2raise_only(
-        self, labels2meanings: dict[str, str]
-    ) -> None:
-        """Тест df_convertor только с проверкой запрещенных меток."""
-        lc = LabelsConvertor(labels2meanings)
-
-        # Создаем тестовый DataFrame
-        df = pd.DataFrame(
-            {
-                'frame': [1, 2, 3],
-                'label': ['domain', 'class', 'kingdom'],
-                'other_column': [10, 20, 30],
-            }
-        )
-
-        # Получаем функтор с проверкой на 'Домен'
-        convertor_func = lc.df_convertor(values2raise={'Домен'})
-
-        # Применяем конвертацию - должно вызвать исключение
-        with pytest.raises(ForbiddenLabelError) as exc_info:
-            convertor_func(df)
-
-        assert 'В кадрах {1} найдены запрещённые объекты' in str(exc_info.value)
-
-        # Тест без запрещенных меток
-        df_safe = pd.DataFrame(
-            {'frame': [1, 2], 'label': ['class', 'kingdom'], 'other_column': [20, 30]}
-        )
-
-        result = convertor_func(df_safe)
-        expected_labels = ['Класс', 'Царство']
-        assert result['label'].tolist() == expected_labels
-
-    def test_df_convertor_with_both_values2del_and_values2raise(
-        self, labels2meanings: dict[str, str]
-    ) -> None:
-        """Тест df_convertor с удалением одних меток и проверкой других."""
-        lc = LabelsConvertor(labels2meanings)
-
-        # Создаем тестовый DataFrame
-        df = pd.DataFrame(
-            {
                 'frame': [1, 2, 3, 4],
-                'label': ['domain', 'class', 'kingdom', 'phylum'],
-                'other_column': [10, 20, 30, 40],
+                'other_column': [1, 2, 3, 4],
             }
         )
 
-        # Удаляем 'Отдел', проверяем на 'Домен'
-        convertor_func = lc.df_convertor(values2del={'Отдел'}, values2raise={'Домен'})
+        result_df = lc.apply2df(df)
 
-        # Применяем - должно вызвать исключение из-за 'Домен'
-        with pytest.raises(ForbiddenLabelError) as exc_info:
-            convertor_func(df)
-
-        assert 'В кадрах {1} найдены запрещённые объекты' in str(exc_info.value)
-
-        # Тест без запрещенных меток, но с удалением
-        df_safe = pd.DataFrame(
-            {
-                'frame': [2, 3, 4],
-                'label': ['class', 'kingdom', 'phylum'],
-                'other_column': [20, 30, 40],
-            }
-        )
-
-        result = convertor_func(df_safe)
         # 'phylum' -> 'Отдел' должно быть удалено
-        assert len(result) == 2
-        assert set(result['label'].unique()) == {'Класс', 'Царство'}
-        assert result['other_column'].tolist() == [20, 30]
+        assert len(result_df) == 3
+        assert 'Отдел' not in result_df['label'].to_numpy()
+        assert set(result_df['label'].unique()) == {'Домен', 'Класс', 'Царство'}
 
-    def test_df_convertor_with_none_values(
-        self, labels2meanings: dict[str, str]
+    def test_apply2df_with_values2raise(
+        self,
+        labels2meanings: dict[str, str],
     ) -> None:
-        """Тест df_convertor с None значениями в параметрах."""
-        lc = LabelsConvertor(labels2meanings)
-
-        df = pd.DataFrame(
-            {'frame': [1, 2], 'label': ['domain', 'class'], 'other_column': [10, 20]}
+        """Тест применения конвертора к DataFrame с проверкой запрещенных меток."""
+        lc = LabelsConvertor(
+            labels2meanings,
+            main_dict='label2meaning',
+            values2raise='Домен',
         )
-
-        # Все параметры None - просто конвертация
-        convertor_func = lc.df_convertor(None, None)
-        result = convertor_func(df)
-        assert result['label'].tolist() == ['Домен', 'Класс']
-
-        # Только values2del = None
-        convertor_func = lc.df_convertor(values2del=None, values2raise={'Домен'})
-        with pytest.raises(ForbiddenLabelError):
-            convertor_func(df)
-
-        # Только values2raise = None
-        convertor_func = lc.df_convertor(values2del={'Домен'}, values2raise=None)
-        result = convertor_func(df)
-        assert len(result) == 1
-        assert result['label'].tolist() == ['Класс']
-
-    def test_df_convertor_with_various_input_types(
-        self, labels2meanings: dict[str, str]
-    ) -> None:
-        """Тест df_convertor с различными типами входных данных."""
-        lc = LabelsConvertor(labels2meanings)
 
         df = pd.DataFrame(
             {
-                'frame': [1, 2, 3],
                 'label': ['domain', 'class', 'kingdom'],
-                'other_column': [10, 20, 30],
+                'frame': [1, 2, 3],
+                'other_column': [1, 2, 3],
             }
         )
 
-        # Тест с list для values2del
-        convertor_func = lc.df_convertor(values2del=['Домен', 'Царство'])
-        result = convertor_func(df)
-        assert len(result) == 1
-        assert result['label'].tolist() == ['Класс']
+        with pytest.raises(ForbiddenLabelError) as exc_info:
+            lc.apply2df(df)
 
-        # Тест с tuple для values2raise
-        convertor_func = lc.df_convertor(values2raise=('Домен', 'Царство'))
-        with pytest.raises(ForbiddenLabelError):
-            convertor_func(df)
+        assert 'В кадрах {1} найдены запрещённые объекты' in str(exc_info.value)
 
-        # Тест с одиночным значением
-        convertor_func = lc.df_convertor(values2del='Домен')
-        result = convertor_func(df)
-        assert len(result) == 2
-        assert set(result['label'].unique()) == {'Класс', 'Царство'}
+    def test_apply2df_with_both_values2del_and_values2raise(
+        self,
+        labels2meanings: dict[str, str],
+    ) -> None:
+        """Тест применения конвертора с удалением и проверкой меток."""
+        lc = LabelsConvertor(
+            labels2meanings,
+            main_dict='label2meaning',
+            values2del='Отдел',
+            values2raise='Домен',
+        )
+
+        df = pd.DataFrame(
+            {
+                'label': ['domain', 'class', 'kingdom', 'phylum'],
+                'frame': [1, 2, 3, 4],
+                'other_column': [1, 2, 3, 4],
+            }
+        )
+
+        with pytest.raises(ForbiddenLabelError) as exc_info:
+            lc.apply2df(df)
+
+        assert 'В кадрах {1} найдены запрещённые объекты' in str(exc_info.value)
+
+    def test_apply2objs(self, labels2meanings: dict[str, str]) -> None:
+        """Тест применения конвертора к списку объектов."""
+
+        # Создаем простой класс для тестирования
+        class MockObject:
+            def __init__(self, label: str) -> None:
+                self.attribs = {'label': label}
+
+            def copy(self) -> 'MockObject':
+                return MockObject(self.attribs['label'])
+
+        lc = LabelsConvertor(labels2meanings)
+
+        objs = [MockObject('domain'), MockObject('class'), MockObject('kingdom')]
+
+        result_objs = lc.apply2objs(objs)
+
+        # Проверяем, что метки были преобразованы:
+        expected_labels = ['Домен', 'Класс', 'Царство']
+        assert [obj.attribs['label'] for obj in result_objs] == expected_labels
+
+    def test_apply2objs_with_values2del(
+        self,
+        labels2meanings: dict[str, str],
+    ) -> None:
+        """Тест применения конвертора к объектам с удалением меток."""
+
+        class MockObject:
+            def __init__(self, label: str) -> None:
+                self.attribs = {'label': label}
+
+            def copy(self) -> 'MockObject':
+                return MockObject(self.attribs['label'])
+
+        lc = LabelsConvertor(labels2meanings, values2del='Отдел')
+
+        objs = [
+            MockObject('domain'),
+            MockObject('class'),
+            MockObject('kingdom'),
+            MockObject('phylum'),
+        ]
+
+        result_objs = lc.apply2objs(objs)
+
+        # 'phylum' -> 'Отдел' должно быть удалено
+        assert len(result_objs) == 3
+        result_labels = [obj.attribs['label'] for obj in result_objs]
+        assert set(result_labels) == {'Домен', 'Класс', 'Царство'}
+
+    def test_apply2objs_with_values2raise(
+        self,
+        labels2meanings: dict[str, str],
+    ) -> None:
+        """Тест применения конвертора к объектам с проверкой запрещенных меток."""
+
+        class MockObject:
+            def __init__(self, label: str) -> None:
+                self.attribs = {'label': label}
+
+            def copy(self) -> 'MockObject':
+                return MockObject(self.attribs['label'])
+
+        lc = LabelsConvertor(labels2meanings, values2raise='Домен')
+
+        objs = [MockObject('domain'), MockObject('class'), MockObject('kingdom')]
+
+        with pytest.raises(ForbiddenLabelError) as exc_info:
+            lc.apply2objs(objs)
+
+        assert 'объекты с номерами {0} имеют запрещённые метки' in str(exc_info.value)
+
+    def test_apply2objs_invalid_objects(self, labels2meanings: dict[str, str]) -> None:
+        """Тест применения конвертора к некорректным объектам."""
+        lc = LabelsConvertor(labels2meanings)
+
+        # Объект без атрибута attribs
+        class BadObject1:
+            pass
+
+        # Объект без ключа 'label' в attribs
+        class BadObject2:
+            def __init__(self) -> None:
+                self.attribs = {'not_label': 'value'}
+
+        objs1 = [BadObject1()]
+        with pytest.raises(TypeError) as exc_info:
+            lc.apply2objs(objs1)
+        assert 'не имеют поля "attribs"' in str(exc_info.value)
+
+        objs2 = [BadObject2()]
+        with pytest.raises(KeyError) as exc_info:
+            lc.apply2objs(objs2)
+        assert 'не имеют ключа "label" в словаре attribs' in str(exc_info.value)
 
 
 class TestForbiddenLabelError:
@@ -412,10 +392,9 @@ class TestForbiddenLabelError:
 
     def test_forbidden_label_error_raise(self) -> None:
         """Тест возбуждения ForbiddenLabelError."""
-        msg = 'кастомное сообщение'
+        error_message = 'кастомное сообщение'
+
         with pytest.raises(ForbiddenLabelError) as exc_info:
-            raise ForbiddenLabelError(msg)
+            raise ForbiddenLabelError(error_message)
 
-        assert str(exc_info.value) == 'ForbiddenLabelError: кастомное сообщение!'
-
-        assert str(exc_info.value) == 'ForbiddenLabelError: кастомное сообщение!'
+        assert str(exc_info.value) == f'ForbiddenLabelError: {error_message}!'
