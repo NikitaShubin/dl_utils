@@ -121,7 +121,7 @@ def has_var_sufficient_elements(
     normalized_dims = [d if d >= 0 else tensor.dim() + d for d in dim]
     total_elements = np.prod([tensor.size(d) for d in normalized_dims])
 
-    return total_elements > correction
+    return bool(total_elements > correction)
 
 
 def safe_var(
@@ -279,8 +279,18 @@ class Receiver(nn.Module):
             Кортеж из двух одинаковых значений.
         """
         if isinstance(inp, (list, tuple)):
-            return tuple(inp)
-        return (inp, inp)
+            # Определяем константы для лучшей читаемости:
+            single_length = 1
+            pair_length = 2
+
+            if len(inp) == single_length:
+                inp = inp[0]
+                return inp, inp
+            if len(inp) == pair_length:
+                return tuple(inp)
+            msg = f'Ожидается 1 или 2 значения, получено {len(inp)}'
+            raise ValueError(msg)
+        return inp, inp
 
     def __init__(
         self,
