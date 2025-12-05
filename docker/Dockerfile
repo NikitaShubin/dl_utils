@@ -216,9 +216,10 @@ RUN pypackagesdir=`${PIP} show sam2 | grep Location | cut -d' ' -f2` && \
 RUN jupyter labextension disable '@jupyterlab/apputils-extension:announcements'
 
 # Создаём пользователя, даём ему право использовать sudo без пароля и устанавливаем его по умолчанию:
-RUN useradd -ms "${SHELL_PATH}" "${USERNAME}"         && \
-    adduser "${USERNAME}" sudo                        && \
-    echo "${USERNAME}" ALL = NOPASSWD: ALL >> /etc/sudoers
+RUN useradd -ms "${SHELL_PATH}" "${USERNAME}"              && \
+    adduser "${USERNAME}" sudo                             && \
+    echo "${USERNAME}" ALL = NOPASSWD: ALL >> /etc/sudoers && \
+    chmod 1777 /etc && chmod 1777 "${HOMEDIR}"
 USER "${USERNAME}"
 
 # Выключаем поддержку voila, т.к. внтури JupyterLab она всё равно не работает:

@@ -1,12 +1,18 @@
 #!/usr/bin/env bash
 
-#########################
-# Перезапуск контейнера #
-#########################
+##################################
+# Запуск контейнера предразметки #
+##################################
 
 # Определяем положение текущего скрипта:
 DOCKERFILE_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 # Запускаемый докерфайл должен распологаться в той же дирректории.
+
+# Цвета текста:
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+CYAN='\033[0;36m'
+NC='\033[0m'
 
 # Задаём имя контейнера или берём его из входных параметров:
 if [ $# -eq 0 ]; then
@@ -43,19 +49,10 @@ cd "${DOCKERFILE_DIR}"/..
 # if ! docker build --progress=plain "${IMAGE_NAME_AND_TAGS[@]}" -f "$DOCKERFILE_DIR/Dockerfile" .;
 if ! docker build "${IMAGE_NAME_AND_TAGS[@]}" -f "$DOCKERFILE_DIR/Dockerfile" .;
 then
-    # Если образ собрать не удалось:
-    RED='\033[0;31m'
-    NC='\033[0m'  # No Color (https://stackoverflow.com/a/5947802)
+    # Если образ собрать не удалось - берём готовый с DockerHub:
     printf "\n${RED}Образ не собран!\n${NC}"
-
-    # Берём готовый с DockerHub или выводим ошибку:
-    if true; then
-        printf "${RED}Берётся версия из DockerHub!${NC}\n\n"
-        docker pull $IMAGE_NAME
-    else
-        print "\n\n"
-    	exit 1
-    fi
+    printf "${RED}Берётся версия из DockerHub!${RED}\n\n"
+    docker pull $IMAGE_NAME
 else
     # Если образ успешно собран, отправляем ВСЕ теги в одном фоновом процессе:
     nohup bash -c "
@@ -65,7 +62,7 @@ else
         docker push '$IMAGE_NAME:latest'
         echo 'Отправка завершена'
     " > /dev/null 2>&1 &
-    echo "Запущена отправка всех тегов в фоне (PID: $!)"
+    printf "${GREEN}Образ отправляется на Docker HUB (PID: $!)${NC}\n"
 fi
 
 # Возвращаем исходное значение текущей папки:
@@ -104,7 +101,7 @@ RUNPARAMS=(
 
     # Монтируем папку проекта в докер:
     -v "${DOCKERFILE_DIR}/project/":/workspace/project
-    -v "/":"/outroot":ro
+    # -v "/":"/outroot":ro
     # Внешнюю файловую систему монтируем только для чтения в одну из корневых папок.
 
     # Включаем доступ к GPU, если возможно:
