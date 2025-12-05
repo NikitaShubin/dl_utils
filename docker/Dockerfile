@@ -236,10 +236,8 @@ USER "${USERNAME}"
 #    https://github.com/IDEA-Research/GroundingDINO/releases/download/v0.1.0-alpha2/groundingdino_swinb_cogcoor.pth
 ADD https://dl.fbaipublicfiles.com/segment_anything_2/092824/sam2.1_hiera_large.pt "${HOMEDIR}"/models/
 ADD https://github.com/IDEA-Research/GroundingDINO/releases/download/v0.1.0-alpha2/groundingdino_swinb_cogcoor.pth "${HOMEDIR}"/models/
-RUN sudo chmod -R 777 "${HOMEDIR}"/models/
-
-# Доустановка мелочей для GroundingDINO:
-RUN python -c "import os; import groundingdino; from groundingdino.util.inference import load_model; load_model(os.path.join(os.path.dirname(os.path.abspath(groundingdino.__file__)), 'config', 'GroundingDINO_SwinB_cfg.py'), '${HOMEDIR}/models/groundingdino_swinb_cogcoor.pth')"
+RUN sudo chmod -R 777 "${HOMEDIR}"/models/; python -c "import os; import groundingdino; from groundingdino.util.inference import load_model; load_model(os.path.join(os.path.dirname(os.path.abspath(groundingdino.__file__)), 'config', 'GroundingDINO_SwinB_cfg.py'), '${HOMEDIR}/models/groundingdino_swinb_cogcoor.pth')"
+# Доустановка мелочей для GroundingDINO.
 
 
 # Установка тёмной темы в JupyterLab:
@@ -308,7 +306,7 @@ RUN echo 'alias jp="'"cd '${WORKSPACE}' && '${JP}' ${JPPARAMS} > /dev/null &"'"'
     echo 'alias js="killall jupyter-lab"'                                             >> "${BRC}" && \
     echo 'alias ds="js"'                                                              >> "${BRC}" && \
                                                                                                      \
-    echo 'alias checkcrc="md5sum -c crc.md5'                                          >> "${BRC}" && \
+    echo 'alias checkcrc="md5sum -c crc.md5"'                                         >> "${BRC}" && \
     echo 'alias makecrc="find . -type f ! -name crc.md5 -exec md5sum {} + > crc.md5"' >> "${BRC}" && \
                                                                                                      \
     echo 'alias yt="yt-dlp"'                                                          >> "${BRC}" && \
@@ -318,7 +316,10 @@ RUN echo 'alias jp="'"cd '${WORKSPACE}' && '${JP}' ${JPPARAMS} > /dev/null &"'"'
                                                                                                      \
     echo 'alias nv="nvidia-smi -l 1"'                                                 >> "${BRC}" && \
                                                                                                      \
-    echo 'alias brc="nano '"${BRC}"' && source '"${BRC}"'"'                           >> "${BRC}"
+    echo 'alias brc="nano '"${BRC}"' && source '"${BRC}"'"'                           >> "${BRC}" && \
+                                                                                                     \
+    echo 'eval "$(ssh-agent -s)" > /dev/null'                                         >> "${BRC}" && \
+    echo 'ssh-add -q ~/.ssh/* 2> /dev/null'                                           >> "${BRC}"
 
 
 # Используемые порты:

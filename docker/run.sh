@@ -74,8 +74,14 @@ RUNPARAMS=(
     # Фоновый режим:
     -d
 
-    # Права внешнего пользователя
+    # Права внешнего пользователя:
     # -u $(id -u):$(id -g)
+    # -e HOME=/home/user
+    # Без явного указания на домашнюю папку контейнер не заработает у пользователей с id != 1000!
+
+    # Проброс SSH агента:
+    -v "$SSH_AUTH_SOCK:/tmp/ssh_agent.sock" \
+    -e SSH_AUTH_SOCK=/tmp/ssh_agent.sock
 
     # Для работы Keras Tuner по сети:
     --ipc=host
@@ -101,6 +107,7 @@ RUNPARAMS=(
     # -v "$home/projects/AP2.0/local_files/ds/":"/workspace/data/processed"
     -v "$home/projects/IQF/local_files/ds/":"/workspace/data/processed"
     -v "/":"/outroot"
+    -v "$home/.ssh/":"/home/user/.ssh":ro
     #-v "/":"/outroot":ro
 
     # Имя контейнера:
@@ -143,3 +150,4 @@ if false; then
     echo '│                        │'
     echo '┕━━━━━━━━━━━━━━━━━━━━━━━━┙'
 fi
+
