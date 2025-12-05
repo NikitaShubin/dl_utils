@@ -1,10 +1,10 @@
 """labesl.py.
 
 ********************************************
-* Работа с метками классов и суперклассов. *
+* Работа с метками меток и суперметок.     *
 *                                          *
-*   Предпологается, что таблица классов и  *
-* таблицы суперклассов схранены в формате  *
+*   Предпологается, что таблица меток и    *
+* таблицы суперметок схранены в формате    *
 * Excel (*.xlsx).                          *
 *                                          *
 *                                          *
@@ -13,12 +13,13 @@
 *       читающий и интерпретирующий        *
 *       заданные excel-файлы. Содержит     *
 *       все необходимые методы для работы  *
-*       с классами и суперклассами.        *
+*       с метками и суперметками.          *
 *                                          *
 ********************************************
 .
 """
 
+import csv
 from pathlib import Path
 from typing import ClassVar, cast
 
@@ -32,14 +33,14 @@ Label = str | int | None
 Labels = list[Label] | tuple[Label] | set[Label]
 
 # Имена столбцов в labels.xlsx:
-label_column = 'Метка в CVAT'  # Имя класса (метка)
-synonym_column = 'Метка в другом источнике данных'  # Синоним класса
+label_column = 'Метка в CVAT'  # Метка (имя класса)
+synonym_column = 'Метка в другом источнике данных'  # Синоним метки
 
 # Имена столбцов в superlabels.xlsx:
-superlabel_column = 'Наименование суперкласса'  # Имена суперклассов
-scl_clsnme_column = 'Классы (содержимое суперкласса)'  # Имена классов
-scl_number_column = '№ п/п'  # Номера суперклассов
-scl_prrity_column = 'Приоритет'  # Приоритет суперклассов
+superlabel_column = 'Наименование суперкласса'  # Имена суперметок
+scl_clsnme_column = 'Классы (содержимое суперкласса)'  # Имена меток
+scl_number_column = '№ п/п'  # Номера суперметок
+scl_prrity_column = 'Приоритет'  # Приоритет суперметок
 
 
 def _fix_string(lbl: str) -> str:
@@ -51,10 +52,58 @@ def _fix_string(lbl: str) -> str:
     return lbl.replace('\xa0', ' ').strip() if isinstance(lbl, str) else lbl
 
 
+def _read_file_to_df(file_path: str) -> pd.DataFrame:
+    """Читает файл в DataFrame в зависимости от расширения."""
+    path = Path(file_path)
+
+    # Если Excel-файл:
+    if path.suffix.lower() in ['.xlsx', '.xls']:
+        return pd.read_excel(file_path, engine='openpyxl')
+
+    # Если текстовый файл:
+    if path.suffix.lower() in ['.csv', '.tsv', '.txt']:
+        # Определение разделителя по расширению:
+        delimiter = '\t' if path.suffix.lower() == '.tsv' else ','
+
+        # Читаем с учетом кавычек для значений с разделителями внутри:
+        try:
+            df = pd.read_csv(
+                file_path,
+                delimiter=delimiter,
+                quotechar='"',
+                quoting=csv.QUOTE_MINIMAL,
+                encoding='utf-8-sig',
+            )  # Поддержка BOM
+
+        # Попробуем другие кодировки:
+        except UnicodeDecodeError:
+            try:
+                df = pd.read_csv(
+                    file_path,
+                    delimiter=delimiter,
+                    quotechar='"',
+                    quoting=csv.QUOTE_MINIMAL,
+                    encoding='cp1251',
+                )
+            except UnicodeDecodeError:
+                df = pd.read_csv(
+                    file_path,
+                    delimiter=delimiter,
+                    quotechar='"',
+                    quoting=csv.QUOTE_MINIMAL,
+                    encoding='latin1',
+                )
+
+        return df
+
+    msg = f'Неподдерживаемый формат файла: {path.suffix}'
+    raise ValueError(msg)
+
+
 def _file2labels_df(file_path: str) -> pd.DataFrame:
-    """Загружает xlsx-файл со списком классов."""
-    # Загружаем полный список классов:
-    df = pd.read_excel(file_path, engine='openpyxl')
+    """Загружает файл со списком меток."""
+    # Загружаем полный список меток:
+    df = _read_file_to_df(file_path)
 
     # Отбрасываем столбцы, чьи имена не заданы явно:
     df = df.drop(columns=[column for column in df.columns if 'Unnamed: ' in column])
@@ -71,9 +120,9 @@ def _file2labels_df(file_path: str) -> pd.DataFrame:
 
 
 def _file2superlabels_df(file_path: str) -> pd.DataFrame:
-    """Загружает xlsx-файл со списком суперклассов."""
-    # Читаем список суперклассов:
-    df = pd.read_excel(file_path, engine='openpyxl')
+    """Загружает файл со списком суперметок."""
+    # Читаем список суперметок:
+    df = _read_file_to_df(file_path)
 
     # Подчищаем данные в таблице:
     for column in df.columns:
@@ -90,7 +139,7 @@ def _file2superlabels_df(file_path: str) -> pd.DataFrame:
         cur_scl_number = dfrow[scl_number_column]  # Номер
         cur_scl_priority = dfrow[scl_prrity_column]  # Приоритет
 
-        # Если cur_superlabel_name не NaN, значит это новый класс:
+        # Если cur_superlabel_name не NaN, значит это новая метка:
         if pd.notna(cur_superlabel_name):
             # Остальные параметры тоже должны быть не NaN:
             if pd.isna(cur_scl_number):
@@ -100,8 +149,8 @@ def _file2superlabels_df(file_path: str) -> pd.DataFrame:
                 msg = f'[{ind}, {scl_prrity_column}] = NaN'
                 msgs.append(msg)
 
-            # Читаем из строки действительные значения для текущего
-            # суперкласса:
+            # Читаем из строки действительные значения для текущей
+            # суперметки:
             superlabel_name = cur_superlabel_name  # Имя
             scl_number = cur_scl_number  # Номер
             scl_priority = cur_scl_priority  # Приоритет
@@ -116,7 +165,7 @@ def _file2superlabels_df(file_path: str) -> pd.DataFrame:
                 msg = f'[{ind}, {scl_prrity_column}] = {cur_scl_priority}'
                 msgs.append(msg)
 
-            # Пишем в строку пропущенные значения для текущего суперкласса:
+            # Пишем в строку пропущенные значения для текущей суперметки:
             df.loc[ind, superlabel_column] = superlabel_name  # Имя
             df.loc[ind, scl_number_column] = scl_number  # Номер
             df.loc[ind, scl_prrity_column] = scl_priority  # Приоритет
@@ -125,8 +174,8 @@ def _file2superlabels_df(file_path: str) -> pd.DataFrame:
     if msgs:
         raise ValueError('\n'.join(msgs))
 
-    # Приводим номера суперклассов к целочислоенному типу и сдвигаем, чтобы
-    # суперкласс неиспользуемых объектов был под номером -1, а остальные
+    # Приводим номера суперметок к целочислоенному типу и сдвигаем, чтобы
+    # суперметка неиспользуемых объектов была под номером -1, а остальные
     # начинались с 0:
     df[scl_number_column] = df[scl_number_column].apply(int) - 1
     # В результате исключённые объекты получат значение -2 !
@@ -135,7 +184,7 @@ def _file2superlabels_df(file_path: str) -> pd.DataFrame:
 
 
 def _any_file2df(file_path: str) -> tuple[pd.DataFrame, str]:
-    """Читает файл классов или суперклассов.
+    """Читает файл меток или суперметок.
 
     Возвращает датафейрм и тип сожержимого (labels / superlabels).
     """
@@ -145,7 +194,7 @@ def _any_file2df(file_path: str) -> tuple[pd.DataFrame, str]:
 
     exceptions = []
     for func, type_ in [
-        (_file2superlabels_df, 'superlabels'),  # Суперклассы
+        (_file2superlabels_df, 'superlabels'),  # Суперметки
         (_file2labels_df, 'labels'),  # Классы
     ]:
         try:
@@ -153,7 +202,7 @@ def _any_file2df(file_path: str) -> tuple[pd.DataFrame, str]:
         except Exception as exception:  # noqa: BLE001
             exceptions.append(exception)
 
-    msg = f'"{file_path}" не является файлом классов или суперклассов!'
+    msg = f'"{file_path}" не является файлом меток или суперметок!'
     raise ExceptionGroup(
         msg,
         exceptions,
@@ -161,18 +210,18 @@ def _any_file2df(file_path: str) -> tuple[pd.DataFrame, str]:
 
 
 def _labels_df2tree(df: pd.DataFrame) -> Tree:
-    """Парсит датафрейм суперклассов.
+    """Парсит датафрейм суперметок.
 
     Строит дерево данных из pandas-dataframe в индексах которого прописаны
     номера списков с вложенностью.
     """
     # Создаём дерево и указываем корень:
     tree = Tree()
-    tree.create_node('Номер класса', 'Номер класса')
+    tree.create_node('Номер метки', 'Номер метки')
 
     # Перебор по всем строкам таблицы:
     for df_ind in df.index:
-        # Имена класса для текущей строки:
+        # Метка и её синоним для текущей строки:
         label = df[label_column][df_ind]
         synonym = df[synonym_column][df_ind]
 
@@ -186,14 +235,14 @@ def _labels_df2tree(df: pd.DataFrame) -> Tree:
         label = (label, synonym)
 
         # Разделяем строку ind на индекс (позицию во вложенных списках) и
-        # расшифровку класса:
+        # расшифровку метки:
 
         # Заменяем нетипичные пробелы на типичные:
         ind = df_ind.replace('\xa0', ' ')
         # Расщепляем строку на слова:
         words = [word for word in ind.strip().split(' ') if word]
         ind = words[0]  # Первое слово является позицией в списках
-        name = ' '.join(words[1:])  # Остальные слова расшифровывают класс
+        name = ' '.join(words[1:])  # Остальные слова расшифровывают метку
         if ind[-1] == '.':  # В конце индекса должна стоять точка:
             ind = ind[:-1]  # Отбрасываем её
         else:
@@ -208,7 +257,7 @@ def _labels_df2tree(df: pd.DataFrame) -> Tree:
             group = rim2arabic(ind)
 
             # Вносим в дерево новые данные:
-            tree.create_node(name, (group,), parent='Номер класса', data=label)
+            tree.create_node(name, (group,), parent='Номер метки', data=label)
 
         # Если индекс записан арабскими цифрами::
         else:
@@ -243,13 +292,13 @@ def _make_labels2meanings(
     labels2meanings: dict[Label, str] = {}  # Label   -> расшифровка
     synonyms2meanings: dict[Label, str] = {}  # Synonym -> расшифровка
 
-    # Перебираем все строки таблицы классов:
+    # Перебираем все строки таблицы меток:
     for node in tree.expand_tree(mode=Tree.DEPTH):
-        # Пропускаем классы, не имеющие меток:
+        # Пропускаем метки, не имеющие меток:
         if tree[node].data in (None, (None, None)):
             continue
 
-        # Считываем параметры класса
+        # Считываем параметры метки
         meaning = tree[node].tag  # Расшифровка
         label, synonym = tree[node].data  # Метки
 
@@ -288,33 +337,33 @@ def _make_labels2meanings(
 def _make_meanings_2_superlabels2del_and_2raise(
     superlabels_df: pd.DataFrame,
 ) -> tuple[set[Label], set[Label]]:
-    """Парсит датафрейм суперклассов.
+    """Парсит датафрейм суперметок.
 
-    Строит множество неиспользуемых и игнорируемых суперклассов.
+    Строит множество неиспользуемых и игнорируемых суперметок.
     """
 
     def scl_number2superlabels(scl_number: int) -> set:
-        """Извлекает множество суперклассов с заданным индексом."""
+        """Извлекает множество суперметок с заданным индексом."""
         mask = superlabels_df[scl_number_column] == scl_number
         return set(superlabels_df[mask][superlabel_column].unique())
 
-    # Множества неиспользуемых и запрещённых суперклассов:
+    # Множества неиспользуемых и запрещённых суперметок:
     return scl_number2superlabels(-1), scl_number2superlabels(-2)
 
 
 def _make_meanings2superlabels2superinds(
     superlabels_df: pd.DataFrame,
 ) -> tuple[dict[str, Label], dict[Label, int]]:
-    """Парсит датафрейм суперклассов.
+    """Парсит датафрейм суперметок.
 
-    Строит из датафрейма словарь перехода от имени класса к имени
-    соответствующего суперкласса.
+    Строит из датафрейма словарь перехода от имени метки к имени
+    соответствующего суперметки.
     """
     # Заполняемые словари:
     meanings2superlabels: dict[str, Label] = {}
     superlabels2superinds: dict[Label, int] = {}
 
-    # Перебираем все строки датафрейма суперклассов:
+    # Перебираем все строки датафрейма суперметок:
     for dfrow_tuple in superlabels_df.iterrows():
         # Распаковываем кортеж:
         _, dfrow = dfrow_tuple
@@ -327,7 +376,7 @@ def _make_meanings2superlabels2superinds(
         # Если такая расшифровка уже внесена в словарь:
         if meaning in meanings2superlabels:
             msg = (
-                f'В таблице суперклассов расшифровка "{meaning}"'
+                f'В таблице суперметок расшифровка "{meaning}"'
                 ' встречается минимум дважды!'
             )
             raise KeyError(msg)
@@ -336,7 +385,7 @@ def _make_meanings2superlabels2superinds(
 
         # При этом отрицательные расшифровки заменяем на None:
         meanings2superlabels[meaning] = superlabel
-        # Нужно, чтобы суперкласс неиспользуемых объектов имел None вместо
+        # Нужно, чтобы суперметка неиспользуемых объектов имела None вместо
         # своего имени.
 
         # Если такой индекс уже есть, проверяем совпадение:
@@ -344,7 +393,7 @@ def _make_meanings2superlabels2superinds(
             old_superind = superlabels2superinds[superlabel]
             if old_superind != superind:
                 msg = (
-                    'Противоречивые записи в суперклассе '
+                    'Противоречивые записи в суперметке '
                     f'"{superlabel}": {old_superind} != {superind}!'
                 )
                 raise KeyError(msg)
@@ -373,7 +422,7 @@ class CoreLabelsConvertor(dict):
 
     Наследует словарь, обеспечивая методами, позволяющими выполнять работу с
     метками. Концептуально предназначен только для интерфейсных функций
-    главного словаря.Экземпляр класса представляет собой только главный
+    главного словаря. Экземпляр класса представляет собой только главный
     словарь. Главным словарём называется тот, по которому производится замена
     меток.
     """
@@ -402,7 +451,7 @@ class CoreLabelsConvertor(dict):
         # Делаем копию исходного датафрейма, чтобы не менять оригинал:
         df = df.copy()
 
-        # Замета меток на номера суперклассов:
+        # Замета меток на номера суперметок:
         labels = df['label'].map(self)
         df['label'] = labels
 
@@ -426,7 +475,7 @@ class CoreLabelsConvertor(dict):
     def apply2objs(self, objs: list | tuple) -> list:
         """Выполняет замену меток в списках объектов.
 
-        Применяется к спискам экземлпяров таких классов, как BBox и Mask из модуля
+        Применяется к спискам экземлпяров таких меток, как BBox и Mask из модуля
         cv_utils.py, но работает со списками и кортежами любых объектов, если метки
         хранятся у них в obj.attribs['label'], а сами они поддерживают метод copy().
         """
@@ -513,17 +562,22 @@ class LabelsConvertor(CoreLabelsConvertor):
     Наследует CoreLabelsConvertor, позволяя формировать главный словарь более
     сложными способами.
 
+    Поддерживаемые форматы файлов:
+        - Excel: .xlsx, .xls
+        - CSV: .csv (разделитель - запятая)
+        - TSV: .tsv, .txt (разделитель - табуляция)
+
     Используется следующая внутренняя терминология:
         label      - оригинальное название класа;
         meaning    - его расшифровка (может быть на русском языке);
-        superlabel - название суперкласса (может включать в себя
-                     несколько классов);
-        superind   - номер суперкласса.
+        superlabel - название суперметки (может включать в себя
+                     несколько меток);
+        superind   - номер суперметки.
 
     Полная цепочка перехода: label -> meaning -> superlabel -> superind.
     Предпологается, что переход "label -> meaning" взаимнооднозначен (может
     быть обращён), а "meaning -> superlabel" - наоборот - позволяет
-    "схлопывать" часть классов в суперклассы. По факту могут быть любые
+    "схлопывать" часть меток в суперметки. По факту могут быть любые
     варианты.
 
     Главный словарь может быть выбран одним из нескольких вариантов:
@@ -542,6 +596,32 @@ class LabelsConvertor(CoreLabelsConvertor):
         запретными      - их superind = -2, кадры, содержащие эти объекты,
                           подлежат исключению из итоговой выборки при
                           конвертации.
+
+    Примеры инициализации:
+
+        # Использование словарей напрямую:
+        lc = LabelsConvertor(
+            {'person': 'человек', 'car': 'машина'},
+            {'человек': 'people', 'машина': 'transport'},
+        )
+
+        # Загрузка данных из Excel-файлов:
+        lc = LabelsConvertor('labels.xlsx', 'superlabels.xlsx')
+
+        # Загрузка данных из CSV-файлов:
+        lc = LabelsConvertor('labels.csv', 'superlabels.csv')
+
+        # Использование TSV-файлов (табуляция как разделитель):
+        lc = LabelsConvertor('labels.tsv', 'superlabels.tsv')
+
+        # Смешанные форматы:
+        lc = LabelsConvertor('labels.csv', 'superlabels.xlsx')
+
+    Примечания по форматам файлов:
+        - CSV файлы: разделитель - запятая;
+        - TSV файлы: разделитель - табуляция;
+        - Для значений, содержащих запятые/табуляции, используйте кавычки;
+        - Кодировка файлов: UTF-8.
     """
 
     # "Тип перехода -> соответствующий словарь"
@@ -581,12 +661,12 @@ class LabelsConvertor(CoreLabelsConvertor):
             df, type_ = _any_file2df(meanings2superlabels)
             if type_ == 'labels':
                 if hasattr(self, 'labels_df'):
-                    msg = 'Передано два файла классов!'
+                    msg = 'Передано два файла меток!'
                     raise ValueError(msg)
                 self.labels_df = df
             elif type_ == 'superlabels':
                 if hasattr(self, 'superlabels_df'):
-                    msg = 'Передано два файла суперклассов!'
+                    msg = 'Передано два файла суперметок!'
                     raise ValueError(msg)
                 self.superlabels_df = df
             else:
@@ -725,7 +805,7 @@ class LabelsConvertor(CoreLabelsConvertor):
         label -> superlabel.
 
         Варианты инициализации:
-            # Схлопывает классы "человек" и "толпа" в суперкласс "Люди", а
+            # Схлопывает метки "человек" и "толпа" в суперметку "Люди", а
             # "Машина" и "Самолёт" в "Транспорт":
             lc = LabelsConvertor(
                 {
@@ -763,9 +843,9 @@ class LabelsConvertor(CoreLabelsConvertor):
 
         main_dict отвечает за поведение экземпляра класса при использовании его
         как функции от одного аргумента:
-            'label2superind'   - переход от метки класса к номеру суперкласса
+            'label2superind'   - переход от метки к номеру суперметки
                                  (конвертация в YOLO-формат);
-            'label2superlabel' - переход от метки класса к метке суперкласса
+            'label2superlabel' - переход от метки к метке суперметке
                                  (подмена одних меток другими, например, при
                                  обработке результатов авторазметки);
              'auto'            - переход, задейсвтующий все переданные данные.
@@ -788,7 +868,7 @@ class LabelsConvertor(CoreLabelsConvertor):
         Если значения values2del и values2raise не указаны явно (= None), но при
         инициализации передан xlsx-файл суперметок, то значения читаются оттуда, в
         противном случае списки будут пусты. Чтобы очистить списки даже при заданном
-        файле суперклассов, нужно явно указать пустой список:
+        файле суперметок, нужно явно указать пустой список:
             lc = LabelsConvertor('superlabels.xlsx', values2del=[], values2raise=[])
         """
         # Сначала читаем указанные файлы:
@@ -824,7 +904,7 @@ class LabelsConvertor(CoreLabelsConvertor):
     def main_dict(self) -> str:
         """Возвращает аттрибут main_dict.
 
-        Указывает тип поведения экземпляра класса в случае вызова как функции.
+        Указывает тип поведения экземпляра меткиа в случае вызова как функции.
         """
         return self._main_dict_name
 
