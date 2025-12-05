@@ -287,7 +287,7 @@ class Receiver(nn.Module):
                 inp = inp[0]
                 return inp, inp
             if len(inp) == pair_length:
-                return tuple(inp)
+                return inp[0], inp[1]
             msg = f'Ожидается 1 или 2 значения, получено {len(inp)}'
             raise ValueError(msg)
         return inp, inp
