@@ -19,7 +19,6 @@
 .
 """
 
-import csv
 from pathlib import Path
 from typing import ClassVar, cast
 
@@ -65,36 +64,20 @@ def _read_file_to_df(file_path: str) -> pd.DataFrame:
         # Определение разделителя по расширению:
         delimiter = '\t' if path.suffix.lower() == '.tsv' else ','
 
-        # Читаем с учетом кавычек для значений с разделителями внутри:
-        try:
-            df = pd.read_csv(
-                file_path,
-                delimiter=delimiter,
-                quotechar='"',
-                quoting=csv.QUOTE_MINIMAL,
-                encoding='utf-8-sig',
-            )  # Поддержка BOM
-
-        # Попробуем другие кодировки:
-        except UnicodeDecodeError:
+        # Пробуем несколько кодировок:
+        encodings = ['utf-8', 'utf-8-sig', 'cp1251', 'latin1']
+        for encoding in encodings:
             try:
-                df = pd.read_csv(
+                return pd.read_csv(
                     file_path,
                     delimiter=delimiter,
-                    quotechar='"',
-                    quoting=csv.QUOTE_MINIMAL,
-                    encoding='cp1251',
+                    encoding=encoding,
                 )
             except UnicodeDecodeError:
-                df = pd.read_csv(
-                    file_path,
-                    delimiter=delimiter,
-                    quotechar='"',
-                    quoting=csv.QUOTE_MINIMAL,
-                    encoding='latin1',
-                )
+                continue
 
-        return df
+        # Если ни одна кодировка не подошла, пробуем без указания кодировки:
+        return pd.read_csv(file_path, delimiter=delimiter, on_bad_lines='skip')
 
     msg = f'Неподдерживаемый формат файла: {path.suffix}'
     raise ValueError(msg)
