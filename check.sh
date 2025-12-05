@@ -12,6 +12,10 @@ CYAN='\033[0;36m'
 PURPLE='\033[0;35m'
 NC='\033[0m' # No Color
 
+# Параметры для mypy
+# MYPY_ARGS=("--strict" "--no-incremental" "--show-error-codes" "--warn-unused-ignores" "--follow-imports=skip")
+MYPY_ARGS=("--no-incremental" "--show-error-codes" "--warn-unused-ignores" "--follow-imports=skip")
+
 # Функция для получения ширины терминала:
 get_terminal_width() {
     echo $(tput cols 2>/dev/null || echo 80)
@@ -97,7 +101,7 @@ for file in "${ROOT_FILES[@]}"; do
         # Mypy проверка
         print_separator "Mypy: $file" "$PURPLE"
         print_step "Проверка типов в файле $file..."
-        if mypy --no-incremental --show-error-codes --warn-unused-ignores --follow-imports=skip "$file"; then
+        if mypy "${MYPY_ARGS[@]}" "$file"; then
             print_success "Проверка типов $file завершена"
         else
             print_error "Найдены ошибки типов в $file"
@@ -143,7 +147,7 @@ if [[ -d "tests" ]]; then
     # Mypy проверка для tests
     print_separator "Mypy: tests" "$PURPLE"
     print_step "Проверка типов в тестах..."
-    if mypy --no-incremental --show-error-codes --warn-unused-ignores --follow-imports=skip tests; then
+    if mypy "${MYPY_ARGS[@]}" tests; then
         print_success "Проверка типов тестов завершена"
     else
         print_error "Найдены ошибки типов в тестах"
