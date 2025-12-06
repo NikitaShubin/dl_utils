@@ -100,6 +100,7 @@ import glob
 import json
 
 # from inspect import isclass
+from pathlib import Path
 from functools import reduce
 from shutil import rmtree, copyfile, move
 from tqdm import tqdm
@@ -2214,6 +2215,238 @@ def json2obj(file='./cfg.json', encoding='utf-8'):
                 obj.append(json.loads(line.strip()))
 
     return obj
+
+
+class ManyToOne(dict):
+    """Словарь-классификатор.
+
+    Словарь, поддерживающий двунаправленное отображение между ключами и значениями.
+
+    Реализует преобразование между двумя представлениями данных:
+    1. Many-to-One (многие к одному): множество ключей отображаются в одно значение;
+    2. One-to-Many (один ко многим): один ключ отображается в коллекцию значений.
+
+    Основные сценарии использования:
+    - Классификация объектов (категоризация);
+    - Создание обратных индексов (reverse lookup);
+    - Группировка данных по общим признакам;
+    - Работа со справочниками и кодами.
+
+    Примеры:
+        # Инициализация many-to-one словарём
+        classifier = ManyToOne({'яблоко': 'фрукт', 'морковь': 'овощ', 'банан': 'фрукт'})
+        print(classifier['яблоко'])  # 'фрукт'
+
+        # Инициализация one-to-many словарём
+        grouping = ManyToOne(
+            {'фрукт': ['яблоко', 'банан'], 'овощ': ['морковь']}, type='one2many'
+        )
+        print(grouping['яблоко'])  # 'фрукт'
+
+    Наследует все методы стандартного словаря Python (dict).
+    Дополнительные возможности:
+    - Поддержка обратного отображения (one2many);
+    - Сохранение/загрузка в различных форматах;
+    - Валидация целостности данных;
+    - Экспорт в Mermaid.
+    """
+    acceptable_types = ['one2many', 'many2one', 'auto']
+
+    def __init__(self, source: dict | str | Path,
+                 type: str = 'auto') -> None:
+        """
+        Инициализирует словарь из источника данных с автоматическим определением
+        или явным указанием типа отображения.
+
+        Параметры:
+        ----------
+        source : dict | str | Path
+            Источник данных. Может быть:
+            - Словарём Python
+            - Путь к файлу в формате JSON, JSONL, YAML или YML
+
+            Для типа 'many2one' ожидается словарь вида {key: value}
+            Для типа 'one2many' ожидается словарь вида {value: [key1, key2, ...]}
+
+        type : str, default='auto'
+            Тип отображения в источнике:
+            - 'many2one': источник содержит прямое отображение (ключ -> значение)
+            - 'one2many': источник содержит обратное отображение (значение -> список ключей)
+            - 'auto': тип определяется автоматически на основе структуры значений.
+              Если все значения - коллекции (list, tuple, set), то 'one2many',
+              иначе - 'many2one'.
+
+        Исключения:
+        -----------
+        ValueError
+            - Если указан неподдерживаемый тип отображения
+            - Если файл имеет неподдерживаемое расширение
+            - Если после загрузки данные не являются словарём
+
+        KeyError
+            - Если в режиме 'one2many' один ключ относится к нескольким значениям
+
+        Примечания:
+        -----------
+        1. При чтении из файла: автоматически определяется формат по расширению;
+        2. При инициализации с type='auto': проверяется только первый уровень
+        вложенности
+           для определения типа словаря;
+        3. В режиме 'one2many' происходит валидация на уникальность ключей во всех
+        группах.
+
+        Примеры:
+        ---------
+        # Прямая инициализация
+        m2o = ManyToOne({'a': 1, 'b': 1, 'c': 2})
+
+        # Загрузка из файла с автоматическим определением типа
+        m2o = ManyToOne('data.yml')
+
+        # Явное указание типа
+        m2o = ManyToOne({'группа1': ['item1', 'item2']}, type='one2many')
+        """
+        if type not in self.acceptable_types:
+            msg = f'Оижаемые типы - {self.acceptable_types}.\nПолучено: "{type}"!'
+            raise ValueError(msg)
+        # Читаем из файла, если надо:
+        if isinstance(source, dict):
+            source = dict(source)  # Создаём копию исходного словаря
+        if isinstance(source, (str, Path)):
+            source = Path(source)
+            ext = source.suffix.lower()
+            if ext in {'.json', '.jsonl'}:
+                source = json2obj(source)
+            elif ext in {'.yaml', '.yml'}:
+                source = yaml2obj(source)
+            else:
+                msg = f'Неподдерживаемый тип файла "{ext}"!'
+                raise ValueError(msg)
+
+        # Убеждаемся, что получили словарь:
+        if not isinstance(source, dict):
+            msg = f'Неподдерживаемый тип данных "{source.__class__}"!'
+            raise ValueError(msg)
+
+        # Доопределяем тип словаря, если надо:
+        if type == 'auto':
+            type = 'one2many'
+            for value in source.values():
+                if not isinstance(value, (list, tuple, set)):
+                    type = 'many2one'
+                    break
+        # Если не все значения являются списками, словарями или множествами,
+        # то считаем, что он - 'many2one'.
+
+        # Присваеваем данные:
+        if type == 'many2one':
+            self |= source
+        else:
+            self._one2many = source
+            for one, many in source.items():
+                for key in many:
+                    if key in self:
+                        msg = f'Ключ "{key}" относится одновременно к "{one}" и "{self[key]}"!'
+                        raise KeyError(msg)
+                    self[key] = one
+
+    @property
+    def one2many(self):
+        """Обратный словарь: один -> список_многих.
+
+        Пример:
+        -------
+        >>> m2o = ManyToOne({'a': 'X', 'b': 'X', 'c': 'Y'})
+        >>> m2o.one2many
+        {'X': ['a', 'b'], 'Y': ['c']}
+
+        Примечания:
+        -----------
+        1. Результат кэшируется после первого вычисления;
+        2. Порядок ключей в списках соответствует порядку их добавления;
+        3. Для пустого словаря возвращается пустой словарь.
+
+        Вычислительная сложность: O(n) при первом вызове, O(1) при последующих
+        """
+        # Создаём словарь one2many, если его не было:
+        if not hasattr(self, '_one2many'):
+            _one2many = defaultdict(list)
+            for many, one in self.items():
+                _one2many[one].append(many)
+            self._one2many = dict(_one2many)
+
+        return self._one2many
+
+    def asdict(self):
+        """Возвращает стандартное представление словаря Python."""
+        return dict(self)
+
+    def save(self, file_path: str | Path, type: str = 'one2many'):
+        """Сохранение словаря в файл.
+
+        Параметры:
+        ----------
+        file_path : str | Path
+            Путь для сохранения JSON- или YAML-файла.
+
+        type : str, default='one2many'
+            Формат сохранения:
+            - 'one2many': сохраняется в компактном виде {значение: [ключи]};
+            - 'many2one': сохраняется в развёрнутом виде {ключ: значение}.
+
+        Пример:
+        -------
+        >>> m2o = ManyToOne({'a': 'X', 'b': 'X', 'c': 'Y'})
+        >>> m2o.save('data.yaml')  # Сохранит в компактном формате
+        >>> m2o.save('data.json', type='many2one')  # Сохранит в развёрнутом формате
+        """
+        acceptable_types = self.acceptable_types[:2]
+        if type not in acceptable_types:
+            msg = f'Оижаемые типы - {acceptable_types}.\nПолучено: "{type}"!'
+            raise ValueError(msg)
+
+        # Получаем словарь в нужном виде:
+        source = self.one2many if type == 'one2many' else self.asdict()
+
+        # Пишем словарь в файл:
+        file_path = Path(file_path)
+        ext = file_path.suffix.lower()
+        if ext in {'.json', '.jsonl'}:
+            return obj2json(source, file_path)
+        elif ext in {'.yaml', '.yml'}:
+            return obj2yaml(source, file_path)
+        else:
+            msg = f'Неподдерживаемый тип файла "{ext}"!'
+            raise ValueError(msg)
+
+    def to_mermaid(self, file_path: str | Path | None = None) -> str:
+        """
+        Генерирует Mermaid-граф отношений many-to-one.
+
+        Формат: graph LR (left-to-right)
+        Слева: ключи, справа: значения
+
+        Параметры:
+            file_path: путь для сохранения .mmd файла (опционально).
+
+        Возвращает:
+            строка с кодом Mermaid-диаграммы.
+        """
+        lines = ["graph LR"]
+
+        for key, value in self.items():
+            # Экранируем спецсимволы для Mermaid
+            key_esc = str(key).replace('"', "'").replace('\n', ' ')
+            val_esc = str(value).replace('"', "'").replace('\n', ' ')
+
+            lines.append(f'    "{key_esc}" --> "{val_esc}"')
+
+        diagram = "\n".join(lines)
+
+        if file_path is not None:
+            Path(file_path).write_text(diagram, encoding='utf-8')
+
+        return diagram
 
 
 def get_file_list(path: str,
