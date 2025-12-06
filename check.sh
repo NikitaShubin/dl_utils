@@ -12,7 +12,7 @@ CYAN='\033[0;36m'
 PURPLE='\033[0;35m'
 NC='\033[0m' # No Color
 
-# Параметры для mypy
+# Параметры для mypy:
 # MYPY_ARGS=("--strict" "--no-incremental" "--show-error-codes" "--warn-unused-ignores" "--follow-imports=skip")
 MYPY_ARGS=("--no-incremental" "--show-error-codes" "--warn-unused-ignores" "--follow-imports=skip")
 
@@ -64,7 +64,7 @@ print_step() {
     echo -e "${CYAN}🔹 $1${NC}"
 }
 
-# Сбор аргументов для ruff check
+# Сбор аргументов для ruff check:
 RUFF_CHECK_ARGS=("$@")
 
 # Основной скрипт:
@@ -78,7 +78,8 @@ ROOT_FILES=("labels.py" "pt_utils.py")
 # Проверка файлов в корне:
 for file in "${ROOT_FILES[@]}"; do
     if [[ -f "$file" ]]; then
-        # Ruff format
+
+        # Ruff format:
         print_separator "Ruff format: $file" "$CYAN"
         print_step "Форматирование файла $file..."
         if ruff format "$file"; then
@@ -88,7 +89,7 @@ for file in "${ROOT_FILES[@]}"; do
             exit 1
         fi
 
-        # Ruff check
+        # Ruff check:
         print_separator "Ruff check: $file" "$CYAN"
         print_step "Проверка файла $file с аргументами: ${RUFF_CHECK_ARGS[*]}..."
         if ruff check "${RUFF_CHECK_ARGS[@]}" "$file"; then
@@ -98,7 +99,7 @@ for file in "${ROOT_FILES[@]}"; do
             exit 1
         fi
 
-        # Mypy проверка
+        # Mypy проверка:
         print_separator "Mypy: $file" "$PURPLE"
         print_step "Проверка типов в файле $file..."
         if mypy "${MYPY_ARGS[@]}" "$file"; then
@@ -124,7 +125,8 @@ fi
 
 # Проверка папки tests:
 if [[ -d "tests" ]]; then
-    # Ruff format для tests
+
+    # Ruff format для tests:
     print_separator "Ruff format: tests" "$MAGENTA"
     print_step "Форматирование тестов..."
     if ruff format tests; then
@@ -134,7 +136,7 @@ if [[ -d "tests" ]]; then
         exit 1
     fi
 
-    # Ruff check для tests
+    # Ruff check для tests:
     print_separator "Ruff check: tests" "$MAGENTA"
     print_step "Проверка тестов с аргументами: ${RUFF_CHECK_ARGS[*]}..."
     if ruff check "${RUFF_CHECK_ARGS[@]}" tests; then
@@ -144,7 +146,7 @@ if [[ -d "tests" ]]; then
         exit 1
     fi
 
-    # Mypy проверка для tests
+    # Mypy проверка для tests:
     print_separator "Mypy: tests" "$PURPLE"
     print_step "Проверка типов в тестах..."
     if mypy "${MYPY_ARGS[@]}" tests; then
