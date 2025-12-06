@@ -77,8 +77,8 @@ RUNPARAMS=(
     # Без явного указания на домашнюю папку контейнер не заработает у пользователей с id != 1000!
 
     # Проброс SSH агента:
-    -v "$SSH_AUTH_SOCK:/tmp/ssh_agent.sock" \
-    -e SSH_AUTH_SOCK=/tmp/ssh_agent.sock
+    # -v "$SSH_AUTH_SOCK:/tmp/ssh_agent.sock" \
+    # -e SSH_AUTH_SOCK=/tmp/ssh_agent.sock
 
     # Для работы Keras Tuner по сети:
     --ipc=host
