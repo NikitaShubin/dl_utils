@@ -25,12 +25,11 @@ from typing import ClassVar, cast
 import pandas as pd
 from treelib import Tree
 
-from utils import rim2arabic, ManyToOne
+from utils import rim2arabic, json2obj, yaml2obj
 
 # Задаём тип меток и их наборов:
 Label = str | int | None
 Labels = list[Label] | tuple[Label] | set[Label]
-FilePath = str | Path
 
 # Имена столбцов в labels.xlsx:
 label_column = 'Метка в CVAT'  # Метка (имя класса)
@@ -52,9 +51,16 @@ def _fix_string(lbl: str) -> str:
     return lbl.replace('\xa0', ' ').strip() if isinstance(lbl, str) else lbl
 
 
-def _read_file_to_df(file_path: FilePath) -> pd.DataFrame:
-    """Читает файл в DataFrame в зависимости от расширения."""
+def _file2data(file_path: str) -> pd.DataFrame | dict:
+    """Читает файл с данными."""
     path = Path(file_path)
+
+    if path.suffix.lower() in {'.json', '.jsonl'}:
+        return json2obj(file_path)
+
+    # ДОБАВЛЯЕМ: Если YAML файл:
+    if path.suffix.lower() in {'.yaml', '.yml'}:
+        return yaml2obj(file_path)
 
     # Если Excel-файл:
     if path.suffix.lower() in ['.xlsx', '.xls']:
@@ -84,10 +90,9 @@ def _read_file_to_df(file_path: FilePath) -> pd.DataFrame:
     raise ValueError(msg)
 
 
-def _file2labels_df(file_path: FilePath) -> pd.DataFrame:
-    """Загружает файл со списком меток."""
-    # Загружаем полный список меток:
-    df = _read_file_to_df(file_path)
+def _data2labels_df(data: dict | pd.DataFrame) -> pd.DataFrame:
+    """Парсит данные со списком меток."""
+    df = data
 
     # Отбрасываем столбцы, чьи имена не заданы явно:
     df = df.drop(columns=[column for column in df.columns if 'Unnamed: ' in column])
@@ -103,10 +108,9 @@ def _file2labels_df(file_path: FilePath) -> pd.DataFrame:
     return df[df.index.notna()]
 
 
-def _file2superlabels_df(file_path: FilePath) -> pd.DataFrame:
-    """Загружает файл со списком суперметок."""
-    # Читаем список суперметок:
-    df = _read_file_to_df(file_path)
+def _data2superlabels_df(data: dict | pd.DataFrame) -> pd.DataFrame:
+    """Парсит данные со списком суперметок."""
+    df = data
 
     # Подчищаем данные в таблице:
     for column in df.columns:
@@ -167,22 +171,25 @@ def _file2superlabels_df(file_path: FilePath) -> pd.DataFrame:
     return df
 
 
-def _any_file2df(file_path: FilePath) -> tuple[pd.DataFrame, str]:
+def _file_parser(file_path: str) -> tuple[pd.DataFrame, str]:
     """Читает файл меток или суперметок.
 
-    Возвращает датафейрм и тип сожержимого (labels / superlabels).
+    Возвращает датафейрм и тип содержимого (labels / superlabels / dict).
     """
     if not Path(file_path).is_file():
         msg = f'Файла "{file_path}" не существует!'
         raise FileNotFoundError(msg)
 
+    # Читаем файл:
+    data = _file2data(file_path)
+
     exceptions = []
     for func, type_ in [
-        (_file2superlabels_df, 'superlabels'),  # Суперметки
-        (_file2labels_df, 'labels'),  # Классы
+        (_data2superlabels_df, 'superlabels'),  # Суперметки
+        (_data2labels_df, 'labels'),  # Классы
     ]:
         try:
-            return func(file_path), type_
+            return func(data), type_
         except Exception as exception:  # noqa: BLE001
             exceptions.append(exception)
 
@@ -547,11 +554,9 @@ class LabelsConvertor(CoreLabelsConvertor):
     сложными способами.
 
     Поддерживаемые форматы файлов:
-        - Excel: .xlsx, .xls;
-        - CSV: .csv (разделитель - запятая);
-        - TSV: .tsv, .txt (разделитель - табуляция);
-        - YAML: .yaml, .yml (только словарь, читаемый ManyToOne из utils.py);
-        - JSON: .json, .jsonl (только словарь, читаемый ManyToOne из utils.py).
+        - Excel: .xlsx, .xls
+        - CSV: .csv (разделитель - запятая)
+        - TSV: .tsv, .txt (разделитель - табуляция)
 
     Используется следующая внутренняя терминология:
         label      - оригинальное название класа;
@@ -629,13 +634,12 @@ class LabelsConvertor(CoreLabelsConvertor):
 
     def _read_files(
         self,
-        labels2meanings: FilePath | dict[Label, str],
-        meanings2superlabels: FilePath | dict[str, Label] | None,
+        labels2meanings: str | dict[Label, str],
+        meanings2superlabels: str | dict[str, Label] | None,
     ) -> None:
         """Пытается читать файлы."""
-        if isinstance(labels2meanings, (str, Path)):
-            labels2meanings = Path(labels2meanings)
-            df, type_ = _any_file2df(labels2meanings)
+        if isinstance(labels2meanings, str):
+            df, type_ = _file_parser(labels2meanings)
             if type_ == 'labels':
                 self.labels_df = df
             elif type_ == 'superlabels':
@@ -644,8 +648,9 @@ class LabelsConvertor(CoreLabelsConvertor):
                 msg = f'Неизвестный тип файла: {type_}!'
                 raise NotImplementedError(msg)
 
-        if isinstance(meanings2superlabels, (str, Path)):
-            df, type_ = _any_file2df(meanings2superlabels)
+        if isinstance(meanings2superlabels, str):
+            df, type_ = _file_parser(meanings2superlabels)
+
             if type_ == 'labels':
                 if hasattr(self, 'labels_df'):
                     msg = 'Передано два файла меток!'
@@ -662,8 +667,8 @@ class LabelsConvertor(CoreLabelsConvertor):
 
     def _read_dicts(
         self,
-        labels2meanings: FilePath | dict[Label, str] | dict[str, Label],
-        meanings2superlabels: FilePath | dict[Label, str] | dict[str, Label] | None,
+        labels2meanings: str | dict[Label, str] | dict[str, Label],
+        meanings2superlabels: str | dict[Label, str] | dict[str, Label] | None,
     ) -> None:
         """Пытается читать словари."""
         if isinstance(labels2meanings, dict):
@@ -777,8 +782,8 @@ class LabelsConvertor(CoreLabelsConvertor):
 
     def __init__(
         self,
-        labels2meanings: FilePath | dict[Label, str],
-        meanings2superlabels: FilePath | dict[str, Label] | None = None,
+        labels2meanings: str | dict[Label, str],
+        meanings2superlabels: str | dict[str, Label] | None = None,
         main_dict: str = 'auto',
         values2del: Label | Labels = None,
         values2raise: Label | Labels = None,
