@@ -5,6 +5,8 @@ if [ $# -lt 1 ]; then
     echo 'Разрезает медиафайл на части, не превышающие заданного размера.'
     echo 'Использование:'
     echo './split-video.sh FILE SIZELIMIT "FFMPEG_ARGS"'
+    echo 'или'
+    echo './split-video.sh FILE SIZELIMIT FFMPEG_ARG1 FFMPEG_ARG2 ...'
     echo 
     echo 'Параметры'
     echo '    - FILE:        Путь до исходного файла, подлежащего разрезанию (обязательный параметр)'
@@ -19,9 +21,9 @@ FILE="$1"
 
 # Читаем параметры ffmpeg из CLI или берём значение по-умолчанию:
 if [ $# -lt 3 ]; then
-    FFMPEG_ARGS="-c copy"
+    FFMPEG_ARGS=("-c" "copy")
 else
-    FFMPEG_ARGS="$3"
+    IFS=' ' read -r -a FFMPEG_ARGS <<< "$3"
 fi
 
 # Читаем размер фрагментов из CLI или берём значение по-умолчанию:
@@ -32,7 +34,7 @@ else
 fi
 
 # Duration of the source video
-DURATION=$(ffprobe -i "$FILE" -show_entries format=duration -v quiet -of default=noprint_wrappers=1:nokey=1|cut -d. -f1)
+DURATION=$(ffprobe -i "$FILE" -show_entries format=duration -v quiet -of default=noprint_wrappers=1:nokey=1 | cut -d. -f1)
 
 # Duration that has been encoded so far
 CUR_DURATION=0
@@ -55,8 +57,8 @@ echo "Duration of source video: $DURATION"
 # Until the duration of all partial videos has reached the duration of the source video
 while [[ $CUR_DURATION -lt $DURATION ]]; do
     # Encode next part
-    echo ffmpeg -i "$FILE" -ss "$CUR_DURATION" -fs "$SIZELIMIT" $FFMPEG_ARGS "$NEXTFILENAME"
-    ffmpeg -ss "$CUR_DURATION" -i "$FILE" -fs "$SIZELIMIT" $FFMPEG_ARGS "$NEXTFILENAME"
+    echo ffmpeg -i "$FILE" -ss "$CUR_DURATION" -fs "$SIZELIMIT" "${FFMPEG_ARGS[@]}" "$NEXTFILENAME"
+    ffmpeg -ss "$CUR_DURATION" -i "$FILE" -fs "$SIZELIMIT" "${FFMPEG_ARGS[@]}" "$NEXTFILENAME"
 
     # Duration of the new part
     NEW_DURATION=$(ffprobe -i "$NEXTFILENAME" -show_entries format=duration -v quiet -of default=noprint_wrappers=1:nokey=1|cut -d. -f1)

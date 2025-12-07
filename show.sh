@@ -27,7 +27,7 @@ gb () {
 
     # Выводим серую полосу:
     echo -en "$bgb"
-    for ((i=0; i<$termwidth; i++)); do
+    for ((i=0; i<termwidth; i++)); do
          echo -en ' '
     done
     echo -e "$egb"
@@ -110,11 +110,11 @@ calign() {
 }
 
 # Бесконечный цикл вывода содержимого файлов:
-while [ True ]; do
+while true; do
     clear
     
     # Пробегаем по переданным файлам, и распаршиваем маски, если надо:
-    for file in `eval '{ echo "$@"; }'`; do
+    for file in $(eval '{ echo "$@"; }'); do
     # Такая странная конструкция с eval нужна как раз для распарсивания масок.
 
         # Пропускаем не существующий файл:
@@ -123,10 +123,10 @@ while [ True ]; do
         fi
         
         # Общее число строк в файле:
-        total_num_lines=`cat "$file" | wc -l`
+        total_num_lines=$(wc -l < "$file")
         
         # Число секунд, прошедшее с последнего обновления файла:
-        oldness=$(( `date +%s` - `stat -c %Y "$file"` ))
+        oldness=$(( $(date +%s) - $(stat -c %Y "$file") ))
         
         if [[ $oldnessth -gt 0 ]] && [[ $oldness -gt $oldnessth ]]; then
             continue
@@ -140,9 +140,9 @@ while [ True ]; do
         
         # Выводим содержание последних строк файла:
         if true; then
-            cat "$file" | tail -n $num_lines ; echo
+            tail -n $num_lines "$file"; echo
         else
-            cat "$file" | tail -n $num_lines | col -b
+            tail -n $num_lines "$file" | col -b
         fi
     done
     
@@ -152,11 +152,11 @@ while [ True ]; do
         # Выводим тослтую полосу с описанием:
         gb
         echo -en "$bgb"
-        lalign "  Содержимое папки "$models_path" с весами моделей:  "
+        lalign "  Содержимое папки $models_path с весами моделей:  "
         gb
         
         # Выводим содержимое папки:
-        ls -lahtr $models_path/*.pt | tail
+        find "$models_path" -maxdepth 1 -name '*.pt' -exec ls -lahtr {} + | tail
     fi
     
     # Выводим тослтую полосу с обратным отсчётом до следующего обновления:
@@ -170,7 +170,7 @@ while [ True ]; do
         
         # Ещё одна секунда:
         sleep 1
-        secs=$(($secs-1))
+        secs=$((secs-1))
     done
     echo -ne "$egb"
 done
