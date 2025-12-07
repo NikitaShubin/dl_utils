@@ -49,8 +49,11 @@ ARG PYTHONMODULES="                                                      \
     # Базовые модули:                                                    \
     opencv-python scikit-learn pandas numba scikit-image                 \
                                                                          \
+    # Для конвертации меток:                                             \
+    treelib openpyxl                                                     \
+                                                                         \
     # Коллекция YOLO-моделей:                                            \
-    ultralytics==8.3.228 lapx                                            \
+    ultralytics lapx                                                     \
                                                                          \
     #                    Фундаментальные модели:                         \
                                                                          \
@@ -94,7 +97,7 @@ RUN chmod -R 777 .
 
 COPY --chown="${USERNAME}:${USERNAME}" --chmod=777 *.py ./src/
 # Модули.
-COPY --chown="${USERNAME}:${USERNAME}" --chmod=777 PreAnnotation/*.ipynb ./
+COPY --chown="${USERNAME}:${USERNAME}" --chmod=777 PreAnnotation/*.ipynb PreAnnotation/*.xlsx ./
 # Интерфейсные юпитер-ноутбуки.
 
 
@@ -117,9 +120,11 @@ ADD --chmod=777 https://github.com/IDEA-Research/GroundingDINO/releases/download
 #ADD --chmod=777 https://github.com/IDEA-Research/GroundingDINO/blob/main/groundingdino/config/GroundingDINO_SwinB_cfg.py "${HOMEDIR}"/models/
 # Самые мощные модели SAM2 и DINO (вместе с конфигом).
 
-
 # Доустановка мелочей для GroundingDINO:
 RUN python -c "import os; import groundingdino; from groundingdino.util.inference import load_model; load_model(os.path.join(os.path.dirname(os.path.abspath(groundingdino.__file__)), 'config', 'GroundingDINO_SwinB_cfg.py'), '${HOMEDIR}/models/groundingdino_swinb_cogcoor.pth')"
+
+# Доустановка некоторых моделей для Ultralytics:
+RUN python -c "import sys; sys.path.append('./src'); from src.ul_utils import UltralyticsModel; list(map(UltralyticsModel, ['rtdetr-x.pt', 'yolo11x-seg.pt']))"
 
 
 # Установка тёмной темы в JupyterLab:
