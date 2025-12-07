@@ -12,4 +12,4 @@ else
     shift
 fi
 
-docker exec -u root -it $DOCKER_NAME bash
+docker exec -u root -it "$DOCKER_NAME" bash

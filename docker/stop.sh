@@ -12,4 +12,4 @@ else
     shift
 fi
 
-docker stop $DOCKER_NAME
+docker stop "$DOCKER_NAME"

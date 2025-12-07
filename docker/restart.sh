@@ -5,6 +5,6 @@
 ########################################################
 
 DIR="$(cd "$(dirname "$0")" && pwd)"
-$DIR/stop.sh
-$DIR/run.sh
-$DIR/open.sh
+"$DIR"/stop.sh
+"$DIR"/run.sh
+"$DIR"/open.sh
