@@ -9,7 +9,7 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 MAGENTA='\033[0;35m'
 CYAN='\033[0;36m'
-PURPLE='\033[0;35m'
+PURPLE='\033[0;95m'
 NC='\033[0m' # No Color
 
 # Параметры для mypy:
@@ -18,14 +18,15 @@ MYPY_ARGS=("--no-incremental" "--show-error-codes" "--warn-unused-ignores" "--fo
 
 # Функция для получения ширины терминала:
 get_terminal_width() {
-    echo $(tput cols 2>/dev/null || echo 80)
+    tput cols 2>/dev/null || echo 80
 }
 
 # Функция для красивого вывода разделителя:
 print_separator() {
     local text="$1"
     local color="${2:-$BLUE}"  # По умолчанию синий цвет
-    local width=$(get_terminal_width)
+    local width
+	width=$(get_terminal_width)
     local text_length=${#text}
     local padding=$(( (width - text_length - 4) / 2 ))  # -4 для учета пробелов и символов
 
