@@ -10,8 +10,9 @@ DOCKERFILE_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pw
 
 # Цвета текста:
 GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-CYAN='\033[0;36m'
+RED='\033[0;31m'
+# YELLOW='\033[1;33m'
+# CYAN='\033[0;36m'
 NC='\033[0m'
 
 # Задаём имя контейнера или берём его из входных параметров:
@@ -23,10 +24,10 @@ else
 fi
 
 # Определяем имя образа:
-IMAGE_NAME=kitbrain/$DOCKER_NAME
+IMAGE_NAME="kitbrain/$DOCKER_NAME"
 
 # Определяем имя хоста внутри докера:
-DOCKER_HOSTNAME="${DOCKER_NAME}_`hostname`"
+DOCKER_HOSTNAME="${DOCKER_NAME}_$(hostname)"
 
 # Определяем теги образа:
 GITTAG=GIT-$(git rev-parse --short HEAD)
@@ -40,9 +41,9 @@ IMAGE_NAME_AND_TAGS=(
 )
 
 # Перемещаемся на уровень выше от докер-файла:
-cur_dir=`pwd`
-echo $cur_dir
-cd "${DOCKERFILE_DIR}"/..
+cur_dir=$(pwd)
+echo "$cur_dir"
+cd "${DOCKERFILE_DIR}"/.. || exit
 
 
 # Пытаемся собирать образ каждый раз заново:
@@ -50,9 +51,9 @@ cd "${DOCKERFILE_DIR}"/..
 if ! docker build "${IMAGE_NAME_AND_TAGS[@]}" -f "$DOCKERFILE_DIR/Dockerfile" .;
 then
     # Если образ собрать не удалось - берём готовый с DockerHub:
-    printf "\n${RED}Образ не собран!\n${NC}"
-    printf "${RED}Берётся версия из DockerHub!${RED}\n\n"
-    docker pull $IMAGE_NAME
+    printf "\n%sОбраз не собран!\n%s" "$RED" "$NC"
+    printf "%sБерётся версия из DockerHub!%s\n\n" "$RED" "$NC"
+    docker pull "$IMAGE_NAME"
 else
     # Если образ успешно собран, отправляем ВСЕ теги в одном фоновом процессе:
     nohup bash -c "
@@ -62,15 +63,19 @@ else
         docker push '$IMAGE_NAME:latest'
         echo 'Отправка завершена'
     " > /dev/null 2>&1 &
-    printf "${GREEN}Образ отправляется на Docker HUB (PID: $!)${NC}\n"
+    printf "%sОбраз отправляется на Docker HUB (PID: %s)%s\n" "$GREEN" "$!" "$NC"
 fi
 
 # Возвращаем исходное значение текущей папки:
-cd "${cur_dir}"
+cd "${cur_dir}" || exit
 
 #docker pull $IMAGE_NAME
 # Включаем доступ к Nvidia, если установлен nvidia-smi:
-nvidia-smi && nvidia_args='--runtime=nvidia --gpus all' || nvidia_args=''
+if nvidia-smi >/dev/null 2>&1; then
+    nvidia_args=('--runtime=nvidia' '--gpus' 'all')
+else
+    nvidia_args=()
+fi
 
 # Параметры запуска контейнера:
 JUPYTER_PORT=573
@@ -94,10 +99,10 @@ RUNPARAMS=(
     -h "${DOCKER_HOSTNAME}"
 
     -e JUPYTER_PASS=PreAnnotator
-    -e JUPYTER_PORT=$JUPYTER_PORT
+    -e "JUPYTER_PORT=$JUPYTER_PORT"
 
     # Пробрасываем порт без изменений:
-    -p $JUPYTER_PORT:$JUPYTER_PORT
+    -p "$JUPYTER_PORT:$JUPYTER_PORT"
 
     # Монтируем папку проекта в докер:
     -v "${DOCKERFILE_DIR}/project/":/workspace/project
@@ -105,10 +110,10 @@ RUNPARAMS=(
     # Внешнюю файловую систему монтируем только для чтения в одну из корневых папок.
 
     # Включаем доступ к GPU, если возможно:
-    $nvidia_args
+    "${nvidia_args[@]}"
 
     # Имя запускаемого образа:
-    $IMAGE_NAME
+    "$IMAGE_NAME"
     #-it $IMAGE_NAME bash
 )
 
