@@ -898,14 +898,13 @@ class CVATPoints:
         self.type = type_
         self.rotation = rotation  # Градусы
         self.imsize = imsize      # width, height
+        self.attribs = attribs    # Аттрибуты
 
         # Если есть поворот и его надо применить сразу, то применяем:
         if self.rotation and rotate_immediately:
             self.points = self.apply_rot().points
             self.type = 'polygon'
             self.rotation = 0
-
-        self.attribs = attribs
 
     # Возвращает центр контура:
     def center(self):
@@ -4294,7 +4293,7 @@ def tasks2_train_val_test_other(tasks):
             # Если подвыборка явно не классифицирована, заносим её в отдельный
             # словарь:
             other_tasks_dict[subset] = other_tasks_dict.get(subset, []) + [task]
-            print(f'Неоднозначная метка "{subset}" задачи "{name}"',
+            print(f'Неоднозначная подвыборка "{subset}" задачи "{name}"',
                   f'в папке "{task_dir}"!')
     '''
     print(*sorted(train_tasks_), sep='\n', end='\n\n')
