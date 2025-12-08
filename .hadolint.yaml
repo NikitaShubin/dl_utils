@@ -1,7 +1,12 @@
 failure-threshold: style
-ignored: []
+
+# Отключаем требования:
+ignored:
+ # фиксации версий пакетов, т.к. образы для разработки:
+ - DL3008  # У apt-get
+ - DL3016  # У npm
+
 #ignored:
 #  - DL3006  # Always tag the version of an image explicitly
-#  - DL3008  # Pin versions in apt get install
 #  - DL3059  # Multiple consecutive RUN commands
 #  - DL4001  # Either use Wget or Curl but not both

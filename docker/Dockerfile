@@ -78,7 +78,7 @@ RUN apt-get update                                           && \
 RUN wget -O /bin/hadolint "https://github.com/hadolint/hadolint/releases/latest/download/hadolint-Linux-x86_64" && \
     chmod +x /bin/hadolint && \
     curl -fsSL https://deb.nodesource.com/setup_lts.x | bash - && \
-    apt-get install -y nodejs && \
+    apt-get install -y --no-install-recommends nodejs && \
     npm install -g markdownlint-cli
 # Установка Node.js из NodeSource (вместо старых версий из репозитория)
 
@@ -237,7 +237,8 @@ USER "${USERNAME}"
 #    https://github.com/IDEA-Research/GroundingDINO/releases/download/v0.1.0-alpha2/groundingdino_swinb_cogcoor.pth
 ADD https://dl.fbaipublicfiles.com/segment_anything_2/092824/sam2.1_hiera_large.pt "${HOMEDIR}"/models/
 ADD https://github.com/IDEA-Research/GroundingDINO/releases/download/v0.1.0-alpha2/groundingdino_swinb_cogcoor.pth "${HOMEDIR}"/models/
-RUN sudo chmod -R 777 "${HOMEDIR}"/models/; python -c "import os; import groundingdino; from groundingdino.util.inference import load_model; load_model(os.path.join(os.path.dirname(os.path.abspath(groundingdino.__file__)), 'config', 'GroundingDINO_SwinB_cfg.py'), '${HOMEDIR}/models/groundingdino_swinb_cogcoor.pth')"
+RUN gosu chmod -R 777 "${HOMEDIR}"/models/ && \
+    python -c "import os; import groundingdino; from groundingdino.util.inference import load_model; load_model(os.path.join(os.path.dirname(os.path.abspath(groundingdino.__file__)), 'config', 'GroundingDINO_SwinB_cfg.py'), '${HOMEDIR}/models/groundingdino_swinb_cogcoor.pth')"
 # Доустановка мелочей для GroundingDINO.
 
 
@@ -341,8 +342,10 @@ RUN git config --global --add safe.directory "$WORKSPACE"                     &&
     git config --global user.name "Никита Шубин"
 
 # Запуск Юпитер-сервера:
-CMD JP="jupyter lab"; \
-    [[ -z "$JUPYTER_PORT" ]] || JP="$JP --port=$JUPYTER_PORT"; \
-    [[ -z "$JUPYTER_PASS" ]] || JP="$JP --ServerApp.password="'"'"`echo ""$JUPYTER_PASS"" | python -c 'from jupyter_server.auth import passwd;print(passwd(input()))'`"'"'; \
-    ${JP}
+CMD ["/bin/bash", "-c", " \
+    JP=\"jupyter lab\"; \
+    [[ -z \"$JUPYTER_PORT\" ]] || JP=\"$JP --port=$JUPYTER_PORT\"; \
+    [[ -z \"$JUPYTER_PASS\" ]] || JP=\"$JP --ServerApp.password=$(echo \"$JUPYTER_PASS\" | python -c 'from jupyter_server.auth import passwd;print(passwd(input()))')\"; \
+    exec $JP \
+"]
 # Если в переменных окружения заданы пароль и порт, то они используются как параметры запуска.
