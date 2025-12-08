@@ -4393,7 +4393,7 @@ def crop_df_labels(df, bbox, area_part_th):
     
     # Функция, возвращающая пересечение текущего сегмента с заданной рамкой:
     def crop_func(row):
-        points0 = CVATPoints(row['points'], type_=row['type'], rotation=row['rotation']).asrectangle().flatten()
+        points0 = CVATPoints(row['points'], type_=row['type'], rotation=row['rotation']).asrectangle()
         points1 = points0.crop(bbox)
         
         # Возвращаем пересечение текущего сегмента только если ...
@@ -4404,8 +4404,8 @@ def crop_df_labels(df, bbox, area_part_th):
             return
         
         else:
-            s0 = points0.area()
-            s1 = points1.area()
+            s0 = points0.size()
+            s1 = points1.size()
             '''
             if not isinstance(s0, (float, int)):
                 print(type(s0))
