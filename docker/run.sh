@@ -45,8 +45,8 @@ IMAGE_NAME_AND_TAGS=(
 if ! docker build "${IMAGE_NAME_AND_TAGS[@]}" "${DOCKERFILE_DIR}";
 then
     # Если образ собрать не удалось - берём готовый с DockerHub:
-    printf "\n%sОбраз не собран!\n%s" "$RED" "$NC"
-    printf "%sБерётся версия из DockerHub!%s\n\n" "$RED" "$NC"
+    printf "\n%bОбраз не собран!\n%b" "$RED" "$NC"
+    printf "%bБерётся версия из DockerHub!%b\n\n" "$RED" "$NC"
     docker pull $IMAGE_NAME
 else
     # Если образ успешно собран, отправляем ВСЕ теги в одном фоновом процессе:
@@ -57,7 +57,7 @@ else
         docker push '$IMAGE_NAME:latest'
         echo 'Отправка завершена'
     " > /dev/null 2>&1 &
-    printf "%sОбраз отправляется на Docker HUB (PID: %s)%s\n" "$GREEN" "$!" "$NC"
+    printf "%bОбраз отправляется на Docker HUB (PID: %s)%b\n" "$GREEN" "$!" "$NC"
 fi
 
 # Включаем доступ к Nvidia, если установлен nvidia-smi:
