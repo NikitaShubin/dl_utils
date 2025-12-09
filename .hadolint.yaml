@@ -1,10 +1,10 @@
 failure-threshold: style
 
 # Отключаем требования:
-ignored:
+ignored: []
  # фиксации версий пакетов, т.к. образы для разработки:
- - DL3008  # У apt-get
- - DL3016  # У npm
+ #- DL3008  # У apt-get
+ #- DL3016  # У npm
 
 #ignored:
 #  - DL3006  # Always tag the version of an image explicitly

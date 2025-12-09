@@ -1,3 +1,4 @@
+# hadolint global ignore = DL3008, DL3016  # Не фиксируем версии, т.к. в этом образе нужны свежие пакеты
 ARG TFVER='2.19.0'
 FROM tensorflow/tensorflow:${TFVER}-gpu
 
@@ -13,7 +14,7 @@ ARG BRC="${HOMEDIR}/.bashrc"     # Путь к настройкам сессии
 
 
 # Меняем sh на bash:
-SHELL ["/bin/bash", "-l", "-c"]
+SHELL ["/bin/bash", "-l", "-o", "pipefail", "-c"]
 
 # Чтобы apt-get не ждал ввода часового пояса:
 #ENV DEBIAN_FRONTEND=noninteractive
@@ -55,6 +56,7 @@ ARG APPLICATIONS="                                    \
     # Для PyCUDA:                                     \
     nvidia-cuda-toolkit                               \
 "
+ARG HADOLINTURL="https://github.com/hadolint/hadolint/releases/latest/download/hadolint-Linux-x86_64"
 # graphviz     - для работы keras.utils.plot_model
 # pandoc       - для работы экспорта ipynb в HTML
 # nethogs      - мониторинг загрузки сети
@@ -65,22 +67,21 @@ ARG APPLICATIONS="                                    \
 # net-tools    - для работы команды ifconfig
 # bsdmainutils - для работы команды col
 # iputils-ping - для работы команды ping
-RUN apt-get update                                           && \
-    apt-get purge -y python3-blinker                         && \
-    apt-get install -y --no-install-recommends $APPLICATIONS && \
-    apt-get upgrade -y --fix-missing                         && \
-    apt-get purge -y --autoremove                            && \
-    apt-get autoclean                                        && \
-    rm -rf /var/lib/apt/lists/*
-# Удаление python3-blinker необходимо для нормальной установки open3d
-
-# Установка Hadolint и markdownlint-cli:
-RUN wget -O /bin/hadolint "https://github.com/hadolint/hadolint/releases/latest/download/hadolint-Linux-x86_64" && \
-    chmod +x /bin/hadolint && \
-    curl -fsSL https://deb.nodesource.com/setup_lts.x | bash - && \
-    apt-get install -y --no-install-recommends nodejs && \
+RUN apt-get update                                            && \
+    # Удаление python3-blinker необходимо для нормальной установки open3d:
+    apt-get purge -y python3-blinker                          && \
+    apt-get install -y --no-install-recommends $APPLICATIONS  && \
+    apt-get upgrade -y --fix-missing                          && \
+    apt-get purge -y --autoremove                             && \
+    apt-get autoclean                                         && \
+    rm -rf /var/lib/apt/lists/*                               && \
+    # Установка Hadolint и markdownlint-cli:
+    wget --progress=dot -O /bin/hadolint $HADOLINTURL         && \
+    chmod +x /bin/hadolint                                    && \
+    # Установка Node.js из NodeSource (вместо старых версий из репозитория):
+    wget -qO- https://deb.nodesource.com/setup_lts.x | bash - && \
+    apt-get install -y --no-install-recommends nodejs         && \
     npm install -g markdownlint-cli
-# Установка Node.js из NodeSource (вместо старых версий из репозитория)
 
 # См. http://bugs.python.org/issue19846
 ENV LANG C.UTF-8
@@ -192,9 +193,9 @@ com/PublicPackages/_packaging/onnxruntime-cuda-12/pypi/simple/           \
 # Потом устанавливаем все зависимости для ранее установленных пакетов.
 # Наконец, очищаем кэш pip для уменьшения размера образа.
 RUN ${PIP} install $PIPPARAMS --upgrade pip && \
-    export TFVER=`${PIP} show tensorflow | grep Vers | awk '{print $2}'` && \
-    ${PIP} install $PIPPARAMS tensorflow==${TFVER} $PYTHONMODULES --upgrade && \
-    ${PIP} cache purge && \
+    TFVER=$(${PIP} show tensorflow | grep Vers | awk '{print $2}') && \
+    eval "${PIP} install $PIPPARAMS tensorflow==${TFVER} $PYTHONMODULES --upgrade" && \
+    eval "${PIP} cache purge" && \
     jupyter lab build --minimize=False
 # Приходится пересобирать Jupyter Lab, т.к. установка Node.js из NodeSource приводит к поломкам зависимостей.
 
@@ -204,12 +205,12 @@ RUN ${PIP} install $PIPPARAMS --upgrade pip && \
 
 
 # Исправляем баг SAM2 с недоступностью конфигурационных файлов:
-# RUN wget https://github.com/facebookresearch/sam2/archive/refs/heads/main.zip && \
+# RUN wget --progress=dot https://github.com/facebookresearch/sam2/archive/refs/heads/main.zip && \
 #     7z x ./main.zip && ls -laht && cd sam2-main && pip install -e ".[notebooks]" && cd .. && rm -rf sam2-main
 #RUN pypackagesdir=`${PIP} show sam-2 | grep Location | cut -d' ' -f2` && \
-RUN pypackagesdir=`${PIP} show sam2 | grep Location | cut -d' ' -f2` && \
+RUN pypackagesdir=$(python -m pip show sam2 | grep Location | cut -d' ' -f2) && \
     cp -R "$pypackagesdir/sam2/configs/sam2.1/." "$pypackagesdir/sam2/" && \
-    wget -P "$pypackagesdir/sam2/" \
+    wget --progress=dot -P "$pypackagesdir/sam2/" \
     "https://github.com/SysCV/sam-hq/blob/main/sam-hq2/sam2/configs/sam2.1/sam2.1_hq_hiera_l.yaml"
 
 # Отключаем у JupyterLab надоедливый вопрос об обновлении
@@ -220,6 +221,16 @@ RUN useradd -ms "${SHELL_PATH}" "${USERNAME}"              && \
     adduser "${USERNAME}" sudo                             && \
     echo "${USERNAME}" ALL = NOPASSWD: ALL >> /etc/sudoers && \
     chmod 1777 /etc && chmod 1777 "${HOMEDIR}"
+
+# Скачиваем самые мощные модели SAM2 и DINO:
+RUN wget --progress=dot -c --retry-connrefused -t 10 -T 900 -P "${HOMEDIR}"/models/ \
+    https://dl.fbaipublicfiles.com/segment_anything_2/092824/sam2.1_hiera_large.pt \
+    https://github.com/IDEA-Research/GroundingDINO/releases/download/v0.1.0-alpha2/groundingdino_swinb_cogcoor.pth && \
+    chmod -R 777 "${HOMEDIR}"/models/ && \
+    # Доустановка мелочей для GroundingDINO:
+    python -c "import os; import groundingdino; from groundingdino.util.inference import load_model; load_model(os.path.join(os.path.dirname(os.path.abspath(groundingdino.__file__)), 'config', 'GroundingDINO_SwinB_cfg.py'), '${HOMEDIR}/models/groundingdino_swinb_cogcoor.pth')"
+
+# Переключаемся на пользователя:
 USER "${USERNAME}"
 
 # Выключаем поддержку voila, т.к. внтури JupyterLab она всё равно не работает:
@@ -231,15 +242,11 @@ USER "${USERNAME}"
 #RUN echo 'def support_message(*args, **kwargs): pass' > `python -c \
 #    'import inspect, support_developer; print(inspect.getfile(support_developer.support_message))'`
 
-# Скачиваем самые мощные модели SAM2 и DINO:
-#RUN wget -c --retry-connrefused -t 10 -T 900 -P "${HOMEDIR}"/models/ \
-#    https://dl.fbaipublicfiles.com/segment_anything_2/092824/sam2.1_hiera_large.pt \
-#    https://github.com/IDEA-Research/GroundingDINO/releases/download/v0.1.0-alpha2/groundingdino_swinb_cogcoor.pth
-ADD https://dl.fbaipublicfiles.com/segment_anything_2/092824/sam2.1_hiera_large.pt "${HOMEDIR}"/models/
-ADD https://github.com/IDEA-Research/GroundingDINO/releases/download/v0.1.0-alpha2/groundingdino_swinb_cogcoor.pth "${HOMEDIR}"/models/
-RUN gosu chmod -R 777 "${HOMEDIR}"/models/ && \
-    python -c "import os; import groundingdino; from groundingdino.util.inference import load_model; load_model(os.path.join(os.path.dirname(os.path.abspath(groundingdino.__file__)), 'config', 'GroundingDINO_SwinB_cfg.py'), '${HOMEDIR}/models/groundingdino_swinb_cogcoor.pth')"
-# Доустановка мелочей для GroundingDINO.
+# ADD https://dl.fbaipublicfiles.com/segment_anything_2/092824/sam2.1_hiera_large.pt "${HOMEDIR}"/models/
+# ADD https://github.com/IDEA-Research/GroundingDINO/releases/download/v0.1.0-alpha2/groundingdino_swinb_cogcoor.pth "${HOMEDIR}"/models/
+#RUN gosu chmod -R 777 "${HOMEDIR}"/models/ && \
+#    python -c "import os; import groundingdino; from groundingdino.util.inference import load_model; load_model(os.path.join(os.path.dirname(os.path.abspath(groundingdino.__file__)), 'config', 'GroundingDINO_SwinB_cfg.py'), '${HOMEDIR}/models/groundingdino_swinb_cogcoor.pth')"
+
 
 
 # Установка тёмной темы в JupyterLab:
@@ -250,7 +257,7 @@ RUN mkdir -p "${THEMEDIR}" && \
 # Загрузка весов свёрточной части предобученной модели EfficientNetV2M:
 #ARG KERAS_MODELS_DIR="${HOMEDIR}/.keras/models/"
 #ARG KERAS_APP_URL='https://storage.googleapis.com/tensorflow/keras-applications/'
-#RUN wget -P "${KERAS_MODELS_DIR}" "${KERAS_APP_URL}efficientnet_v2/efficientnetv2-m_notop.h5"
+#RUN wget --progress=dot -P "${KERAS_MODELS_DIR}" "${KERAS_APP_URL}efficientnet_v2/efficientnetv2-m_notop.h5"
 
 # Убираем надоедливое 
 # "/sbin/ldconfig.real: Can't create temporary cache file /etc/ld.so.cache~: Permission denied"
@@ -303,25 +310,25 @@ RUN echo "c.ContentsManager.allow_hidden = True"  >> "${JPCONF}" && \
 #ARG JP="${HOMEDIR}"/.local/bin/jupyter-lab
 ARG JP=jupyter-lab
 ARG JPPARAMS="--notebook-dir '${WORKSPACE}'"
-RUN echo 'alias jp="'"cd '${WORKSPACE}' && '${JP}' ${JPPARAMS} > /dev/null &"'"'      >> "${BRC}" && \
-    echo 'alias jl="'${JP}' list"'                                                    >> "${BRC}" && \
-    echo 'alias js="killall jupyter-lab"'                                             >> "${BRC}" && \
-    echo 'alias ds="js"'                                                              >> "${BRC}" && \
-                                                                                                     \
-    echo 'alias checkcrc="md5sum -c crc.md5"'                                         >> "${BRC}" && \
-    echo 'alias makecrc="find . -type f ! -name crc.md5 -exec md5sum {} + > crc.md5"' >> "${BRC}" && \
-                                                                                                     \
-    echo 'alias yt="yt-dlp"'                                                          >> "${BRC}" && \
-    echo 'alias ffmpeg=/usr/bin/ffmpeg'                                               >> "${BRC}" && \
-    echo 'alias ffprobe=/usr/bin/ffprobe'                                             >> "${BRC}" && \
-    echo 'alias ffplay=/usr/bin/ffplay'                                               >> "${BRC}" && \
-                                                                                                     \
-    echo 'alias nv="nvidia-smi -l 1"'                                                 >> "${BRC}" && \
-                                                                                                     \
-    echo 'alias brc="nano '"${BRC}"' && source '"${BRC}"'"'                           >> "${BRC}" && \
-                                                                                                     \
-    echo 'eval "$(ssh-agent -s)" > /dev/null'                                         >> "${BRC}" && \
-    echo 'ssh-add -q ~/.ssh/* 2> /dev/null'                                           >> "${BRC}"
+RUN echo "alias jp=\"cd '${WORKSPACE}' && ${JP} ${JPPARAMS} > /dev/null &\""            >> "${BRC}" && \
+    echo "alias jl=\"${JP} list\""                                                      >> "${BRC}" && \
+    echo "alias js=\"killall jupyter-lab\""                                             >> "${BRC}" && \
+    echo "alias ds=\"js\""                                                              >> "${BRC}" && \
+                                                                                                       \
+    echo "alias checkcrc=\"md5sum -c crc.md5\""                                         >> "${BRC}" && \
+    echo "alias makecrc=\"find . -type f ! -name crc.md5 -exec md5sum {} + > crc.md5\"" >> "${BRC}" && \
+                                                                                                       \
+    echo "alias yt=\"yt-dlp\""                                                          >> "${BRC}" && \
+    echo "alias ffmpeg=/usr/bin/ffmpeg"                                                 >> "${BRC}" && \
+    echo "alias ffprobe=/usr/bin/ffprobe"                                               >> "${BRC}" && \
+    echo "alias ffplay=/usr/bin/ffplay"                                                 >> "${BRC}" && \
+                                                                                                       \
+    echo "alias nv=\"nvidia-smi -l 1\""                                                 >> "${BRC}" && \
+                                                                                                       \
+    echo "alias brc=\"nano '${BRC}' && source '${BRC}'\""                               >> "${BRC}" && \
+                                                                                                       \
+    echo "eval \"\$(ssh-agent -s)\" > /dev/null"                                        >> "${BRC}" && \
+    echo "ssh-add -q ~/.ssh/* 2> /dev/null"                                             >> "${BRC}"
 
 
 # Используемые порты:
