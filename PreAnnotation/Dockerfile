@@ -1,3 +1,4 @@
+# hadolint global ignore = DL3008  # Не фиксируем версии, т.к. в этом образе нужны свежие пакеты
 FROM pytorch/pytorch:2.5.1-cuda11.8-cudnn9-runtime
 
 ARG WORKSPACE='/workspace'       # Рабочая папка
@@ -8,7 +9,7 @@ ARG BRC="${HOMEDIR}/.bashrc"     # Путь к настройкам сессии
 
 
 # Меняем sh на bash:
-SHELL ["/bin/bash", "-l", "-c"]
+SHELL ["/bin/bash", "-l", "-o", "pipefail", "-c"]
 
 # Чтобы apt-get не ждал ввода часового пояса:
 #ENV DEBIAN_FRONTEND=noninteractive
@@ -31,7 +32,7 @@ ENV LANG C.UTF-8
 
 
 # Устанавливаем необходимые python-библиотеки:
-# ARG PIPPARAMS="--no-cache-dir"  # Отключаем кеш
+ARG PIPPARAMS="--no-cache-dir"  # Отключаем кеш
 ARG PIP="python -m pip"
 ARG PYTHONMODULES="                                                      \
     # Фиксируем версии PyTorch и совместимых пакетов:                    \
@@ -72,14 +73,13 @@ ARG PYTHONMODULES="                                                      \
 # Потом устанавливаем все зависимости для ранее установленных пакетов
 # Наконец, очищаем кэш pip для уменьшения размера образа
 RUN ${PIP} install $PIPPARAMS --upgrade pip && \
-    ${PIP} install $PIPPARAMS --no-deps $PYTHONMODULES && \
-    ${PIP} install $PIPPARAMS $PYTHONMODULES && \
-    ${PIP} cache purge
+    eval "${PIP} install $PIPPARAMS $PYTHONMODULES --upgrade" && \
+    eval "${PIP} cache purge"
 
 # Исправляем баг SAM2 с недоступностью конфигурационных файлов:
-RUN pypackagesdir=`${PIP} show sam-2 | grep Location | cut -d' ' -f2` && \
+RUN pypackagesdir=$(${PIP} show sam-2 | grep Location | cut -d' ' -f2) && \
     cp -R "$pypackagesdir/sam2/configs/sam2.1/." "$pypackagesdir/sam2/" && \
-    wget -P "$pypackagesdir/sam2/" \
+    wget --progress=dot -P "$pypackagesdir/sam2/" \
     "https://github.com/SysCV/sam-hq/blob/main/sam-hq2/sam2/configs/sam2.1/sam2.1_hq_hiera_l.yaml"
 
 # Отключаем у JupyterLab надоедливый вопрос об обновлении и
@@ -112,19 +112,14 @@ USER "${USERNAME}"
 RUN mkdir "${HOMEDIR}"/models/
 
 # Скачиваем самые мощные модели SAM2 и DINO:
-#RUN wget -c --retry-connrefused --tries=0 --timeout=5 -P "${HOMEDIR}"/models/ \
-#    https://dl.fbaipublicfiles.com/segment_anything_2/092824/sam2.1_hiera_large.pt \
-#    https://github.com/IDEA-Research/GroundingDINO/releases/download/v0.1.0-alpha2/groundingdino_swinb_cogcoor.pth
-ADD --chmod=777 https://dl.fbaipublicfiles.com/segment_anything_2/092824/sam2.1_hiera_large.pt "${HOMEDIR}"/models/
-ADD --chmod=777 https://github.com/IDEA-Research/GroundingDINO/releases/download/v0.1.0-alpha2/groundingdino_swinb_cogcoor.pth "${HOMEDIR}"/models/
-#ADD --chmod=777 https://github.com/IDEA-Research/GroundingDINO/blob/main/groundingdino/config/GroundingDINO_SwinB_cfg.py "${HOMEDIR}"/models/
-# Самые мощные модели SAM2 и DINO (вместе с конфигом).
-
-# Доустановка мелочей для GroundingDINO:
-RUN python -c "import os; import groundingdino; from groundingdino.util.inference import load_model; load_model(os.path.join(os.path.dirname(os.path.abspath(groundingdino.__file__)), 'config', 'GroundingDINO_SwinB_cfg.py'), '${HOMEDIR}/models/groundingdino_swinb_cogcoor.pth')"
-
-# Доустановка некоторых моделей для Ultralytics:
-RUN python -c "import sys; sys.path.append('./src'); from src.ul_utils import UltralyticsModel; list(map(UltralyticsModel, ['rtdetr-x.pt', 'yolo11x-seg.pt']))"
+RUN wget --progress=dot -c --retry-connrefused -t 10 -T 900 -P "${HOMEDIR}"/models/ \
+    https://dl.fbaipublicfiles.com/segment_anything_2/092824/sam2.1_hiera_large.pt \
+    https://github.com/IDEA-Research/GroundingDINO/releases/download/v0.1.0-alpha2/groundingdino_swinb_cogcoor.pth && \
+    chmod -R 777 "${HOMEDIR}"/models/ && \
+    # Доустановка мелочей для GroundingDINO:
+    python -c "import os; import groundingdino; from groundingdino.util.inference import load_model; load_model(os.path.join(os.path.dirname(os.path.abspath(groundingdino.__file__)), 'config', 'GroundingDINO_SwinB_cfg.py'), '${HOMEDIR}/models/groundingdino_swinb_cogcoor.pth')" && \
+    # Доустановка некоторых моделей для Ultralytics:
+    python -c "import sys; sys.path.append('./src'); from src.ul_utils import UltralyticsModel; list(map(UltralyticsModel, ['rtdetr-x.pt', 'yolo11x-seg.pt']))"
 
 
 # Установка тёмной темы в JupyterLab:
@@ -147,8 +142,10 @@ RUN jupyter lab --generate-config && \
 
 
 # Запуск Юпитер-сервера:
-CMD JP="jupyter-lab"; \
-    [[ -z "$JUPYTER_PORT" ]] || JP="$JP --port=$JUPYTER_PORT"; \
-    [[ -z "$JUPYTER_PASS" ]] || JP="$JP --ServerApp.password="'"'"`echo ""$JUPYTER_PASS"" | python -c 'from jupyter_server.auth import passwd;print(passwd(input()))'`"'"'; \
-    ${JP}
+CMD ["/bin/bash", "-c", " \
+    JP=\"jupyter-lab\"; \
+    [[ -z \"$JUPYTER_PORT\" ]] || JP=\"$JP --port=$JUPYTER_PORT\"; \
+    [[ -z \"$JUPYTER_PASS\" ]] || JP=\"$JP --ServerApp.password=$(echo \"$JUPYTER_PASS\" | python -c 'from jupyter_server.auth import passwd;print(passwd(input()))')\"; \
+    exec $JP \
+"]
 # Если в переменных окружения заданы пароль и порт, то они используются как параметры запуска.
