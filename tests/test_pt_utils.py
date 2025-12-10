@@ -74,6 +74,37 @@ class TestAutoDevice:
         assert isinstance(device, torch.device)
         assert device == auto_device.device
 
+    @patch('pt_utils.AutoDevice.get_avliable_device')
+    def test_auto_device_str(self, mock_get_device: MagicMock) -> None:
+        """Тест строкового представления AutoDevice."""
+        mock_get_device.return_value = torch.device('cpu')
+        auto_device = AutoDevice()
+        assert str(auto_device) == str(torch.device('cpu'))
+
+        # Не создаем новый AutoDevice с cuda - просто проверяем __str__ через patch
+        # Вместо этого мокаем prepare_device, чтобы избежать инициализации CUDA
+        with patch('pt_utils.AutoDevice.prepare_device'):
+            auto_device.device = torch.device('cuda')
+            assert str(auto_device) == str(torch.device('cuda'))
+
+    @patch('pt_utils.AutoDevice.get_avliable_device')
+    def test_auto_device_to(self, mock_get_device: MagicMock) -> None:
+        """Тест метода to для переноса тензора на устройство."""
+        mock_get_device.return_value = torch.device('cpu')
+        auto_device = AutoDevice()
+
+        # Создаем тензор
+        tensor = torch.tensor([1.0, 2.0, 3.0], dtype=torch.float32)
+
+        # Переносим на устройство
+        tensor_on_device = auto_device.to(tensor)
+
+        # Проверяем, что устройство правильное
+        assert tensor_on_device.device == torch.device('cpu')
+
+        # Проверяем, что данные не изменились
+        torch.testing.assert_close(tensor, tensor_on_device.cpu())
+
 
 class TestTensorUtils:
     """Тесты утилит для работы с тензорами."""
@@ -273,6 +304,113 @@ class TestIntegration:
 
         assert image.dtype == np.float32
         assert mask.dtype == np.float32
+
+    @patch('pt_utils.AutoDevice.get_avliable_device')
+    def test_auto_device_methods_integration(self, mock_get_device: MagicMock) -> None:
+        """Интеграционный тест методов AutoDevice."""
+        # Тестируем с CPU
+        mock_get_device.return_value = torch.device('cpu')
+        auto_device = AutoDevice()
+
+        # Проверяем __str__
+        assert str(auto_device) == 'cpu'
+
+        # Проверяем to с моделью
+        model = torch.nn.Linear(10, 5)
+        model = auto_device.to(model)
+
+        # Проверяем, что параметры на правильном устройстве
+        for param in model.parameters():
+            assert param.device == torch.device('cpu')
+
+        # Проверяем to с тензором
+        tensor = torch.randn(3, 3)
+        tensor = auto_device.to(tensor)
+        assert tensor.device == torch.device('cpu')
+
+
+class TestAutoDevicePrepare:
+    """Тесты для метода prepare_device."""
+
+    def test_prepare_device_cpu(self) -> None:
+        """Тест prepare_device для CPU."""
+        # Должен выполниться без ошибок
+        AutoDevice.prepare_device(torch.device('cpu'))
+
+    @patch('torch.cuda.is_available', return_value=False)
+    @patch('torch.backends.mps.is_available', return_value=False)
+    def test_prepare_device_mps_unavailable(
+        self, mock_cuda_available: MagicMock, mock_mps_available: MagicMock
+    ) -> None:
+        """Тест prepare_device когда MPS недоступен."""
+        # Проверяем, что моки работают
+        # (чтобы избежать предупреждения о неиспользуемых фикстурах)
+        assert mock_cuda_available.return_value is False
+        assert mock_mps_available.return_value is False
+
+        # Если CUDA и MPS недоступны, должен использовать CPU
+        device = AutoDevice.get_avliable_device()
+        assert device.type == 'cpu'
+
+    @patch('torch.cuda.get_device_properties')
+    @patch('torch.cuda.is_available', return_value=True)
+    def test_prepare_device_cuda_ampere(
+        self, mock_is_available: MagicMock, mock_get_props: MagicMock
+    ) -> None:
+        """Тест prepare_device для CUDA с архитектурой Ampere."""
+        # Проверяем, что is_available возвращает True
+        assert mock_is_available.return_value is True
+
+        # Мокаем свойства GPU Ampere (>= 8.0)
+        mock_get_props.return_value.major = 8
+        mock_get_props.return_value.minor = 0
+
+        # Вызываем prepare_device для CUDA
+        with (
+            patch('torch.autocast') as mock_autocast,
+            patch('torch.backends.cuda.matmul') as mock_matmul,
+            patch('torch.backends.cudnn') as mock_cudnn,
+        ):
+            AutoDevice.prepare_device(torch.device('cuda'))
+
+            # Проверяем, что autocast был вызван
+            mock_autocast.assert_called_once_with('cuda', dtype=torch.bfloat16)
+
+            # Проверяем, что атрибуты были установлены в True
+            assert mock_matmul.allow_tf32 is True
+            assert mock_cudnn.allow_tf32 is True
+
+    @patch('torch.cuda.get_device_properties')
+    @patch('torch.cuda.is_available', return_value=True)
+    def test_prepare_device_cuda_pre_ampere(
+        self, mock_is_available: MagicMock, mock_get_props: MagicMock
+    ) -> None:
+        """Тест prepare_device для CUDA с архитектурой до Ampere."""
+        # Проверяем, что is_available возвращает True
+        assert mock_is_available.return_value is True
+
+        # Мокаем свойства GPU до Ampere (< 8.0)
+        mock_get_props.return_value.major = 7
+        mock_get_props.return_value.minor = 5
+
+        # Вызываем prepare_device для CUDA
+        with (
+            patch('torch.autocast') as mock_autocast,
+            patch('torch.backends.cuda.matmul') as mock_matmul,
+            patch('torch.backends.cudnn') as mock_cudnn,
+        ):
+            # Устанавливаем начальные значения
+            mock_matmul.allow_tf32 = False
+            mock_cudnn.allow_tf32 = False
+
+            AutoDevice.prepare_device(torch.device('cuda'))
+
+            # Проверяем, что autocast был вызван
+            mock_autocast.assert_called_once_with('cuda', dtype=torch.bfloat16)
+
+            # Проверяем, что allow_tf32 остались False (не изменились)
+            assert mock_matmul.allow_tf32 is False
+            assert mock_cudnn.allow_tf32 is False
 
 
 if __name__ == '__main__':

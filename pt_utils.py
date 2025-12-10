@@ -73,6 +73,14 @@ class AutoDevice:
         """Возвращает текущее вычислительное устройство."""
         return self.device
 
+    def to(self, tensor: torch.Tensor) -> torch.Tensor:
+        """Переносит тензор на текущее устройство."""
+        return tensor.to(self.device)
+
+    def __str__(self) -> str:
+        """Возвращает строковое представление устройства."""
+        return str(self.device)
+
 
 def get_redused_shape(
     tensor: torch.Tensor,
