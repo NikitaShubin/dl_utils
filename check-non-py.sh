@@ -1,8 +1,8 @@
 #!/bin/bash
 
-# set -e
+set -e
 
-# Цвета для вывода
+# Цвета для вывода:
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 # YELLOW='\033[1;33m'
@@ -23,7 +23,7 @@ print_separator() {
 print_success() { echo -e "${GREEN}✅ $1${NC}"; }
 print_error() { echo -e "${RED}❌ $1${NC}"; }
 
-# Получаем абсолютный путь к директории скрипта
+# Получаем абсолютный путь к директории скрипта:
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 
 # Функция для выполнения проверки
@@ -37,10 +37,10 @@ run_check() {
     found_files=0
     while IFS= read -r -d '' file; do
         found_files=$((found_files + 1))
-        # Подсвечиваем путь к файлу (относительно корня проекта)
+        # Подсвечиваем путь к файлу (относительно корня проекта):
         echo -e "${CYAN}▸ ${MAGENTA}$(realpath --relative-to="$SCRIPT_DIR" "$file")${NC}"
         
-        # Запускаем линтер из директории файла с указанием конфига
+        # Запускаем линтер из директории файла с указанием конфига:
         ( cd "$(dirname "$file")" && eval "$lint_cmd \"$(basename "$file")\"" )
     done < <(eval "cd \"$SCRIPT_DIR\" && find . -type f $find_pattern \
         ! -path \"./.git/*\" \
@@ -59,18 +59,18 @@ run_check() {
     fi
 }
 
-# Проверка Dockerfile
+# Проверка Dockerfile:
 echo -e "${BLUE}📁 Конфигурационный файл: $SCRIPT_DIR/.hadolint.yaml${NC}"
 run_check "Dockerfile" "hadolint --config \"$SCRIPT_DIR/.hadolint.yaml\"" \
   "\( -name Dockerfile -o -name '*.Dockerfile' \)"
 
-# Проверка shell-скриптов
+# Проверка shell-скриптов:
 echo -e "${BLUE}📁 Конфигурационный файл: $SCRIPT_DIR/.shellcheckrc${NC}"
 run_check "shell-скрипты" "shellcheck --source-path=\"$SCRIPT_DIR\"" "-name '*.sh'"
 
-# Проверка Markdown файлов
-# echo -e "${BLUE}📁 Конфигурационный файл: $SCRIPT_DIR/.markdownlint.yaml${NC}"
-# run_check "Markdown файлы" "markdownlint --config \"$SCRIPT_DIR/.markdownlint.yaml\"" "-name '*.md'"
+# Проверка Markdown файлов:
+echo -e "${BLUE}📁 Конфигурационный файл: $SCRIPT_DIR/.markdownlint.yaml${NC}"
+run_check "Markdown файлы" "markdownlint --config \"$SCRIPT_DIR/.markdownlint.yaml\"" "-name '*.md'"
 
 print_separator "ВСЕ ПРОВЕРКИ ЗАВЕРШЕНЫ"
 print_success "Все проверки прошли успешно!"
