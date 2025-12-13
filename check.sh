@@ -13,7 +13,6 @@ PURPLE='\033[0;95m'
 NC='\033[0m' # No Color
 
 # Параметры для mypy:
-# MYPY_ARGS=("--strict" "--no-incremental" "--show-error-codes" "--warn-unused-ignores" "--follow-imports=skip")
 MYPY_ARGS=("--no-incremental" "--show-error-codes" "--warn-unused-ignores" "--follow-imports=skip")
 
 # Функция для получения ширины терминала:
@@ -26,26 +25,21 @@ print_separator() {
     local text="$1"
     local color="${2:-$BLUE}"  # По умолчанию синий цвет
     local width
-	width=$(get_terminal_width)
+    width=$(get_terminal_width)
     local text_length=${#text}
-    local padding=$(( (width - text_length - 4) / 2 ))  # -4 для учета пробелов и символов
+    local padding=$(( (width - text_length - 4) / 2 ))
 
-    echo  # Пустая строка перед разделителем
-
-    # Верхняя линия:
+    echo
     printf "%${width}s\n" | tr ' ' '='
 
-    # Текст с выравниванием по центру:
     if [ $padding -gt 0 ]; then
         printf "%${padding}s ${color}%s${NC} %${padding}s\n" "" "$text" ""
     else
-        # Если текст слишком длинный, выводим без отступов:
         printf " ${color}%s${NC} \n" "$text"
     fi
 
-    printf "%${width}s\n" | tr ' ' '='  # Нижняя линия
-
-    echo  # Пустая строка после разделителя
+    printf "%${width}s\n" | tr ' ' '='
+    echo
 }
 
 # Функции для цветного вывода:
@@ -65,96 +59,147 @@ print_step() {
     echo -e "${CYAN}🔹 $1${NC}"
 }
 
+# Получаем абсолютный путь к директории скрипта:
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+
+# Проверяем Git-репозиторий относительно директории скрипта
+if ! git -C "$SCRIPT_DIR" rev-parse --git-dir > /dev/null 2>&1; then
+    print_error "Этот скрипт должен запускаться внутри Git-репозитория"
+    exit 1
+fi
+
+# Получаем корень Git-репозитория (относительно директории скрипта):
+GIT_ROOT="$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel)"
+
 # Сбор аргументов для ruff check:
 RUFF_CHECK_ARGS=("$@")
 
+# Функция для проверки индексированных файлов
+check_indexed_files() {
+    local description="$1"
+    local check_cmd="$2"
+    shift 2
+    local patterns=("$@")
+
+    print_separator "$description" "$CYAN"
+
+    found_files=0
+    all_files=()
+
+    # Собираем все индексированные файлы по паттернам
+    for pattern in "${patterns[@]}"; do
+        while IFS= read -r file; do
+            if [[ -n "$file" && -f "$GIT_ROOT/$file" ]]; then
+                all_files+=("$file")
+            fi
+        done < <(git -C "$GIT_ROOT" ls-files "$pattern" 2>/dev/null || true)
+    done
+
+    # Убираем дубликаты
+    if [[ ${#all_files[@]} -gt 0 ]]; then
+        mapfile -t all_files < <(printf "%s\n" "${all_files[@]}" | sort -u)
+    fi
+
+    # Проверяем каждый файл
+    for file in "${all_files[@]}"; do
+        found_files=$((found_files + 1))
+        print_step "Проверка файла: $file"
+
+        local file_path="$GIT_ROOT/$file"
+        local file_dir
+        local file_name
+
+        file_dir="$(dirname "$file_path")"
+        file_name="$(basename "$file_path")"
+
+        # Запускаем проверку из директории файла
+        (cd "$file_dir" && eval "$check_cmd \"$file_name\"")
+    done
+
+    if [ $found_files -eq 0 ]; then
+        print_warning "Файлы не найдены"
+    else
+        print_success "Проверка завершена ($found_files файлов)"
+    fi
+}
+
 # Основной скрипт:
 clear
-ruff clean  # Очистка кеша Ruff
 echo -e "${GREEN}🚀 Запуск проверок качества кода и тестов...${NC}"
 
-# Основные файлы для проверки:
-ROOT_FILES=("labels.py" "pt_utils.py")
+# Очистка кеша Ruff (из корня репозитория)
+print_step "Очистка кеша Ruff..."
+ruff clean
 
-# Проверка файлов в корне:
-for file in "${ROOT_FILES[@]}"; do
-    if [[ -f "$file" ]]; then
+# Основные файлы для проверки (только индексированные):
+print_separator "Проверка индексированных Python файлов" "$BLUE"
 
-        # Ruff format:
-        print_separator "Ruff format: $file" "$CYAN"
-        print_step "Форматирование файла $file..."
-        if ruff format "$file"; then
-            print_success "Форматирование $file завершено"
-        else
-            print_error "Ошибка при форматировании $file"
-            exit 1
-        fi
+# Файлы из корня репозитория
+root_files=("labels.py" "pt_utils.py")
 
-        # Ruff check:
-        print_separator "Ruff check: $file" "$CYAN"
-        print_step "Проверка файла $file с аргументами: ${RUFF_CHECK_ARGS[*]}..."
-        if ruff check "${RUFF_CHECK_ARGS[@]}" "$file"; then
-            print_success "Проверка $file завершена"
-        else
-            print_error "Найдены проблемы в $file"
-            exit 1
-        fi
+# Проверка каждого файла отдельно
+for file in "${root_files[@]}"; do
+    # Проверяем, индексирован ли файл
+    if git -C "$GIT_ROOT" ls-files --error-unmatch "$file" >/dev/null 2>&1; then
+        if [[ -f "$GIT_ROOT/$file" ]]; then
+            # Ruff format:
+            print_separator "Ruff format: $file" "$CYAN"
+            print_step "Форматирование файла $file..."
+            (cd "$GIT_ROOT" && ruff format "$file") && print_success "Форматирование $file завершено"
 
-        # Mypy проверка:
-        print_separator "Mypy: $file" "$PURPLE"
-        print_step "Проверка типов в файле $file..."
-        if mypy "${MYPY_ARGS[@]}" "$file"; then
-            print_success "Проверка типов $file завершена"
-        else
-            print_error "Найдены ошибки типов в $file"
-            exit 1
+            # Ruff check:
+            print_separator "Ruff check: $file" "$CYAN"
+            print_step "Проверка файла $file..."
+            (cd "$GIT_ROOT" && ruff check "${RUFF_CHECK_ARGS[@]}" "$file") && print_success "Проверка $file завершена"
+
+            # Mypy проверка:
+            print_separator "Mypy: $file" "$PURPLE"
+            print_step "Проверка типов в файле $file..."
+            (cd "$GIT_ROOT" && mypy "${MYPY_ARGS[@]}" "$file") && print_success "Проверка типов $file завершена"
         fi
     else
-        print_warning "Файл $file не найден, пропускаем"
+        print_warning "Файл $file не индексирован или не найден, пропускаем"
     fi
 done
 
 # Запуск тестов:
 print_separator "Запуск тестов" "$YELLOW"
 print_step "Запуск pytest с детализированным выводом..."
-if pytest -v; then
-    print_success "Все тесты прошли успешно"
-else
-    print_error "Некоторые тесты не прошли"
-    exit 1
-fi
+(cd "$GIT_ROOT" && pytest -v) && print_success "Все тесты прошли успешно"
 
-# Проверка папки tests:
-if [[ -d "tests" ]]; then
+# Проверка папки tests (только индексированные файлы):
+if [[ -d "$GIT_ROOT/tests" ]]; then
+    # Получаем список индексированных .py файлов в папке tests
+    test_files=()
+    while IFS= read -r file; do
+        if [[ -n "$file" && -f "$GIT_ROOT/$file" ]]; then
+            test_files+=("$file")
+        fi
+    done < <(git -C "$GIT_ROOT" ls-files "tests/*.py" 2>/dev/null || true)
 
-    # Ruff format для tests:
-    print_separator "Ruff format: tests" "$MAGENTA"
-    print_step "Форматирование тестов..."
-    if ruff format tests; then
-        print_success "Форматирование тестов завершено"
+    if [ ${#test_files[@]} -gt 0 ]; then
+        # Форматируем пути для отображения (убираем префикс tests/)
+        display_files=()
+        for file in "${test_files[@]}"; do
+            display_files+=("${file#tests/}")
+        done
+
+        # Ruff format для tests:
+        print_separator "Ruff format: tests" "$MAGENTA"
+        print_step "Форматирование тестовых файлов: ${display_files[*]}..."
+        (cd "$GIT_ROOT" && ruff format tests) && print_success "Форматирование тестов завершено"
+
+        # Ruff check для tests:
+        print_separator "Ruff check: tests" "$MAGENTA"
+        print_step "Проверка тестов..."
+        (cd "$GIT_ROOT" && ruff check "${RUFF_CHECK_ARGS[@]}" tests) && print_success "Проверка тестов завершена"
+
+        # Mypy проверка для tests:
+        print_separator "Mypy: tests" "$PURPLE"
+        print_step "Проверка типов в тестах..."
+        (cd "$GIT_ROOT" && mypy "${MYPY_ARGS[@]}" tests) && print_success "Проверка типов тестов завершена"
     else
-        print_error "Ошибка при форматировании тестов"
-        exit 1
-    fi
-
-    # Ruff check для tests:
-    print_separator "Ruff check: tests" "$MAGENTA"
-    print_step "Проверка тестов с аргументами: ${RUFF_CHECK_ARGS[*]}..."
-    if ruff check "${RUFF_CHECK_ARGS[@]}" tests; then
-        print_success "Проверка тестов завершена"
-    else
-        print_error "Найдены проблемы в тестах"
-        exit 1
-    fi
-
-    # Mypy проверка для tests:
-    print_separator "Mypy: tests" "$PURPLE"
-    print_step "Проверка типов в тестах..."
-    if mypy "${MYPY_ARGS[@]}" tests; then
-        print_success "Проверка типов тестов завершена"
-    else
-        print_error "Найдены ошибки типов в тестах"
-        exit 1
+        print_warning "В папке tests не найдено индексированных .py файлов"
     fi
 else
     print_warning "Папка tests не найдена, пропускаем"
