@@ -1,7 +1,6 @@
 # hadolint global ignore = DL3008, DL3016  # Не фиксируем версии, т.к. в этом образе нужны свежие пакеты
 ARG TFVER='2.19.0'
 FROM tensorflow/tensorflow:${TFVER}-gpu
-
 #FROM tensorflow/tensorflow:latest-gpu
 #FROM tensorflow/tensorflow:nightly-gpu
 
@@ -76,7 +75,7 @@ RUN apt-get update                                            && \
     apt-get autoclean                                         && \
     rm -rf /var/lib/apt/lists/*                               && \
     # Установка Hadolint и markdownlint-cli:
-    wget --progress=dot -O /bin/hadolint $HADOLINTURL         && \
+    wget --progress=dot:giga -O /bin/hadolint $HADOLINTURL    && \
     chmod +x /bin/hadolint                                    && \
     # Установка Node.js из NodeSource (вместо старых версий из репозитория):
     wget -qO- https://deb.nodesource.com/setup_lts.x | bash - && \
@@ -88,9 +87,9 @@ ENV LANG C.UTF-8
 
 # Устанавливаем необходимые python-библиотеки:
 #ARG PIPPARAMS="--root-user-action=ignore --no-cache-dir"
-ARG PIPPARAMS=""
+ARG PIPPARAMS="--root-user-action=ignore"
 ARG PIP="python -m pip"
-ARG PYTHONMODULES="                                                      \
+ARG PYTHONMODULES_BASE="                                                 \
     # Keras и прочее:                                                    \
     keras keras-tuner pydot tf_keras keras_hub                           \
                                                                          \
@@ -105,6 +104,9 @@ ARG PYTHONMODULES="                                                      \
                                                                          \
     # YOLO и трекинг в ней + Roboflow:                                   \
     ultralytics lapx supervision                                         \
+                                                                         \
+    # Трекеры:                                                           \
+    stonesoup                                                            \
                                                                          \
     # Большой банк предобученных CV-моделей                              \
     git+https://github.com/leondgarse/keras_cv_attention_models          \
@@ -187,17 +189,22 @@ com/PublicPackages/_packaging/onnxruntime-cuda-12/pypi/simple/           \
                                                                          \
     pycuda                                                               \
 "
-
-# Сначала обновляем сам pip.
-# Затем фиксируем текущую версию уже установленного Tensorflow и устанавливаем остальные пакеты БЕЗ зависимостей, на случай проблем.
-# Потом устанавливаем все зависимости для ранее установленных пакетов.
-# Наконец, очищаем кэш pip для уменьшения размера образа.
+ARG PYTHONMODULES_EXTRA="                                                \
+    # Трекеры:                                                           \
+    boxmot regex>=2.5.148                                                \
+"
+    # Сначала обновляем сам pip:
 RUN ${PIP} install $PIPPARAMS --upgrade pip && \
+    # Затем фиксируем текущую версию уже установленного Tensorflow:
     TFVER=$(${PIP} show tensorflow | grep Vers | awk '{print $2}') && \
-    eval "${PIP} install $PIPPARAMS tensorflow==${TFVER} $PYTHONMODULES --upgrade" && \
+    # И устанавливаем основные пакеты:
+    eval "${PIP} install $PIPPARAMS tensorflow==${TFVER} $PYTHONMODULES_BASE --upgrade" && \
+    # Потом устанавливаем все зависимости для ранее установленных пакетов:
+    eval "${PIP} install $PIPPARAMS $PYTHONMODULES_EXTRA" && \
+    # Наконец, очищаем кэш pip для уменьшения размера образа:
     eval "${PIP} cache purge" && \
+    # Приходится пересобирать Jupyter Lab, т.к. установка Node.js из NodeSource приводит к поломкам зависимостей:
     jupyter lab build --minimize=False
-# Приходится пересобирать Jupyter Lab, т.к. установка Node.js из NodeSource приводит к поломкам зависимостей.
 
 # Установка всех необходимых пакетов при фиксации версии уже установленного Tensorflow.
 #    ${PIP} install $PIPPARAMS tensorflow==${TFVER} $PYTHONMODULES --upgrade --no-deps && \
@@ -205,12 +212,12 @@ RUN ${PIP} install $PIPPARAMS --upgrade pip && \
 
 
 # Исправляем баг SAM2 с недоступностью конфигурационных файлов:
-# RUN wget --progress=dot https://github.com/facebookresearch/sam2/archive/refs/heads/main.zip && \
+# RUN wget --progress=dot:giga https://github.com/facebookresearch/sam2/archive/refs/heads/main.zip && \
 #     7z x ./main.zip && ls -laht && cd sam2-main && pip install -e ".[notebooks]" && cd .. && rm -rf sam2-main
 #RUN pypackagesdir=`${PIP} show sam-2 | grep Location | cut -d' ' -f2` && \
 RUN pypackagesdir=$(python -m pip show sam2 | grep Location | cut -d' ' -f2) && \
     cp -R "$pypackagesdir/sam2/configs/sam2.1/." "$pypackagesdir/sam2/" && \
-    wget --progress=dot -P "$pypackagesdir/sam2/" \
+    wget --progress=dot:giga -P "$pypackagesdir/sam2/" \
     "https://github.com/SysCV/sam-hq/blob/main/sam-hq2/sam2/configs/sam2.1/sam2.1_hq_hiera_l.yaml"
 
 # Отключаем у JupyterLab надоедливый вопрос об обновлении
@@ -223,7 +230,7 @@ RUN useradd -ms "${SHELL_PATH}" "${USERNAME}"              && \
     chmod 1777 /etc && chmod 1777 "${HOMEDIR}"
 
 # Скачиваем самые мощные модели SAM2 и DINO:
-RUN wget --progress=dot -c --retry-connrefused -t 10 -T 900 -P "${HOMEDIR}"/models/ \
+RUN wget --progress=dot:giga -c --retry-connrefused -t 10 -T 900 -P "${HOMEDIR}"/models/ \
     https://dl.fbaipublicfiles.com/segment_anything_2/092824/sam2.1_hiera_large.pt \
     https://github.com/IDEA-Research/GroundingDINO/releases/download/v0.1.0-alpha2/groundingdino_swinb_cogcoor.pth && \
     chmod -R 777 "${HOMEDIR}"/models/ && \
@@ -257,7 +264,7 @@ RUN mkdir -p "${THEMEDIR}" && \
 # Загрузка весов свёрточной части предобученной модели EfficientNetV2M:
 #ARG KERAS_MODELS_DIR="${HOMEDIR}/.keras/models/"
 #ARG KERAS_APP_URL='https://storage.googleapis.com/tensorflow/keras-applications/'
-#RUN wget --progress=dot -P "${KERAS_MODELS_DIR}" "${KERAS_APP_URL}efficientnet_v2/efficientnetv2-m_notop.h5"
+#RUN wget --progress=dot:giga -P "${KERAS_MODELS_DIR}" "${KERAS_APP_URL}efficientnet_v2/efficientnetv2-m_notop.h5"
 
 # Убираем надоедливое 
 # "/sbin/ldconfig.real: Can't create temporary cache file /etc/ld.so.cache~: Permission denied"
