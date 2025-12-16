@@ -692,7 +692,7 @@ def df_tuple2list(df, columns=columns_with_list):
     return apply_func2df_columns(df, tuple2list, columns)
 
 
-def df_save(df, file='df.tsv.zip'):
+def df_save(df, file='df.tsv'):
     '''
     Сохраняет датафрейм в файл в нужном формате.
     '''
@@ -700,7 +700,7 @@ def df_save(df, file='df.tsv.zip'):
     return df.to_csv(file, sep='\t', index=False)
 
 
-def df_load(file='df.tsv.zip'):
+def df_load(file='df.tsv'):
     '''
     Загружает датафрейм из файла, сохранённого через df_save.
     '''

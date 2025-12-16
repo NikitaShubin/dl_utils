@@ -866,7 +866,7 @@ class SAM2:
 
             yield img
 
-    def render_preview(self, target_file=None, label2color=None,
+    def render_preview(self, target_file=None, fps=3, label2color=None,
                       fit_segments=False, return_subtask=False):
 
         # Доопределяем имя файла, если не задан:
@@ -894,7 +894,7 @@ class SAM2:
 
         # Генерируем само превью:
         subtask2preview((mod_df, file, true_frames),
-                        target_file, label2color,
+                        target_file, label2color, fps=fps,
                         desc='Отрисовка превью')
 
         # Возвращачем имя файла-превью и, опционально, всю подзадачу с
