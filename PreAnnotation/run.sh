@@ -63,7 +63,7 @@ else
         docker push '$IMAGE_NAME:latest'
         echo 'Отправка завершена'
     " > /dev/null 2>&1 &
-    printf "%sОбраз отправляется на Docker HUB (PID: %s)%s\n" "$GREEN" "$!" "$NC"
+    printf "%bОбраз отправляется на Docker HUB (PID: %s)%b\n" "$GREEN" "$!" "$NC"
 fi
 
 # Возвращаем исходное значение текущей папки:
