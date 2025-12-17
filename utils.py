@@ -110,6 +110,7 @@ from IPython.display import clear_output, HTML  # , Javascript, display
 from matplotlib import pyplot as plt
 from typing import Iterable
 from collections import defaultdict, deque
+from collections.abc import Callable
 
 
 ########################
@@ -2842,6 +2843,164 @@ def restart_kernel_and_run_all_cells():
             </script>
         '''
     ))
+
+
+ExceptoinOrType = Exception | type | str
+RetryExceptions = list[ExceptoinOrType] | tuple[ExceptoinOrType] | set[ExceptoinOrType]
+
+
+class Retry:
+    """
+    Декоратор для повторного запуска функций при возникновении указанных исключений.
+
+    Класс позволяет перехватывать и обрабатывать исключения, повторяя выполнение функции
+    до указанного максимального количества попыток. Поддерживает фильтрацию исключений
+    по типу и/или по сообщению.
+
+    Parameters
+        max_attempts : int, optional
+            Максимальное количество попыток выполнения функции. По умолчанию 3.
+        exception : ExceptionOrType | RetryExceptions, optional
+            Исключение или набор исключений для перехвата. Может быть:
+            - экземпляром исключения
+            - классом исключения (типом)
+            - строкой (сообщением об ошибке)
+            - коллекцией (список, кортеж, множество) из вышеперечисленных элементов.
+            По умолчанию перехватываются все исключения (Exception).
+
+    Attributes
+        exceptions : set
+            Множество исключений для перехвата.
+        max_attempts : int
+            Максимальное количество попыток выполнения.
+
+        Examples
+        >>> @Retry(max_attempts=3)
+        ... def risky_function():
+        ...     # код, который может вызвать исключение
+        ...     pass
+
+        >>> @Retry(max_attempts=5, exception=ValueError)
+        ... def value_sensitive_function():
+        ...     # код, чувствительный к значениям
+        ...     pass
+
+        >>> @Retry(max_attempts=3, exception=["connection failed", "timeout"])
+        ... def network_operation():
+        ...     # сетевая операция
+        ...     pass
+
+        >>> @Retry(exception=ZeroDivisionError('division by zero'))
+        ... def ariph_operation():
+        ...     # арифметическая операция
+        ...     pass
+    """
+
+    def __init__(self,
+                 max_attempts: int = 3,
+                 exception: ExceptoinOrType | RetryExceptions = Exception) -> None:
+        """
+        Инициализирует декоратор с указанными параметрами.
+
+        Parameters
+            max_attempts : int
+                Максимальное количество попыток выполнения функции.
+            exception : ExceptionOrType | RetryExceptions
+                Исключение или набор исключений для перехвата.
+
+        Raises
+            TypeError
+                Если передан неподдерживаемый тип исключения.
+        """
+        # Если предъявлено само исключение или его тип, делаем из него множество:
+        if isinstance(exception, ExceptoinOrType):
+            exception = {exception}
+        # Т.е. ExceptoinOrType -> RetryExceptions
+
+        self.exceptions = exception
+        self.max_attempts = max_attempts
+
+    def __call__(self, function: Callable) -> Callable:
+        """
+        Инициализирует декоратор с указанными параметрами.
+
+        Parameters
+            max_attempts : int
+                Максимальное количество попыток выполнения функции.
+            exception : ExceptionOrType | RetryExceptions
+                Исключение или набор исключений для перехвата.
+
+        Raises
+            TypeError
+                Если передан неподдерживаемый тип исключения.
+        """
+        def retry(*args, **kwargs):
+
+            # Список уникальных перехваченных исключений:
+            cached_exceptions = []
+
+            # Предпринимаем попытки:
+            for attempt in range(self.max_attempts):
+
+                try:
+                    return function(*args, **kwargs)
+
+                except Exception as e:
+
+                    # Пополняем список перехваченных исключений, если такого ещё не было:
+                    for cached_exception in cached_exceptions:
+                        if str(cached_exception) == str(e) and type(cached_exception) == type(e):
+                            break
+                    else:
+                        cached_exceptions.append(e)
+
+                    # Обрабатываем исключение в зависимости от его допустимости:
+                    if self.is_acceptable_exception(e):
+                        print(f'Попытка №{attempt + 1}', end='\r')
+                    else:
+                        print('=========')
+                        raise e
+
+            # Если допустимое число попыток исчерпано:
+            print('Превышено допустимое число попыток!')
+            if len(cached_exceptions) > 1:
+                exception = ExceptionGroup(
+                    'Перехвачено несколько исключений!',
+                    cached_exceptions
+                )
+            else:
+                exception = cached_exceptions[0]
+            raise exception
+
+        return retry
+
+    def is_acceptable_exception(self, exception: Exception) -> bool:
+
+        is_acceptable = False
+        for acceptable_exception in self.exceptions:
+
+            # Если задана строка:
+            if isinstance(acceptable_exception, str):
+                is_acceptable = str(exception) == acceptable_exception
+
+            # Если задано исключение:
+            elif isinstance(acceptable_exception, Exception):
+                is_acceptable = isinstance(exception, type(acceptable_exception)) and \
+                    str(exception) == str(acceptable_exception)
+
+            # Если задан тип исключения:
+            elif issubclass(acceptable_exception, Exception):
+                is_acceptable = isinstance(exception, acceptable_exception)
+
+            else:
+                raise TypeError(f'Неожиданное исключение: {acceptable_exception}!')
+
+            # Если уже найдено совпадение - дальше не ищем:
+            if is_acceptable:
+                return True
+
+        # Если не найдено ни одного совпадения:
+        return False
 
 
 def cls():
