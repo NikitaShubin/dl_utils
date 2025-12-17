@@ -3,13 +3,15 @@ import matplotlib.pyplot as plt
 from mpl_point_clicker import clicker
 from mpl_interactions import zoom_factory, panhandler
 from IPython import get_ipython
-from cv_utils import Mask
-from cvat import CVATPoints
 from IPython.display import Video, clear_output, display
 import ipywidgets
 import os
 from urllib.parse import quote
 from IPython.display import HTML
+
+from cv_utils import Mask
+from cvat import CVATPoints
+from utils import Retry
 
 
 def path2link(path, link_file_name=None):
@@ -62,6 +64,11 @@ class IPYInteractiveSegmentation:
     neg_name = 'exclude'
     clr_name = 'clear'
 
+    # Ошибка при отрисовке, которую надо перехватывать:
+    exception = AttributeError("'NoneType' object has no attribute 'refresh_all'")
+    # Сам перехватчик:
+    retry = Retry(20, exception)
+
     # Очищает все подсказки, если нажат класс "clear":
     def on_class_changed(self, new_class):
         if new_class == self.clr_name:
@@ -69,16 +76,31 @@ class IPYInteractiveSegmentation:
             self.clear()
             self.klicker._update_points()
 
-
     def show(self, img):
         self.img = img
 
         # Включаем интерактивный matplotlib.
         self.ipython.run_line_magic('matplotlib', 'widget')
 
-        # Выводим изображение в ячейку ноутбука:
+        # Инициируем графический вывод в ячейке ноутбука:
         self.fig, self.ax = plt.subplots(figsize=(10, 4),
                                          constrained_layout=True)
+
+        # Прикручиваем интерактивность:
+        self.klicker = self.retry(clicker)(
+            self.ax,
+            [
+                self.msk_name,
+                self.box_name,
+                self.pos_name,
+                self.neg_name,
+                self.clr_name
+            ],
+           markers=['p', 's', 'o', 'x', 'X'],
+           colors=['k', 'b', 'g', 'r', 'w']
+        )
+
+        # Отрисовываем изображение:
         self.fig.canvas.header_visible = False    # Убираем название фигуры
         self.fig.canvas.footer_visible = False    # Убираем отступ снизу
         self.fig.canvas.toolbar_position = 'top'  # Панель сверху
@@ -86,19 +108,9 @@ class IPYInteractiveSegmentation:
         plt.title('Интерактивная сегментация')
         self.ax.axis(False)
 
-        # Зум колёсиком мыши:
+        # Прикручиваем поддержку зума колёсиком мыши:
         zoom_factory(self.ax)
         panhandler(self.fig, button=2)
-
-        # Инициируем счётчик кликов:
-        self.klicker = clicker(self.ax,
-                               [self.msk_name,
-                                self.box_name,
-                                self.pos_name,
-                                self.neg_name,
-                                self.clr_name],
-                               markers=['p', 's', 'o', 'x', 'X'],
-                               colors=['k', 'b', 'g', 'r', 'w'])
 
         # Если было указано начальное состояние точек, то применяем его
         # и очищаем внутреннее состояние чтобы в следующий раз не применять
@@ -191,7 +203,8 @@ class IPYInteractiveSegmentation:
                 img = box.draw(img, color=(0, 0, 255), alpha=0.5)
 
         self.ax.imshow(img)
-        self.klicker._update_points()
+        self.retry(self.klicker._update_points)()
+        plt.show()
 
     def clear(self):
         self.klicker.set_positions({self.msk_name: [],
