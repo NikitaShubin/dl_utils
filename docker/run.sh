@@ -45,8 +45,8 @@ IMAGE_NAME_AND_TAGS=(
 if ! docker build "${IMAGE_NAME_AND_TAGS[@]}" "${DOCKERFILE_DIR}";
 then
     # Если образ собрать не удалось - берём готовый с DockerHub:
-    printf "\n%bОбраз не собран!\n%b" "$RED" "$NC"
-    printf "%bБерётся версия из DockerHub!%b\n\n" "$RED" "$NC"
+    printf "%bОбраз не собран!\n" "$RED"
+    printf "Берётся версия из DockerHub!\n%b" "$NC"
     docker pull $IMAGE_NAME
 else
     # Если образ успешно собран, отправляем ВСЕ теги в одном фоновом процессе:
