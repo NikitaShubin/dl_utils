@@ -123,7 +123,7 @@ ARG PYTHONMODULES_BASE="                                                 \
     jupyterlab voila xeus-python                                         \
     jupyterlab_nvdashboard jupyter-resource-usage                        \
     jupyterlab-latex jupyterlab-git                                      \
-    ipympl mpl_point_clicker mpl_interactions[jupyter] matplotlib        \
+    ipympl mpl_point_clicker mpl_interactions[jupyter]                   \
     # jupyter-collaboration jupyterlab_autoscrollcelloutput              \
     # pydevd-pycharm jupyverse[jupyterlab,auth]                          \
     # ipympl, mpl_point_clicker и mpl_interactions для интерактивного    \
@@ -191,7 +191,11 @@ com/PublicPackages/_packaging/onnxruntime-cuda-12/pypi/simple/           \
 "
 ARG PYTHONMODULES_EXTRA="                                                \
     # Трекеры:                                                           \
-    boxmot regex>=2.5.148                                                \
+    boxmot regex>=2025.11.3                                              \
+                                                                         \
+    # Навороты в Jupyter:                                                \
+    jupyter-ai[all]                                                      \
+    # jupyter-ai для использования API всяких LLM-ок.                    \
 "
     # Сначала обновляем сам pip:
 RUN ${PIP} install $PIPPARAMS --upgrade pip && \
