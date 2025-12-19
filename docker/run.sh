@@ -118,9 +118,13 @@ RUNPARAMS=(
     # Пароль и порт для Jupyter:
     -e JUPYTER_PASS
     -e JUPYTER_PORT
-    # Берётся из внешней переменной окружения.
-    # Рекомендуется добавить строку
+    # Адрес локального Ollama-сервера:
+    -e OLLAMA_HOST
+    # Берутся из внешних переменных окружения.
+    # Рекомендуется добавить строки вроде
+    # ```
     # JUPYTER_PASS="my_password"; export JUPYTER_PASS
+    # ```
     # в файл ~/.profile, если используется bash,
     # или ~/.zshenv при использовании zsh.
     # https://unix.stackexchange.com/a/21600
