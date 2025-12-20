@@ -234,9 +234,9 @@ RUN useradd -ms "${SHELL_PATH}" "${USERNAME}"              && \
     chmod 1777 /etc && chmod 1777 "${HOMEDIR}"
 
 # Скачиваем самые мощные модели SAM2 и DINO:
-RUN wget --progress=dot:giga -c --retry-connrefused -t 10 -T 900 -P "${HOMEDIR}"/models/ \
-    https://dl.fbaipublicfiles.com/segment_anything_2/092824/sam2.1_hiera_large.pt \
-    https://github.com/IDEA-Research/GroundingDINO/releases/download/v0.1.0-alpha2/groundingdino_swinb_cogcoor.pth && \
+ARG SAM2URL="https://dl.fbaipublicfiles.com/segment_anything_2/092824/sam2.1_hiera_large.pt"
+ARG GDURL="https://github.com/IDEA-Research/GroundingDINO/releases/download/v0.1.0-alpha2/groundingdino_swinb_cogcoor.pth"
+RUN wget --progress=dot:giga -c --retry-connrefused -t 10 -T 900 -P "${HOMEDIR}"/models/ "${SAM2URL}" "${GDURL}" && \
     chmod -R 777 "${HOMEDIR}"/models/ && \
     # Доустановка мелочей для GroundingDINO:
     python -c "import os; import groundingdino; from groundingdino.util.inference import load_model; load_model(os.path.join(os.path.dirname(os.path.abspath(groundingdino.__file__)), 'config', 'GroundingDINO_SwinB_cfg.py'), '${HOMEDIR}/models/groundingdino_swinb_cogcoor.pth')"
@@ -253,8 +253,8 @@ USER "${USERNAME}"
 #RUN echo 'def support_message(*args, **kwargs): pass' > `python -c \
 #    'import inspect, support_developer; print(inspect.getfile(support_developer.support_message))'`
 
-# ADD https://dl.fbaipublicfiles.com/segment_anything_2/092824/sam2.1_hiera_large.pt "${HOMEDIR}"/models/
-# ADD https://github.com/IDEA-Research/GroundingDINO/releases/download/v0.1.0-alpha2/groundingdino_swinb_cogcoor.pth "${HOMEDIR}"/models/
+# ADD "${SAM2URL}" "${HOMEDIR}"/models/
+# ADD "${GDURL}" "${HOMEDIR}"/models/
 #RUN gosu chmod -R 777 "${HOMEDIR}"/models/ && \
 #    python -c "import os; import groundingdino; from groundingdino.util.inference import load_model; load_model(os.path.join(os.path.dirname(os.path.abspath(groundingdino.__file__)), 'config', 'GroundingDINO_SwinB_cfg.py'), '${HOMEDIR}/models/groundingdino_swinb_cogcoor.pth')"
 

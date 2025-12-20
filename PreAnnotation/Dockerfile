@@ -112,14 +112,14 @@ USER "${USERNAME}"
 RUN mkdir "${HOMEDIR}"/models/
 
 # Скачиваем самые мощные модели SAM2 и DINO:
-RUN wget --progress=dot -c --retry-connrefused -t 10 -T 900 -P "${HOMEDIR}"/models/ \
-    https://dl.fbaipublicfiles.com/segment_anything_2/092824/sam2.1_hiera_large.pt \
-    https://github.com/IDEA-Research/GroundingDINO/releases/download/v0.1.0-alpha2/groundingdino_swinb_cogcoor.pth && \
-    chmod -R 777 "${HOMEDIR}"/models/ && \
+ARG SAM2URL="https://dl.fbaipublicfiles.com/segment_anything_2/092824/sam2.1_hiera_large.pt"
+ARG GDURL="https://github.com/IDEA-Research/GroundingDINO/releases/download/v0.1.0-alpha2/groundingdino_swinb_cogcoor.pth"
+RUN wget --progress=dot:giga -c --retry-connrefused -t 10 -T 900 -P "${HOMEDIR}"/models/ "${SAM2URL}" "${GDURL}" && \
     # Доустановка мелочей для GroundingDINO:
     python -c "import os; import groundingdino; from groundingdino.util.inference import load_model; load_model(os.path.join(os.path.dirname(os.path.abspath(groundingdino.__file__)), 'config', 'GroundingDINO_SwinB_cfg.py'), '${HOMEDIR}/models/groundingdino_swinb_cogcoor.pth')" && \
     # Доустановка некоторых моделей для Ultralytics:
-    python -c "import sys; sys.path.append('./src'); from src.ul_utils import UltralyticsModel; list(map(UltralyticsModel, ['rtdetr-x.pt', 'yolo11x-seg.pt']))"
+    python -c "import sys; sys.path.append('./src'); from src.ul_utils import UltralyticsModel; list(map(UltralyticsModel, ['rtdetr-x.pt', 'yolo11x-seg.pt']))" && \
+    chmod -R 777 "${HOMEDIR}"/models/
 
 
 # Установка тёмной темы в JupyterLab:
