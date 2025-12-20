@@ -361,10 +361,11 @@ RUN git config --global --add safe.directory "$WORKSPACE"                     &&
 
 # Запуск Юпитер-сервера:
 CMD ["/bin/bash", "-c", " \
-    python */dl_utils/ollm_utils.py; \
     JP=\"jupyter lab\"; \
     [[ -z \"$JUPYTER_PORT\" ]] || JP=\"$JP --port=$JUPYTER_PORT\"; \
     [[ -z \"$JUPYTER_PASS\" ]] || JP=\"$JP --ServerApp.password=$(echo \"$JUPYTER_PASS\" | python -c 'from jupyter_server.auth import passwd;print(passwd(input()))')\"; \
+    python */dl_utils/ollm_utils.py; \
     exec $JP \
 "]
 # Если в переменных окружения заданы пароль и порт, то они используются как параметры запуска.
+# ollm_utils автоматически конфигурирует jupyter-ai.

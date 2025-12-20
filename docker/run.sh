@@ -138,9 +138,7 @@ RUNPARAMS=(
 )
 
 # Запускаем образ:
-#clear && 
 docker run "${RUNPARAMS[@]}"
-#docker exec -u root -it $DOCKER_NAME bash
 
 # Вывод логов:
 if false; then

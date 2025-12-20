@@ -23,7 +23,7 @@ try:
 except ImportError:
     JUPYTER_AI_AVAILABLE = False
 
-from utils import json2obj, obj2json
+from utils import json2obj, mkdirs, obj2json
 
 # Имя переменной окружения, хранящей адрес Ollama-сервера:
 env_var_host: str = 'OLLAMA_HOST'
@@ -252,6 +252,7 @@ def set_jupyter_ai_settings(
     cfg['send_with_shift_enter'] = True  # Отправка сообщение через Shift + Enter
 
     # Сохраняем файл конфигурации:
+    mkdirs(cfg_path.parent)  # Создаём папки, если надо
     return obj2json(cfg, cfg_path)
 
 
