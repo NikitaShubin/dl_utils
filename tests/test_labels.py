@@ -32,7 +32,10 @@ class TestHelperFunctions:
         )
 
         with tempfile.NamedTemporaryFile(
-            mode='w', suffix='.csv', delete=False, encoding='utf-8'
+            mode='w',
+            suffix='.csv',
+            delete=False,
+            encoding='utf-8',
         ) as f:
             f.write(csv_content)
             temp_path = f.name
@@ -53,7 +56,10 @@ class TestHelperFunctions:
         )
 
         with tempfile.NamedTemporaryFile(
-            mode='w', suffix='.tsv', delete=False, encoding='utf-8'
+            mode='w',
+            suffix='.tsv',
+            delete=False,
+            encoding='utf-8',
         ) as f:
             f.write(tsv_content)
             temp_path = f.name
@@ -187,7 +193,7 @@ class TestCoreLabelsConvertor:
                 'label': ['a', 'b', 'c', 'a'],
                 'frame': [1, 2, 3, 4],
                 'value': [10, 20, 30, 40],
-            }
+            },
         )
 
         result = core_converter.apply2df(df)
@@ -207,7 +213,7 @@ class TestCoreLabelsConvertor:
             {
                 'label': ['a', 'b', 'c', 'a'],
                 'frame': [1, 2, 3, 4],
-            }
+            },
         )
 
         result = converter.apply2df(df)
@@ -227,7 +233,7 @@ class TestCoreLabelsConvertor:
             {
                 'label': ['a', 'b', 'c'],
                 'frame': [1, 2, 3],
-            }
+            },
         )
 
         with pytest.raises(ForbiddenLabelError) as exc_info:
@@ -399,7 +405,10 @@ class TestLabelsConvertor:
         )
 
         with tempfile.NamedTemporaryFile(
-            mode='w', suffix='.csv', delete=False, encoding='utf-8'
+            mode='w',
+            suffix='.csv',
+            delete=False,
+            encoding='utf-8',
         ) as f:
             f.write(csv_content)
             temp_path = f.name
@@ -419,7 +428,10 @@ class TestLabelsConvertor:
         )
 
         with tempfile.NamedTemporaryFile(
-            mode='w', suffix='.csv', delete=False, encoding='utf-8'
+            mode='w',
+            suffix='.csv',
+            delete=False,
+            encoding='utf-8',
         ) as f:
             f.write(csv_content)
             temp_path = f.name
@@ -447,7 +459,10 @@ class TestLabelsConvertor:
         )
 
         with tempfile.NamedTemporaryFile(
-            mode='w', suffix='.tsv', delete=False, encoding='utf-8'
+            mode='w',
+            suffix='.tsv',
+            delete=False,
+            encoding='utf-8',
         ) as f:
             f.write(tsv_content)
             temp_path = f.name
@@ -595,7 +610,10 @@ class TestLabelsConvertor:
         )
 
         with tempfile.NamedTemporaryFile(
-            mode='w', suffix='.csv', delete=False, encoding='utf-8'
+            mode='w',
+            suffix='.csv',
+            delete=False,
+            encoding='utf-8',
         ) as f:
             f.write(simple_superlabels_csv)
             temp_path = f.name
@@ -643,7 +661,10 @@ class TestLabelsConvertor:
         )
 
         with tempfile.NamedTemporaryFile(
-            mode='w', suffix='.tsv', delete=False, encoding='utf-8'
+            mode='w',
+            suffix='.tsv',
+            delete=False,
+            encoding='utf-8',
         ) as f:
             f.write(simple_superlabels_tsv)
             temp_path = f.name
@@ -668,7 +689,10 @@ class TestLabelsConvertor:
         )
 
         with tempfile.NamedTemporaryFile(
-            mode='w', suffix='.csv', delete=False, encoding='utf-8'
+            mode='w',
+            suffix='.csv',
+            delete=False,
+            encoding='utf-8',
         ) as f:
             f.write(csv_content)
             temp_path = f.name
@@ -690,7 +714,7 @@ class TestLabelsConvertor:
                 'Метка в другом источнике данных': ['', ''],
                 'Признаки': ['', ''],
                 'URL': ['', ''],
-            }
+            },
         )
 
         labels_file = tmp_path / f'labels{format_suffix}'
@@ -722,7 +746,10 @@ class TestLabelsConvertor:
         )
 
         with tempfile.NamedTemporaryFile(
-            mode='w', suffix='.csv', delete=False, encoding='utf-8'
+            mode='w',
+            suffix='.csv',
+            delete=False,
+            encoding='utf-8',
         ) as f:
             f.write(invalid_content)
             temp_path = f.name

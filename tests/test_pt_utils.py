@@ -50,7 +50,8 @@ class TestAutoDevice:
 
     @patch('pt_utils.AutoDevice.get_avliable_device')
     def test_get_available_device_returns_device(
-        self, mock_get_device: MagicMock
+        self,
+        mock_get_device: MagicMock,
     ) -> None:
         """Тест, что get_avliable_device возвращает устройство."""
         mock_get_device.return_value = torch.device('cpu')
@@ -292,7 +293,8 @@ class TestIntegration:
 
         # Простая трансформация для теста
         def simple_transform(
-            image: np.ndarray, mask: np.ndarray
+            image: np.ndarray,
+            mask: np.ndarray,
         ) -> dict[str, np.ndarray]:
             return {
                 'image': image.astype(np.float32) / 255.0,
@@ -340,7 +342,9 @@ class TestAutoDevicePrepare:
     @patch('torch.cuda.is_available', return_value=False)
     @patch('torch.backends.mps.is_available', return_value=False)
     def test_prepare_device_mps_unavailable(
-        self, mock_cuda_available: MagicMock, mock_mps_available: MagicMock
+        self,
+        mock_cuda_available: MagicMock,
+        mock_mps_available: MagicMock,
     ) -> None:
         """Тест prepare_device когда MPS недоступен."""
         # Проверяем, что моки работают
@@ -355,7 +359,9 @@ class TestAutoDevicePrepare:
     @patch('torch.cuda.get_device_properties')
     @patch('torch.cuda.is_available', return_value=True)
     def test_prepare_device_cuda_ampere(
-        self, mock_is_available: MagicMock, mock_get_props: MagicMock
+        self,
+        mock_is_available: MagicMock,
+        mock_get_props: MagicMock,
     ) -> None:
         """Тест prepare_device для CUDA с архитектурой Ampere."""
         # Проверяем, что is_available возвращает True
@@ -383,7 +389,9 @@ class TestAutoDevicePrepare:
     @patch('torch.cuda.get_device_properties')
     @patch('torch.cuda.is_available', return_value=True)
     def test_prepare_device_cuda_pre_ampere(
-        self, mock_is_available: MagicMock, mock_get_props: MagicMock
+        self,
+        mock_is_available: MagicMock,
+        mock_get_props: MagicMock,
     ) -> None:
         """Тест prepare_device для CUDA с архитектурой до Ampere."""
         # Проверяем, что is_available возвращает True

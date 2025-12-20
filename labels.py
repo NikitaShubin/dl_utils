@@ -673,7 +673,8 @@ class LabelsConvertor(CoreLabelsConvertor):
                 self.labels2meanings = cast('dict[Label, str]', meanings2superlabels)
             else:
                 self.meanings2superlabels = cast(
-                    'dict[str, Label]', meanings2superlabels
+                    'dict[str, Label]',
+                    meanings2superlabels,
                 )
 
         # Приходится явно указывать то, какие типы будут у meanings2superlabels и
@@ -765,7 +766,8 @@ class LabelsConvertor(CoreLabelsConvertor):
         elif '2superind' in self._main_dict_name:
             self.values2raise = {-2}
         elif '2superlabel' in self._main_dict_name and hasattr(
-            self, 'superlabels2raise'
+            self,
+            'superlabels2raise',
         ):
             self.values2raise = self.superlabels2raise
         else:
@@ -872,7 +874,8 @@ class LabelsConvertor(CoreLabelsConvertor):
 
         # Фиксация наборов нениспользуемых и запрещённых меток:
         self._set_values2del_and_2raise(
-            self._iterable2set(values2del), self._iterable2set(values2raise)
+            self._iterable2set(values2del),
+            self._iterable2set(values2raise),
         )
 
     def _get_auto_dict_name(self) -> str:
