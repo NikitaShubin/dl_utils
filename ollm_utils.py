@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """ollm_utils.py.
 
 ********************************************
@@ -8,13 +9,19 @@
 .
 """
 
-import contextlib
 import os
 import re
 from pathlib import Path
 
 import requests
 from bs4 import BeautifulSoup
+
+try:
+    import jupyter_ai  # type: ignore[import-untyped]
+
+    JUPYTER_AI_AVAILABLE = True
+except ImportError:
+    JUPYTER_AI_AVAILABLE = False
 
 from utils import json2obj, obj2json
 
@@ -23,8 +30,8 @@ env_var_host: str = 'OLLAMA_HOST'
 
 
 # Типы:
-Fields = dict[str: dict[str]]  # Описание моделей
-Hosts = set[str] | list[str] | tuple[str]  # Множество серверов
+Fields = dict[str, dict[str, str]]  # Описание моделей
+Hosts = set[str] | list[str] | tuple[str, ...] | None  # Множество серверов
 
 
 # Варианты селекторов для тегов (зависит от структуры страницы):
@@ -144,7 +151,7 @@ def model_name2type(model_name: str) -> str:
 def host2models_info(host: str) -> list[dict]:
     """Получаем список описаний доступных на Ollama моделей."""
     url = f'{host}/api/tags'
-    return requests.get(url).json()['models']
+    return requests.get(url, timeout=10).json()['models']
 
 
 def hosts2chat_embd_cmpl_models(
@@ -153,19 +160,17 @@ def hosts2chat_embd_cmpl_models(
     """Составляет словари моделей, используемых в конфиг-файле jupyter-ai.
 
     Разделяет на:
-        - словари диалоговых моделей (chat),
-        - эмбеддинг-модели (embeddings),
+        - словари диалоговых моделей (chat);
+        - эмбеддинг-модели (embeddings);
         - модели дополнения (completions).
     """
-    # Если список пуст - пытаемся брать имя сервера из окружения:
+    # Если список не задан - пытаемся брать имя сервера из окружения:
     if hosts is None:
-        hosts = []
-    if not hosts and env_var_host in os.environ:
-        hosts = [os.environ[env_var_host]]
+        hosts = [os.environ[env_var_host]] if env_var_host in os.environ else []
 
-    chat_models = {}
-    embd_models = {}
-    cmpl_models = {}
+    chat_models: dict[str, dict[str, str]] = {}
+    embd_models: dict[str, dict[str, str]] = {}
+    cmpl_models: dict[str, dict[str, str]] = {}
 
     # Перебираем все сервера:
     for host in hosts:
@@ -192,7 +197,7 @@ def hosts2chat_embd_cmpl_models(
     return chat_models, embd_models, cmpl_models
 
 
-def _first_model(fields: Fields) -> str:
+def _first_model(fields: Fields) -> str | None:
     """Берёт имя первой модели из словаря."""
     return next(iter(fields), None)
 
@@ -208,16 +213,14 @@ def set_jupyter_ai_settings(
 
     Возвращает путь до конфигурационного файла.
     """
-    if hosts is None:
-        hosts = []
-    with contextlib.suppress(ImportError):
-        import jupyter_ai
+    if not JUPYTER_AI_AVAILABLE:
+        return ''
 
     # Инициируем содержимое конфигурационного файла:
     cfg_path = Path(jupyter_ai.config_manager.DEFAULT_CONFIG_PATH)
     cfg = (
         json2obj(cfg_path)
-        if cfg_path.isfile()
+        if cfg_path.is_file()
         else {
             'model_provider_id': None,
             'embeddings_provider_id': None,
@@ -235,8 +238,8 @@ def set_jupyter_ai_settings(
     chat_models, embd_models, cmpl_models = hosts2chat_embd_cmpl_models(hosts)
 
     # Собираем словари моделей для конфигураций:
-    fields = chat_models | embd_models
-    embeddings_fields = embd_models | chat_models
+    fields = {**chat_models, **embd_models}
+    embeddings_fields = {**embd_models, **chat_models}
     completions_fields = cmpl_models
 
     # Меняем параметры конфигурации:

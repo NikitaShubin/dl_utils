@@ -85,8 +85,9 @@ target/
 *.swp
 *.swo
 
-# Mypy cache
+# Mypy, Pytest cache
 .mypy_cache/
+.pytest_cache
 
 # Video
 *.avi
