@@ -69,7 +69,7 @@
 *   make_copy_bal - выполняет саму         *
 *       балансировку.                      *
 *                                          *
-********************************************
+********************************************.
 """
 
 import os
@@ -87,8 +87,7 @@ sep_char = '\t'
 
 
 def build_unigue_track_id(file, task_id, subtask_id, track_id, label):
-    """Собирает строку идентификации объектов.
-    """
+    """Собирает строку идентификации объектов."""
     # Если имеется целый ряд файлов, фиксируем папку первого из них:
     if isinstance(file, (list, tuple)):
         file = os.path.join(os.path.dirname(file[0]), '*')
@@ -126,7 +125,7 @@ def init_object_file_graph_by_task(task, task_id, labels_convertor):
     ]
 
     # Перебираем все подзадачи
-    for subtask_id, (df, file, true_frames) in enumerate(task):
+    for subtask_id, (df, file, _true_frames) in enumerate(task):
         # Перебираем все уникальные сочетания номера трека и класса в датафрейме:
         for track_id, label in df[['track_id', 'label']].drop_duplicates().values:
             # В рассмотрение берём только используемые классы:
@@ -156,9 +155,7 @@ def init_object_file_graph_by_task(task, task_id, labels_convertor):
                 rows.append(pd.DataFrame(row).T)
 
     # Собираем датафрейм-граф из полученных строк:
-    task_object_file_graph = pd.concat(rows).set_index('track_id')
-
-    return task_object_file_graph
+    return pd.concat(rows).set_index('track_id')
 
 
 def init_task_object_file_graphs(
@@ -179,7 +176,7 @@ def init_task_object_file_graphs(
     """
     # Собираем все графы в один:
     tasks_object_file_graph = pd.concat(task_object_file_graphs)
-    
+
     # В собранном графе не должно быть повторений идентификаторов треков:
     assert len(set(tasks_object_file_graph.index)) == len(tasks_object_file_graph)
     """
@@ -195,13 +192,12 @@ def update_object_file_graphs(
     subtask_id,
     target_file_basename,
 ):
-    """Вносит значение target_file_basename во все нужные списки графа связностей object_file_graphs.
-    """
+    """Вносит значение target_file_basename во все нужные списки графа связностей object_file_graphs."""
     # Делаем копию, чтобы не записывать в исходный датафрейм:
     object_file_graphs = object_file_graphs.copy()
 
     # Оставляем в датафрейме лишь строки, где контуры не скрыты:
-    df = df[df['outside'] == False]
+    df = df[~df['outside']]
 
     # Перебираем все уникальные сочетания номера трека и класса в датафрейме:
     for track_id, label in df[['track_id', 'label']].drop_duplicates().values:
@@ -218,8 +214,7 @@ def update_object_file_graphs(
 
 
 def drop_unused_track_ids_in_graphs(object_file_graphs):
-    """Исключает объекты, не имеющие ни одного целевого файла, из всех графов связностей.
-    """
+    """Исключает объекты, не имеющие ни одного целевого файла, из всех графов связностей."""
     return [df[df['file_list'].apply(len) > 0] for df in object_file_graphs]
 
 
@@ -236,8 +231,7 @@ def torch_copy_bal(
     device: 'Устройство для вычислений' = 'auto',
     history_file: 'CSV-файл, в который регулярно будет сохраняться история оптимизации' = None,
 ):
-    """Выполняет рассчёт числа копий каждого изображения для увеличения баланса в датасете.
-    """
+    """Выполняет рассчёт числа копий каждого изображения для увеличения баланса в датасете."""
     # Инициируем датафрейм, хранящий историю оптимизации:
     hist = pd.DataFrame(
         columns=[
@@ -399,7 +393,7 @@ def torch_copy_bal(
                 min_grad = int(-grads.min().cpu().numpy())
                 max_copy_num = int(files_counter.max().cpu().numpy())
                 lr = float(lr)
-                num_files = int((grads < 0).sum().cpu().numpy())
+                int((grads < 0).sum().cpu().numpy())
                 num_bal_files_frac = float(
                     (files_counter > 1).sum() / files_counter.shape[-1]
                 )
@@ -473,11 +467,11 @@ def torch_copy_bal(
 
     # Перехватываем прерывание с клавиатуры, останавливая итеративный процесс рассчёта:
     except KeyboardInterrupt:
-        print('Итеративный рассчёт числа копий семплов прерван вручную!')
+        pass
 
     # Собираем словарь перехода имя_файла -> счётчик_копий:
     files_counter = files_counter.detach().cpu().numpy().astype(int).flatten()
-    files2count = dict(zip(files, files_counter))
+    files2count = dict(zip(files, files_counter, strict=False))
 
     return files2count, hist
 
@@ -490,8 +484,7 @@ def make_copy_bal(
     max_ds_increase_frac: 'Во сколько раз можно увеличить размер датасета прежде, чем балансировка прервётся' = 4,
     device: 'Устройство для вычислений' = 'auto',
 ):
-    """Выполняет копирующую балансировку YOLO-датасета на основе списка графов связностей.
-    """
+    """Выполняет копирующую балансировку YOLO-датасета на основе списка графов связностей."""
     ds_path = os.path.dirname(os.path.dirname(img_dir))  # Путь ко всему датасету
     lbl_dir = os.path.join(
         ds_path, 'labels', os.path.basename(img_dir)
@@ -522,8 +515,9 @@ def make_copy_bal(
         file_list = list(map(file2index.get, file_list))
 
         # Добавляем очередной список индексов файлов в список списков для текущей расшифровки классов:
-        classes_collector[class_meaning] = classes_collector.get(class_meaning, []) + [
-            file_list
+        classes_collector[class_meaning] = [
+            *classes_collector.get(class_meaning, []),
+            file_list,
         ]
 
         superclass_meaning2class_meaning[supeerclass_meaning] = (
