@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Файлы из корня репозитория, которые будут проверяться:
-root_files=("labels.py" "pt_utils.py" "ollm_utils.py")
+root_files=("labels.py" "pt_utils.py" "ollm_utils.py" "yolo.py" "copybal")
 
 set -e  # Выход при первой ошибке
 
