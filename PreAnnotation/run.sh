@@ -117,5 +117,8 @@ RUNPARAMS=(
     #-it $IMAGE_NAME bash
 )
 
+# На всякий случай удаляем предыдущую версию контейнера, если осталась:
+docker rm "${DOCKER_NAME}"
+
 # Запускаем образ:
 docker run "${RUNPARAMS[@]}"
