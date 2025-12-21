@@ -488,7 +488,7 @@ def make_copy_bal(object_file_graphs   : 'Список графов связно
     )
     
     # Очищаем кеш оперативной памяти GPU после оптимизации, если она вообще доступна:
-    if torch.cuda.is_available()
+    if torch.cuda.is_available():
         torch.cuda.empty_cache()
     
     # Выполняем дублирование:
