@@ -85,7 +85,8 @@ target/
 *.swp
 *.swo
 
-# Mypy, Pytest cache
+# Ruff, Mypy, Pytest cache
+.ruff_cache/
 .mypy_cache/
 .pytest_cache
 
