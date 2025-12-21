@@ -1,4 +1,5 @@
-"""copybal.py
+"""copybal.py.
+
 ********************************************
 *      Копирующая балансировка датасета.   *
 *                                          *
@@ -101,6 +102,7 @@ def build_unigue_track_id(file, task_id, subtask_id, track_id, label):
 
 def split_unigue_track_id(track_id):
     """Разбивает строку идентификации объектов на составляющие.
+
     Операция, частично обратная к build_unigue_track_id.
     """
     # Само разбиение:
@@ -114,6 +116,7 @@ def split_unigue_track_id(track_id):
 
 def init_object_file_graph_by_task(task, task_id, labels_convertor):
     """Инициирует граф связностей объектов и классов внутри задачи.
+
     Незаполненными остаются только списки файлов ("file_list")
     для каждого объекта ("track_id").
     """
@@ -162,6 +165,7 @@ def init_task_object_file_graphs(
     tasks, labels_convertor, desc='Инициализация графа связностей'
 ):
     """Инициирует граф связностей объектов и классов для всех задач.
+
     Незаполненными остаются только списки файлов ("file_list")
     для каждого объекта ("track_id").
     """
