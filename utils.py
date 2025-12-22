@@ -2120,10 +2120,19 @@ def _dl_utils_dependency_graph():
     Используется для обновления README.md
     '''
     # Полный список модулей библиотеки:
-    py_files = sorted(get_file_list(os.path.dirname(__file__), '.py', False))
+    dirname = os.path.dirname(__file__)
+    filename = os.path.join(dirname, 'dependency_graph.mmd')
+    py_files = sorted(get_file_list(dirname, '.py', False))
+
+    # Выкидываем все файлы, начинающиеся с '_'
+    py_files = [py_file for py_file in py_files
+                if os.path.basename(py_file)[0] != '_']
+
     iv = ImportVisitor()
-    iv.draw_dependency_in_mermaid(py_files, True, 'short.mmd')
-    iv.draw_dependency_in_mermaid(py_files, False, 'full.mmd')
+    iv.draw_dependency_in_mermaid(py_files, True, filename)
+    # iv.draw_dependency_in_mermaid(py_files, False, 'full.mmd')
+
+    return filename
 
 
 def obj2yaml(obj, file='./cfg.yaml', encoding='utf-8', allow_unicode=True):
