@@ -49,8 +49,6 @@
 
 - **[cvat.py](./docs/cvat.md "Перейти к документации")**: API клиент для CVAT
 - **[cvat_srv.py](./docs/cvat_srv.md "Перейти к документации")**:
-Утилиты для работы серверных задач CVAT
-- **[copybal.py](./docs/copybal.md "Перейти к документации")**:
 Балансировка датасетов между проектами CVAT
 - **[labels.py](./docs/labels.md "Перейти к документации")**:
 Работа с метками, используя таблицы
@@ -76,59 +74,58 @@
 
 ```mermaid
 graph RL;
-    node_1[yolo];
-    node_2[tf_utils];
-    node_3[samal];
-    node_4[onnx_utils];
-    node_5[copybal];
-    node_6[utils];
-    node_7[tfmot_utils];
-    node_8[cvat_srv];
-    node_9[ml_utils];
-    node_10[seg];
-    node_11[ipy_utils];
-    node_12[ul_utils];
-    node_13[keras_utils];
-    node_14[sam2al];
-    node_15[gdinoal];
-    node_16[labels];
-    node_17[cvat];
-    node_18[pt_utils];
-    node_19[alb_utils];
-    node_20[cv_utils];
-    node_21[video_utils];
+    node_0[pt_utils];
+    node_1[cv_utils];
+    node_2[video_utils];
+    node_3[cvat_srv];
+    node_4[utils];
+    node_5[ollm_utils];
+    node_6[cvat];
+    node_7[gdinoal];
+    node_8[ul_utils];
+    node_9[labels];
+    node_10[alb_utils];
+    node_11[tf_utils];
+    node_12[seg];
+    node_13[ml_utils];
+    node_14[yolo];
+    node_15[sam2al];
+    node_16[samal];
+    node_17[keras_utils];
+    node_18[onnx_utils];
+    node_19[tfmot_utils];
+    node_20[ipy_utils];
     %% Выравнивание стоков на одном уровне
     subgraph SinkGroup [ ]
         direction LR
-        node_6
-        node_18
+        node_0
+        node_4
     end
     style SinkGroup fill:none,stroke:none;
-    node_1 --> node_9;
-    node_1 --> node_17;
-    node_1 --> node_5;
-    node_2 --> node_19;
-    node_3 --> node_18;
-    node_3 --> node_17;
-    node_4 --> node_9;
-    node_5 --> node_6;
-    node_7 --> node_13;
-    node_8 --> node_17;
-    node_9 --> node_6;
-    node_10 --> node_17;
-    node_11 --> node_17;
-    node_12 --> node_17;
-    node_13 --> node_6;
-    node_14 --> node_18;
-    node_14 --> node_10;
-    node_15 --> node_18;
-    node_15 --> node_17;
+    node_1 --> node_4;
+    node_2 --> node_4;
+    node_3 --> node_6;
+    node_5 --> node_4;
+    node_6 --> node_1;
+    node_6 --> node_2;
+    node_7 --> node_0;
+    node_7 --> node_6;
+    node_8 --> node_6;
+    node_9 --> node_4;
+    node_10 --> node_4;
+    node_11 --> node_10;
+    node_12 --> node_6;
+    node_13 --> node_4;
+    node_14 --> node_13;
+    node_14 --> node_6;
+    node_15 --> node_0;
+    node_15 --> node_12;
+    node_16 --> node_0;
     node_16 --> node_6;
-    node_17 --> node_20;
-    node_17 --> node_21;
-    node_19 --> node_6;
+    node_17 --> node_4;
+    node_18 --> node_13;
+    node_19 --> node_17;
     node_20 --> node_6;
-    node_21 --> node_6;
 ```
 
 </details>

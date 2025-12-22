@@ -758,16 +758,10 @@ class TestTasks2YOLO:
 
     @patch('yolo.flat_tasks')
     @patch('yolo.sort_tasks')
-    @patch('yolo.fill_na_in_track_id_in_all_tasks')
-    @patch('yolo.init_task_object_file_graphs')
     @patch('yolo.mpmap')
-    @patch('yolo.drop_unused_track_ids_in_graphs')
     def test_tasks2yolo_basic(  # noqa: PLR0913
         self,
-        mock_drop: Mock,
         mock_mpmap: Mock,
-        mock_init: Mock,
-        mock_fill: Mock,
         mock_sort: Mock,
         mock_flat: Mock,
         tmp_path: Path,
@@ -778,10 +772,7 @@ class TestTasks2YOLO:
         # Настраиваем моки
         mock_flat.return_value = tasks
         mock_sort.return_value = tasks
-        mock_fill.return_value = tasks
-        mock_init.return_value = [None, None]
         mock_mpmap.return_value = [None, None]
-        mock_drop.return_value = [None, None]
 
         with patch('yolo.mkdirs'):
             tasks2yolo(
@@ -799,36 +790,21 @@ class TestTasks2YOLO:
 
     @patch('yolo.flat_tasks')
     @patch('yolo.sort_tasks')
-    @patch('yolo.fill_na_in_track_id_in_all_tasks')
-    @patch('yolo.init_task_object_file_graphs')
     @patch('yolo.mpmap')
-    @patch('yolo.drop_unused_track_ids_in_graphs')
-    @patch('yolo.make_copy_bal')
-    def test_tasks2yolo_with_copybal(  # noqa: PLR0913
+    def test_tasks2yolo_with_scale(  # noqa: PLR0913
         self,
-        mock_bal: Mock,
-        mock_drop: Mock,
         mock_mpmap: Mock,
-        mock_init: Mock,
-        mock_fill: Mock,
         mock_sort: Mock,
         mock_flat: Mock,
         tmp_path: Path,
     ) -> None:
-        """Тест преобразования с копирующей балансировкой."""
+        """Тест преобразования задач с масштабированием."""
         tasks = self._test_tasks2yolo_basic_setup(tmp_path)
 
         # Настраиваем моки
         mock_flat.return_value = tasks
         mock_sort.return_value = tasks
-        mock_fill.return_value = tasks
-        # Инициализируем графы для каждой задачи (2 задачи)
-        mock_init.return_value = [Mock(), Mock()]
-        # mpmap возвращает графы для каждой задачи
-        mock_mpmap.return_value = [Mock(), Mock()]
-        # drop_unused возвращает отфильтрованные графы
-        mock_drop.return_value = [Mock(), Mock()]
-        mock_bal.return_value = Mock()
+        mock_mpmap.return_value = [None, None]
 
         with patch('yolo.mkdirs'):
             tasks2yolo(
@@ -837,13 +813,48 @@ class TestTasks2YOLO:
                 labels_convertor=Mock(),
                 images_dir=str(tmp_path / 'images'),
                 lablels_dir=str(tmp_path / 'labels'),
-                use_copybal=True,
+                scale=0.5,
             )
 
-        # Проверяем, что функции балансировки вызывались
-        mock_fill.assert_called()
-        mock_init.assert_called()
-        mock_bal.assert_called()
+        # Проверяем вызовы
+        mock_flat.assert_called_once_with(tasks)
+        mock_sort.assert_called_once()
+        mock_mpmap.assert_called()
+
+    @patch('yolo.flat_tasks')
+    @patch('yolo.sort_tasks')
+    @patch('yolo.mpmap')
+    def test_tasks2yolo_with_preview(  # noqa: PLR0913
+        self,
+        mock_mpmap: Mock,
+        mock_sort: Mock,
+        mock_flat: Mock,
+        tmp_path: Path,
+    ) -> None:
+        """Тест преобразования задач с превью."""
+        tasks = self._test_tasks2yolo_basic_setup(tmp_path)
+
+        # Настраиваем моки
+        mock_flat.return_value = tasks
+        mock_sort.return_value = tasks
+        mock_mpmap.return_value = [None, None]
+
+        preview_dir = tmp_path / 'preview'
+
+        with patch('yolo.mkdirs'):
+            tasks2yolo(
+                mode='box',
+                tasks=tasks,
+                labels_convertor=Mock(),
+                images_dir=str(tmp_path / 'images'),
+                lablels_dir=str(tmp_path / 'labels'),
+                preview_dir=str(preview_dir),
+            )
+
+        # Проверяем вызовы
+        mock_flat.assert_called_once_with(tasks)
+        mock_sort.assert_called_once()
+        mock_mpmap.assert_called()
 
 
 class TestExtensionSets:

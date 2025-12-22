@@ -26,15 +26,8 @@ import cv2
 import numpy as np
 import pandas as pd
 
-from copybal import (
-    drop_unused_track_ids_in_graphs,
-    init_task_object_file_graphs,
-    make_copy_bal,
-    update_object_file_graphs,
-)
 from cvat import (
     CVATPoints,
-    fill_na_in_track_id_in_all_tasks,
     flat_tasks,
     sort_tasks,
     split_image_and_labels2tiles,
@@ -650,8 +643,6 @@ def task2yolo(
         1080,
         1920,
     ),
-    object_file_graph: 'Граф связностей объектов с файлами, используемый для балансировки' = None,
-    task_id: 'Номер задачи в списке задач (используется для балансировки)' = None,
 ):
     """Дописывает распарсенное фото/видео в датасет YOLO-формата.
 
@@ -845,19 +836,6 @@ def task2yolo(
                                 [cv2.IMWRITE_JPEG_QUALITY, 95],
                             )
 
-                        # Если используюется копирующая балансировка, то
-                        # обновляем граф связностей:
-                        if object_file_graph is not None:
-                            object_file_graph = update_object_file_graphs(
-                                tiled_df,
-                                object_file_graph,
-                                labels_convertor,
-                                file_path,
-                                task_id,
-                                subtask_id,
-                                os.path.basename(target_image_file),
-                            )
-
                     # Пропускаем дальнейшие действия, если семпл не был
                     # сохранён:
                     else:
@@ -919,8 +897,6 @@ def task2yolo(
     # Освобождаем ресурсы буфера:
     buffer.close()
 
-    return object_file_graph
-
 
 def tasks2yolo(
     mode: 'Режим разметки. Один из {"box", "seg"}',
@@ -932,7 +908,6 @@ def tasks2yolo(
     obj_scale: 'Масштабирование изображений по размеру объектов' = None,
     scale: 'Масштабирование изображений' = 1,
     max_imsize: 'Максимальный размер изображения' = (1080, 1920),
-    use_copybal: 'Использовать копирующую балансировку' = False,
     desc: 'Текст статус-бара' = 'Запись файлов',
 ):
     """Сохраняет распарсенные фото/видео в виде датасета YOLO-формата."""
@@ -943,21 +918,6 @@ def tasks2yolo(
     # Сортируем задачи для унификации результата:
     tasks = sort_tasks(tasks)
     # Полезно для полной воспроизводимости проверочной выборки.
-
-    # Если включена копирующая балансировка:
-    if use_copybal:
-        # Заполняем пропуски в столбцах track_id всех датафреймов во всех
-        # задачах:
-        tasks = fill_na_in_track_id_in_all_tasks(tasks)
-        # Нужно для корректной работы копирующей балансировки.
-
-        # Инициируем графы связностей:
-        object_file_graphs = init_task_object_file_graphs(tasks, labels_convertor)
-
-    # Если копирующая балансировка не используется, то во вложенные функции
-    # передадим None-ы:
-    else:
-        object_file_graphs = [None] * len(tasks)
 
     # Создаём все недостающие папки:
     mkdirs(images_dir)
@@ -1019,10 +979,9 @@ def tasks2yolo(
     obj_scales = [obj_scales[ind] for ind in task_ids]
     scales = [scales[ind] for ind in task_ids]
     max_imsizes = [max_imsizes[ind] for ind in task_ids]
-    object_file_graphs = [object_file_graphs[ind] for ind in task_ids]
 
     # Параллельная сохранение данных:
-    object_file_graphs = mpmap(
+    mpmap(
         task2yolo,
         sample_inds,
         modes,
@@ -1034,19 +993,8 @@ def tasks2yolo(
         obj_scales,
         scales,
         max_imsizes,
-        object_file_graphs,
-        task_ids,
         num_procs=num_procs,
         desc=desc,
     )
 
-    # Если нужна балансировка классов:
-    if use_copybal:
-        # Исключаем объекты, не имеющие ни одного целевого файла, из всех
-        # графов связностей:
-        object_file_graphs = drop_unused_track_ids_in_graphs(object_file_graphs)
-
-        # Балансируем датасет путём дублирования некоторых семплов:
-        make_copy_bal(object_file_graphs, images_dir)
-
-    return object_file_graphs
+    return
