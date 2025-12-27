@@ -50,7 +50,7 @@ ARG APPLICATIONS="                                    \
                                                       \
     # Дополнительные консольные утилиты:              \
     bsdmainutils pv net-tools psmisc iputils-ping     \
-    tree                                              \
+    tree file coreutils                               \
                                                       \
     # Для PyCUDA:                                     \
     nvidia-cuda-toolkit                               \
@@ -66,6 +66,7 @@ ARG HADOLINTURL="https://github.com/hadolint/hadolint/releases/latest/download/h
 # net-tools    - для работы команды ifconfig
 # bsdmainutils - для работы команды col
 # iputils-ping - для работы команды ping
+# coreutils    - для работы команды wc
 RUN apt-get update                                            && \
     # Удаление python3-blinker необходимо для нормальной установки open3d:
     apt-get purge -y python3-blinker                          && \
