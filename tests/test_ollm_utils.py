@@ -173,7 +173,7 @@ class TestHost2ModelsInfo:
                     'name': 'nomic-embed-text:latest',
                     'modified_at': '2023-01-03T00:00:00Z',
                 },
-            ]
+            ],
         }
 
         with patch('ollm_utils.requests.get', return_value=mock_response):
@@ -311,10 +311,10 @@ class TestSetJupyterAiSettings:
         """Тест успешной настройки Jupyter AI."""
         chat_models = {'ollama:llama2:7b': {'base_url': 'http://localhost:11434'}}
         embd_models = {
-            'ollama:nomic-embed-text:latest': {'base_url': 'http://localhost:11434'}
+            'ollama:nomic-embed-text:latest': {'base_url': 'http://localhost:11434'},
         }
         cmpl_models = {
-            'ollama:codellama:latest': {'base_url': 'http://localhost:11434'}
+            'ollama:codellama:latest': {'base_url': 'http://localhost:11434'},
         }
 
         mock_jupyter_ai = Mock()
@@ -350,19 +350,19 @@ class TestSetJupyterAiSettings:
             'fields': {'existing_model': {'base_url': 'http://old:11434'}},
             'api_keys': {},
             'completions_fields': {
-                'existing_completions': {'base_url': 'http://old:11434'}
+                'existing_completions': {'base_url': 'http://old:11434'},
             },
             'embeddings_fields': {
-                'existing_embeddings': {'base_url': 'http://old:11434'}
+                'existing_embeddings': {'base_url': 'http://old:11434'},
             },
         }
 
         chat_models = {'ollama:llama2:7b': {'base_url': 'http://localhost:11434'}}
         embd_models = {
-            'ollama:nomic-embed-text:latest': {'base_url': 'http://localhost:11434'}
+            'ollama:nomic-embed-text:latest': {'base_url': 'http://localhost:11434'},
         }
         cmpl_models = {
-            'ollama:codellama:latest': {'base_url': 'http://localhost:11434'}
+            'ollama:codellama:latest': {'base_url': 'http://localhost:11434'},
         }
 
         mock_jupyter_ai = Mock()
@@ -397,7 +397,7 @@ class TestTypeAnnotations:
     def test_fields_type_alias(self) -> None:
         """Тест псевдонима типа Fields."""
         sample_fields: Fields = {
-            'ollama:llama2:7b': {'base_url': 'http://localhost:11434'}
+            'ollama:llama2:7b': {'base_url': 'http://localhost:11434'},
         }
 
         assert isinstance(sample_fields, dict)

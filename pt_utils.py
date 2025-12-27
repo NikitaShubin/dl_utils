@@ -110,7 +110,9 @@ def get_redused_shape(
 
 
 def has_var_sufficient_elements(
-    tensor: torch.Tensor, dim: None | int | list | tuple, correction: int
+    tensor: torch.Tensor,
+    dim: None | int | list | tuple,
+    correction: int,
 ) -> bool:
     """Проверяет, достаточно ли элементов для вычисления дисперсии.
 
@@ -162,7 +164,10 @@ def safe_var(
 
     # Формируем итоговый тензор с нужными значениями:
     return torch.full(
-        redused_shape, default_value, device=tensor.device, dtype=tensor.dtype
+        redused_shape,
+        default_value,
+        device=tensor.device,
+        dtype=tensor.dtype,
     )
 
 

@@ -58,7 +58,7 @@ class TestYOLOLabels:
                 ],  # Список координат
                 'rotation': [0, 0],
                 'outside': [False, False],
-            }
+            },
         )
 
         # Мокаем CVATPoints
@@ -81,7 +81,7 @@ class TestYOLOLabels:
                 'points': [[100, 200, 150, 250, 200, 300]],  # Список координат
                 'rotation': [0],
                 'outside': [False],
-            }
+            },
         )
 
         # Мокаем CVATPoints
@@ -102,7 +102,7 @@ class TestYOLOLabels:
                 'points': [[100, 200, 300, 400], [150, 250, 350, 450]],
                 'rotation': [0, 0],
                 'outside': [False, False],
-            }
+            },
         )
 
         # Мокаем CVATPoints
@@ -235,7 +235,7 @@ class TestStatisticFunctions:
                 'label': ['cat', 'cat', 'dog', 'cat'],
                 'track_id': [1, 1, 2, 3],  # cat появляется в track_id 1 дважды
                 'outside': [False, False, False, False],
-            }
+            },
         )
 
         # Создаем мок labels_convertor с правильной структурой
@@ -274,11 +274,11 @@ class TestStatisticFunctions:
                             'label': ['cat', 'dog'],
                             'track_id': [1, 2],
                             'outside': [False, False],
-                        }
+                        },
                     ),
                     'file1.jpg',
                     {0: 0},
-                )
+                ),
             ],
             [  # Задача 2
                 (
@@ -287,11 +287,11 @@ class TestStatisticFunctions:
                             'label': ['cat', 'cat'],
                             'track_id': [3, 3],
                             'outside': [False, False],
-                        }
+                        },
                     ),
                     'file2.jpg',
                     {0: 0},
-                )
+                ),
             ],
         ]
 
@@ -310,15 +310,19 @@ class TestStatisticFunctions:
         with patch('yolo.mpmap') as mock_mpmap:
             # Настраиваем результаты для каждой задачи
             result1 = pd.DataFrame(
-                {'shapes': [1, 1], 'tracks': [1, 1]}, index=['cat', 'dog']
+                {'shapes': [1, 1], 'tracks': [1, 1]},
+                index=['cat', 'dog'],
             )
             result2 = pd.DataFrame(
-                {'shapes': [2, 0], 'tracks': [1, 0]}, index=['cat', 'dog']
+                {'shapes': [2, 0], 'tracks': [1, 0]},
+                index=['cat', 'dog'],
             )
             mock_mpmap.return_value = [result1, result2]
 
             result = tasks2statistic(
-                tasks=tasks, source_type='test', labels_convertor=mock_convertor
+                tasks=tasks,
+                source_type='test',
+                labels_convertor=mock_convertor,
             )
 
         # Проверяем суммарные результаты
@@ -385,14 +389,14 @@ class TestSources2Statistic:
         # Создаем тестовые задачи для CVAT
         test_tasks: list = [
             [  # Задача с тестовым бекапом
-                (pd.DataFrame(), '/path/to/backup_test_001/task.xml', {})
-            ]
+                (pd.DataFrame(), '/path/to/backup_test_001/task.xml', {}),
+            ],
         ]
 
         train_tasks: list = [
             [  # Задача с тренировочным бекапом
-                (pd.DataFrame(), '/path/to/backup_train_001/task.xml', {})
-            ]
+                (pd.DataFrame(), '/path/to/backup_train_001/task.xml', {}),
+            ],
         ]
 
         source_name2tasks = {'cvat': test_tasks + train_tasks}
@@ -550,7 +554,7 @@ class TestTask2YOLO:
                 'rotation': [0],
                 'outside': [False],
                 'true_frame': [0],
-            }
+            },
         )
 
     @patch('yolo.ImReadBuffer')
@@ -748,7 +752,7 @@ class TestTasks2YOLO:
                 'rotation': [0],
                 'outside': [False],
                 'true_frame': [0],
-            }
+            },
         )
 
         return [
