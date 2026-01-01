@@ -71,6 +71,8 @@ possible_selectors = [
     '[class*="tag"]',
     'span.badge',
     '.model-tags span',
+    'span.inline-flex.items-center.rounded-md',
+    'span[class*="rounded-md"]',
 ]
 
 # Множества ключевых слов в тексте для каждого тега:
@@ -90,7 +92,12 @@ tag2possible_keywords = {
 
 # Множества ключевых слов в тегах для каждого типа модели:
 type2possible_tags = {
-    'embeddings': {'embeddings', 'embed', 'embedding', 'vector'},
+    'embeddings': {
+        'embeddings',
+        'embed',
+        'embedding',
+        'vector',
+    },
     'completions': {
         'code',
         'coder',
@@ -105,6 +112,7 @@ type2possible_tags = {
         'dialogue',
         'assistant',
         'thinking',
+        'reasoning',
     },
 }
 # В порядке приоритетов: embed > code > chat.
