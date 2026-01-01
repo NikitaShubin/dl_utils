@@ -94,6 +94,9 @@ ARG PYTHONMODULES_BASE="                                                 \
     # Keras и прочее:                                                    \
     keras keras-tuner pydot tf_keras keras_hub                           \
                                                                          \
+    # Катбуст:                                                           \
+    catboost                                                             \
+                                                                         \
     # Мелкие полезные утилиты:                                           \
     treelib openpyxl easydict                                            \
                                                                          \
@@ -186,6 +189,9 @@ com/PublicPackages/_packaging/onnxruntime-cuda-12/pypi/simple/           \
     # git+https://github.com/huggingface/transformers.git                \
     # Нужна более старая версия для работы Grounding DINO                \
                                                                          \
+    # Вейвлеты:                                                          \
+    PyWavelets                                                           \
+                                                                         \
     #                            Прочее:                                 \
                                                                          \
     pycuda                                                               \
@@ -193,7 +199,7 @@ com/PublicPackages/_packaging/onnxruntime-cuda-12/pypi/simple/           \
 ARG PYTHONMODULES_EXTRA="                                                \
     # Трекеры:                                                           \
     boxmot regex>=2025.11.3                                              \
-                                                                         \
+
     # Навороты в Jupyter:                                                \
     jupyter-ai[all]                                                      \
     # jupyter-ai для использования API всяких LLM-ок.                    \
