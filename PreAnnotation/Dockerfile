@@ -1,5 +1,5 @@
 # hadolint global ignore = DL3008  # Не фиксируем версии, т.к. в этом образе нужны свежие пакеты
-FROM pytorch/pytorch:2.5.1-cuda11.8-cudnn9-runtime
+FROM pytorch/pytorch:2.4.1-cuda11.8-cudnn9-runtime
 
 ARG WORKSPACE='/workspace'       # Рабочая папка
 ARG USERNAME='user'              # Имя пользователя
