@@ -223,3 +223,13 @@ class UltralyticsModel:
 
         # Применяем выборанный способ обработки:
         return processor(img)
+
+
+# При автономном запуске закачиваем ряд моделей в "~/models":
+if __name__ == '__main__':
+    models = {
+        'rtdetr-x.pt',
+        'yolo11x-seg.pt',
+    }
+    for model in models:
+        UltralyticsModel(model)

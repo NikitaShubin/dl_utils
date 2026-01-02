@@ -10,10 +10,11 @@
 import cv2
 import boxmot
 import numpy as np
-from loguru import logger
-from contextlib import contextmanager
 import inspect
 import textwrap
+from loguru import logger
+from contextlib import contextmanager
+from pathlib import Path
 
 from cv_utils import BBox, Mask
 
@@ -53,7 +54,7 @@ class Tracker:
 
     # Параметры ReID по-умолчанию:
     default_reid_kwargs: dict = {
-        'reid_weights': '~/models/osnet_x0_25_msmt17.pt',
+        'reid_weights': Path('~/models/osnet_x0_25_msmt17.pt').expanduser(),
         'device': None,
         'half': False,
     }
@@ -293,3 +294,8 @@ class Tracker:
             return [obj for obj in objs if obj.attribs['track_id'] is not None]
 
     __call__ = update
+
+
+# При автономном запуске закачиваем модель osnet_x0_25_msmt17.pt в "~/models":
+if __name__ == '__main__':
+    Tracker('botsort')
