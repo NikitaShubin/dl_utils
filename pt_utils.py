@@ -32,22 +32,21 @@ class AutoDevice:
     """
 
     @staticmethod
-    def get_avliable_device() -> torch.device:
+    def get_avliable_device() -> str:
         """Возвращает лучшее из доступных устройств для вычислений."""
         if torch.cuda.is_available():
-            device = torch.device('cuda')
+            return 'cuda'
         elif torch.backends.mps.is_available():
-            device = torch.device('mps')
+            return 'mps'
         else:
-            device = torch.device('cpu')
-        return device
+            return 'cpu'
 
     @staticmethod
     def prepare_device(device: torch.device) -> None:
         """Подготавливает Torch к использованию заданного устройства."""
         if device.type == 'cuda':
             # use bfloat16 for the entire notebook:
-            torch.autocast('cuda', dtype=torch.bfloat16).__enter__()
+            # torch.autocast('cuda', dtype=torch.bfloat16).__enter__()
 
             # Определяем константу для минимальной архитектуры Ampere:
             min_ampere_arch = (8, 0)  # (major, minor)
@@ -64,10 +63,20 @@ class AutoDevice:
         elif device.type == 'mps':
             pass
 
-    def __init__(self) -> None:
-        """Инициализирует AutoDevice с лучшим доступным устройством."""
-        self.device = self.get_avliable_device()
-        self.prepare_device(self.device)
+    def __init__(self, device: str | torch.device = 'auto') -> None:
+        """Инициализирует AutoDevice с заданным или лучшим доступным устройством."""
+        # Если устройство укзаано строкой:
+        if isinstance(device, str):
+
+            # Доопределяем устройство, если надо:
+            if device == 'auto':
+                device = self.get_avliable_device()
+
+            # Преобразуем в объект torch.device:
+            device = torch.device(device)
+
+        self.device = device
+        self.prepare_device(device)
 
     def __call__(self) -> torch.device:
         """Возвращает текущее вычислительное устройство."""
