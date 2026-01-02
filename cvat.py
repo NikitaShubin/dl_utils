@@ -1486,7 +1486,7 @@ class CVATPoints:
             bbox = BBox(**points.to_BBox_kwargs())
         '''
         self = self.asrectangle()
-        return {'xyxy': self.points,
+        return {'xyxy': self.points.flatten(),
                 'imsize': self.imsize,
                 'attribs': self.attribs}
 
@@ -3587,15 +3587,12 @@ def cvat_backup_dir2auto_annotation_xmls(cvat_backup_dir,
                  desc=desc)
 
 
-def df2masks(df, imsize, saving_memory=False):
-    '''
-    Переводит датафрейм с объектами в список масок.
-    '''
-    # Определяем индекс столбца с контурами:
-    points_col_ind = np.argwhere(df.columns == 'points').flatten()
-    assert len(points_col_ind) == 1
-    points_col_ind = points_col_ind[0]
-
+def df2masks(
+    df: pd.DataFrame,
+    imsize,
+    saving_memory: bool = False
+) -> list[Mask]:
+    """Переводит датафрейм с объектами в список масок."""
     # Создаём и наполняем список масок:
     masks = []
     for dfrow in df.iloc:
@@ -3605,6 +3602,42 @@ def df2masks(df, imsize, saving_memory=False):
         masks.append(mask)
 
     return masks
+
+
+def df2bboxes(
+    df: pd.DataFrame,
+    imsize,
+) -> list[BBox]:
+    """Переводит датафрейм с объектами в список Обрамляющих прямоугольников."""
+    # Создаём и наполняем список масок:
+    bboxes = []
+    for dfrow in df.iloc:
+        points = CVATPoints.from_dfrow(dfrow, imsize=imsize)
+        bbox = BBox(**points.to_BBox_kwargs())
+        bboxes.append(mask)
+
+    return bboxes
+
+
+def df2objs(
+    df: pd.DataFrame,
+    imsize,
+) -> list[BBox]:
+    """Переводит датафрейм с объектами в список масок и обрамляющих прямоугольников."""
+    # Создаём и наполняем список объектов:
+    objs = []
+    for dfrow in df.iloc:
+        points = CVATPoints.from_dfrow(dfrow, imsize=imsize)
+        if points.type == 'polygon':
+            obj = Mask(**points.to_Mask_kwargs())
+        elif points.type == 'rectangle':
+            obj = BBox(**points.to_BBox_kwargs())
+        else:
+            msg = f'Неподдерживаемый тип объекта: {points.type}!'
+            raise TypeError(msg)
+        objs.append(obj)
+
+    return objs
 
 
 def concat_dfs(*args):
@@ -3640,6 +3673,9 @@ def autofix_df(df):
     Уместно использовать после работы трекера в моделях детекции но перед
     hide_skipped_objects_in_df.
     '''
+    if df is None:
+        return None
+
     df = df.copy()
 
     # Исправление смены класса объекта в одном треке:
@@ -3669,6 +3705,9 @@ def hide_skipped_objects_in_df(df, true_frames):
     исопльзующих интерполяцию. Например, при авторазметке, где отстутствие
     метки объекта в конкретном кадре означает что объект не был обнаружен.
     '''
+    if df is None:
+        return None
+
     # Определяем номер последнего кадра:
     last_frame = max(true_frames.keys())
 
