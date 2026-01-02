@@ -225,7 +225,7 @@ class UltralyticsModel:
         return processor(img)
 
 
-# При автономном запуске закачиваем ряд моделей в "~/models":
+# При автономном запуске закачиваем ряд моделей в "~/models/":
 if __name__ == '__main__':
     models = {
         'rtdetr-x.pt',

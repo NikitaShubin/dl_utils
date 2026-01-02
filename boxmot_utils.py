@@ -1,4 +1,4 @@
-'''boxmot.py.
+'''boxmot_utils.py.
 
 ********************************************
 *        Работа с библиотекой boxmot.      *
@@ -296,6 +296,6 @@ class Tracker:
     __call__ = update
 
 
-# При автономном запуске закачиваем модель osnet_x0_25_msmt17.pt в "~/models":
+# При автономном запуске закачиваем модель osnet_x0_25_msmt17.pt в "~/models/":
 if __name__ == '__main__':
     Tracker('botsort')
