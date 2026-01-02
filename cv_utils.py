@@ -405,6 +405,14 @@ class Mask:
         else:
             raise ValueError(f'Неподдерживаемый формат: {format}!')
 
+    def asBBox(self):
+        """Конвертация в экземпляр класса BBox."""
+        return BBox(
+            xyxy = self.asbbox('xyxy'),
+            imsize = self.array.shape,
+            attribs = dict(self.attribs),
+        )
+
     # Подсчёт площади сегмента в пикселях:
     def area(self):
 
@@ -872,14 +880,16 @@ class BBox:
 
             # Выполняем отрисовку:
             out = cv2.rectangle(img,
-                                self.xyxy[:2], self.xyxy[2:],
+                                tuple(self.xyxy[:2].astype(int)),
+                                tuple(self.xyxy[2:].astype(int)),
                                 color, thickness)
 
         else:
             # Строим маску, содержащую прямоугольник:
             mask = np.zeros(img.shape[:2], dtype=img.dtype)
             mask = cv2.rectangle(mask,
-                                 self.xyxy[:2], self.xyxy[2:],
+                                 tuple(self.xyxy[:2].astype(int)),
+                                 tuple(self.xyxy[2:].astype(int)),
                                  255 if img.dtype == np.uint8 else 1, thickness)
 
             # Ннаносим маску на изображение:
