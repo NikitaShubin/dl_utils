@@ -25,6 +25,7 @@ import numpy as np
 from tqdm import tqdm
 from segment_anything import SamAutomaticMaskGenerator, sam_model_registry
 from urllib.request import urlretrieve
+import inspect
 
 from utils import mkdirs, AnnotateIt
 from cvat import CVATPoints, add_row2df
@@ -203,7 +204,19 @@ class SAM:
 
             # Выполняем последовательное приминение ф-ий постобработки:
             for postprocess_filter in self.postprocess_filters:
-                masks = postprocess_filter(masks)
+                nargs = len(inspect.signature(postprocess_filter).parameters)
+                if nargs == 1:
+                    masks = postprocess_filter(masks)
+                elif nargs == 2:
+                    masks = postprocess_filter(masks, img)
+                else:
+                    msg = (
+                        'Фильтр постобработки должен принимать аргументы (objs) или '
+                        f'(objs, img), но {postprocess_filter} имеет {nargs} '
+                        'аргументов!'
+                    )
+                    raise ValueError(msg)
+
 
             # Возвращение из Mask в COCO:
             masks = [mask.as_COCO_annotation() for mask in masks]
@@ -344,4 +357,4 @@ class SAM:
         '''
         Сброс внутренних состояний.
         '''
-        [_.reset for _ in self.postprocess_filters if hasattr(_, 'reset')]
+        [_.reset() for _ in self.postprocess_filters if hasattr(_, 'reset')]

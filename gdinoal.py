@@ -5,6 +5,7 @@ import cv2
 import os
 import warnings
 from urllib.request import urlretrieve
+import inspect
 
 from pt_utils import AutoDevice
 from cvat import CVATPoints, concat_dfs
@@ -228,7 +229,7 @@ class GDino:
         imsize = img.shape[:2]
 
         # Если имеется постобработка:
-        if self.postprocess_filters:
+        if len(self.postprocess_filters):
 
             # Перегоняем результаты детекции в список обрамляющих
             # прямоугольников:
@@ -236,7 +237,18 @@ class GDino:
 
             # Применяем поочерёдно каждый фильтр:
             for postprocess_filter in self.postprocess_filters:
-                bboxes = postprocess_filter(bboxes)
+                nargs = len(inspect.signature(postprocess_filter).parameters)
+                if nargs == 1:
+                    bboxes = postprocess_filter(bboxes)
+                elif nargs == 2:
+                    bboxes = postprocess_filter(bboxes, img)
+                else:
+                    msg = (
+                        'Фильтр постобработки должен принимать аргументы (objs) или '
+                        f'(objs, img), но {postprocess_filter} имеет {nargs} '
+                        'аргументов!'
+                    )
+                    raise ValueError(msg)
 
             # Перегоняем список прямоугольников в список однострочных
             # датафреймов:
@@ -265,7 +277,7 @@ class GDino:
         '''
         Сброс внутренних состояний.
         '''
-        [_.reset for _ in self.postprocess_filters if hasattr(_, 'reset')]
+        [_.reset() for _ in self.postprocess_filters if hasattr(_, 'reset')]
 
     # Возвращает изображение с результатами детекции:
     def draw(self,
