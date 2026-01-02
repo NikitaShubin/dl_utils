@@ -36,18 +36,14 @@ class AutoDevice:
         """Возвращает лучшее из доступных устройств для вычислений."""
         if torch.cuda.is_available():
             return 'cuda'
-        elif torch.backends.mps.is_available():
+        if torch.backends.mps.is_available():
             return 'mps'
-        else:
-            return 'cpu'
+        return 'cpu'
 
     @staticmethod
     def prepare_device(device: torch.device) -> None:
         """Подготавливает Torch к использованию заданного устройства."""
         if device.type == 'cuda':
-            # use bfloat16 for the entire notebook:
-            # torch.autocast('cuda', dtype=torch.bfloat16).__enter__()
-
             # Определяем константу для минимальной архитектуры Ampere:
             min_ampere_arch = (8, 0)  # (major, minor)
             """
@@ -67,7 +63,6 @@ class AutoDevice:
         """Инициализирует AutoDevice с заданным или лучшим доступным устройством."""
         # Если устройство укзаано строкой:
         if isinstance(device, str):
-
             # Доопределяем устройство, если надо:
             if device == 'auto':
                 device = self.get_avliable_device()

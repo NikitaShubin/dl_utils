@@ -56,6 +56,9 @@ ARG PYTHONMODULES="                                                      \
     # Коллекция YOLO-моделей:                                            \
     ultralytics lapx                                                     \
                                                                          \
+    # Трекеры:                                                           \
+    boxmot                                                               \
+                                                                         \
     #                    Фундаментальные модели:                         \
                                                                          \
     # HQSAM (используется в samal.py вместо Segment Anything Model):     \
