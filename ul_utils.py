@@ -1,25 +1,23 @@
-'''ul_utils.py.
+"""ul_utils.py.
 
 ********************************************
 *     Работа с библиотекой ultralytics.    *
 *                                          *
 ********************************************
 .
-'''
+"""
+
 import os
 
 import numpy as np
-
 from ultralytics import YOLO
 
 from cv_utils import BBox, Mask
-from cvat import concat_dfs, CVATPoints
+from cvat import CVATPoints, concat_dfs
 
 
 def _decrop_ul_masks(masks, orig_shape):
-    '''
-    Удаляет рамку у масок ultralytics.
-    '''
+    """Удаляет рамку у масок ultralytics."""
     # Определяем исходные размеры масок и изображения:
     orig_shape = np.array(orig_shape[:2])
     mask_shape = np.array(masks.shape[1:])
@@ -36,14 +34,13 @@ def _decrop_ul_masks(masks, orig_shape):
     bottom_right = target_shape + top_left + 1
 
     # Обрезка:
-    return masks[:, top_left[0]:bottom_right[0], top_left[1]:bottom_right[1]]
+    return masks[:, top_left[0] : bottom_right[0], top_left[1] : bottom_right[1]]
 
 
 def _result2objs(result, attribs: dict = {}):
-    '''
-    Переводим результаты из YOLO-формата в список объектов,
+    """Переводим результаты из YOLO-формата в список объектов,
     поддерживаемый cv_utils.
-    '''
+    """
     # Фиксируем грубые описания объектов:
     xyxys = result.boxes.xyxy.numpy()
     clses = result.boxes.cls.numpy()
@@ -56,7 +53,6 @@ def _result2objs(result, attribs: dict = {}):
     # Строим сами объекты:
     objs = []
     if result.masks is not None:
-
         # Удаление рамок у масок:
         masks = result.masks.data.numpy() * 255  # [0, 1] -> [0, 255] (uint8)
         masks = _decrop_ul_masks(masks, result.orig_shape)
@@ -67,11 +63,12 @@ def _result2objs(result, attribs: dict = {}):
         scale_x = masks.shape[2] / result.orig_shape[1]
         scale = np.array([scale_x, scale_y, scale_x, scale_y])
 
-        for mask, xyxy, cls, conf, id in zip(masks, xyxys * scale,
-                                             clses, confs, ids):
-            attribs_ = attribs | {'label': result.names[cls],
-                                  'confidence': conf,
-                                  'track_id': id}
+        for mask, xyxy, cls, conf, id in zip(masks, xyxys * scale, clses, confs, ids):
+            attribs_ = attribs | {
+                'label': result.names[cls],
+                'confidence': conf,
+                'track_id': id,
+            }
             objs.append(Mask(mask, rect=xyxy, attribs=attribs_))
 
     elif result.obb is not None:
@@ -83,41 +80,43 @@ def _result2objs(result, attribs: dict = {}):
     # Если есть только обычные обрамляющие прямоугольники:
     else:
         for xyxy, cls, conf, id in zip(xyxys, clses, confs, ids):
-            attribs_ = attribs | {'label': result.names[cls],
-                                  'confidence': conf,
-                                  'track_id': id}
-            objs.append(BBox(xyxy, imsize=result.orig_shape,
-                             attribs=attribs_))
+            attribs_ = attribs | {
+                'label': result.names[cls],
+                'confidence': conf,
+                'track_id': id,
+            }
+            objs.append(BBox(xyxy, imsize=result.orig_shape, attribs=attribs_))
 
     return objs
 
 
 class UltralyticsModel:
-    '''
-    Обёртка вокруг моделей от Ultralytics для инференса.
+    """Обёртка вокруг моделей от Ultralytics для инференса.
 
     mode:
         'preannotation' - создаётся датафрейм, поддерживаемый cvat.py;
         'preview' - Рисует на исходном изображении все обнаруженные объекты.
-    '''
+    """
 
-    def __init__(self,
-                 model: str | YOLO = 'rtdetr-x.pt',
-                 tracker=None,
-                 mode: str = 'preannotation',
-                 postprocess_filters: list = [],
-                 *args, **kwargs):
-
+    def __init__(
+        self,
+        model: str | YOLO = 'rtdetr-x.pt',
+        tracker=None,
+        mode: str = 'preannotation',
+        postprocess_filters: list = [],
+        *args,
+        **kwargs,
+    ):
         # Если передано название файла модели:
         if isinstance(model, str):
-
             # Eсли файл torch-модели не существует, а путь не задан явно,
             # то скачаем моель в ~/models/:
-            if os.path.splitext(model)[1].lower() in {'.pt', 'pth'} and \
-                    not os.path.isfile(model) and \
-                    model == os.path.basename(model):
-                model = os.path.join(os.path.expanduser('~user'),
-                                     'models', model)
+            if (
+                os.path.splitext(model)[1].lower() in {'.pt', 'pth'}
+                and not os.path.isfile(model)
+                and model == os.path.basename(model)
+            ):
+                model = os.path.join(os.path.expanduser('~user'), 'models', model)
 
                 model = YOLO(model)
 
@@ -128,8 +127,10 @@ class UltralyticsModel:
             pass
 
         else:
-            raise TypeError('Объект model должен быть строкой или ' +
-                            f'YOLO-моделью. Получено: {type(mode)}!')
+            raise TypeError(
+                'Объект model должен быть строкой или '
+                f'YOLO-моделью. Получено: {type(mode)}!',
+            )
 
         self.model = model
         self.tracker = tracker
@@ -151,7 +152,6 @@ class UltralyticsModel:
         # Формируем датафрейм:
         dfs = []
         for obj in objs:
-
             if isinstance(obj, BBox):
                 points = CVATPoints.from_bbox(obj)
 
@@ -162,7 +162,7 @@ class UltralyticsModel:
                 # если надо:
                 scale_y = result.orig_shape[0] / obj.array.shape[0]
                 scale_x = result.orig_shape[1] / obj.array.shape[1]
-                if not (scale_y == scale_x == 1.):
+                if not (scale_y == scale_x == 1.0):
                     points = points.scale((scale_x, scale_y))
 
             else:
@@ -176,30 +176,26 @@ class UltralyticsModel:
         if self.tracker is None:
             result = self.model(img, verbose=False)[0]
         else:
-            result = self.model.track(img,
-                                      tracker=self.tracker,
-                                      persist=True,
-                                      verbose=False)[0]
+            result = self.model.track(
+                img,
+                tracker=self.tracker,
+                persist=True,
+                verbose=False,
+            )[0]
         return result.cpu()
 
     def img2df(self, img: np.ndarray):
-        '''
-        Ф-ия применения модели с представлением результатов в виде датафрейма.
-        '''
+        """Ф-ия применения модели с представлением результатов в виде датафрейма."""
         df = self.result2df(self._img2result(img))
         self.frame_ind += 1
         return df
 
     def draw(self, img: np.ndarray):
-        '''
-        Создаёт превью обработанного кадра.
-        '''
+        """Создаёт превью обработанного кадра."""
         return self._img2result(img).plot()
 
     def reset(self):
-        '''
-        Сбрасывает состояние трекера, если есть.
-        '''
+        """Сбрасывает состояние трекера, если есть."""
         # Сбрасываем номер кадра:
         self.frame_ind = 0
 
