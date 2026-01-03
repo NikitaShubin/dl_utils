@@ -1,23 +1,54 @@
+#!/usr/bin/env python3
 """ul_utils.py.
 
 ********************************************
 *     Работа с библиотекой ultralytics.    *
 *                                          *
+*   Предоставляет обёртку для инференса    *
+* моделей детекции/сегментации из          *
+* фреймворка Ultralytics с конвертацией    *
+* результатов в формат, совместимый с      *
+* cv_utils и cvat.                         *
+*                                          *
+* Основные компоненты:                     *
+*     UltralyticsModel - основной класс    *
+*         для инференса моделей YOLO с     *
+*         поддержкой трекинга,             *
+*         постобработки и разных режимов   *
+*         вывода.                          *
+*                                          *
 ********************************************
 .
 """
 
-import os
+import inspect
+from collections.abc import Callable
+from pathlib import Path
 
 import numpy as np
-from ultralytics import YOLO
+import pandas as pd
+from ultralytics import YOLO, engine
 
 from cv_utils import BBox, Mask
 from cvat import CVATPoints, concat_dfs
 
 
-def _decrop_ul_masks(masks, orig_shape):
-    """Удаляет рамку у масок ultralytics."""
+def _unpad_ul_masks(masks: np.ndarray, orig_shape: tuple[int, ...]) -> np.ndarray:
+    """Удаляет паддинг (рамку) из масок, сгенерированных Ultralytics.
+
+    Ultralytics при сегментации создаёт маски фиксированного размера с
+    паддингом вокруг объекта. Эта функция обрезает паддинг, приводя маску
+    к пропорциональному масштабу исходного изображения.
+
+    Args:
+        masks: Тензор масок shape (N, H, W) с паддингом
+        orig_shape: Размеры исходного изображения (height, width, ...)
+
+    Returns:
+        Тензор масок без паддинга shape (N, H', W') где H' и W' пропорциональны
+        оригинальным размерам
+
+    """
     # Определяем исходные размеры масок и изображения:
     orig_shape = np.array(orig_shape[:2])
     mask_shape = np.array(masks.shape[1:])
@@ -30,18 +61,38 @@ def _decrop_ul_masks(masks, orig_shape):
 
     # Параметры обрезки:
     top_left = np.round(pad / 2, decimals=1).astype(int)
-    # top_left = np.zeros_like(pad)
     bottom_right = target_shape + top_left + 1
 
     # Обрезка:
     return masks[:, top_left[0] : bottom_right[0], top_left[1] : bottom_right[1]]
 
 
-def _result2objs(result, attribs: dict = {}):
-    """Переводим результаты из YOLO-формата в список объектов,
-    поддерживаемый cv_utils.
+def _result2objs(
+    result: engine.results,
+    attribs: dict | None = None,
+) -> list[BBox | Mask]:
+    """Конвертирует результат работы YOLO модели в список объектов cv_utils.
+
+    Поддерживает различные типы выходов модели:
+        - боксы (bounding boxes)
+        - маски сегментации
+        - повёрнутые боксы (не реализовано)
+        - скелеты (не реализовано)
+
+    Args:
+        result: Результат работы YOLO модели (объект ultralytics.engine.results)
+        attribs: Дополнительные атрибуты для добавляемые к каждому объекту
+
+    Returns:
+        Список объектов BBox или Mask с атрибутами из модели
+
+    Raises:
+        NotImplementedError: Для неподдерживаемых типов вывода (OBB, keypoints)
+
     """
     # Фиксируем грубые описания объектов:
+    if attribs is None:
+        attribs = {}
     xyxys = result.boxes.xyxy.numpy()
     clses = result.boxes.cls.numpy()
     confs = result.boxes.conf.numpy()
@@ -55,7 +106,7 @@ def _result2objs(result, attribs: dict = {}):
     if result.masks is not None:
         # Удаление рамок у масок:
         masks = result.masks.data.numpy() * 255  # [0, 1] -> [0, 255] (uint8)
-        masks = _decrop_ul_masks(masks, result.orig_shape)
+        masks = _unpad_ul_masks(masks, result.orig_shape)
 
         # Размер масок может отличаться от размеров исходного изображения,
         # так что для прямоугольников нужно масштабирование:
@@ -63,76 +114,133 @@ def _result2objs(result, attribs: dict = {}):
         scale_x = masks.shape[2] / result.orig_shape[1]
         scale = np.array([scale_x, scale_y, scale_x, scale_y])
 
-        for mask, xyxy, cls, conf, id in zip(masks, xyxys * scale, clses, confs, ids):
+        for mask, xyxy, cls, conf, id_ in zip(
+            masks,
+            xyxys * scale,
+            clses,
+            confs,
+            ids,
+            strict=False,
+        ):
             attribs_ = attribs | {
                 'label': result.names[cls],
                 'confidence': conf,
-                'track_id': id,
+                'track_id': id_,
             }
             objs.append(Mask(mask, rect=xyxy, attribs=attribs_))
 
     elif result.obb is not None:
-        raise NotImplementedError('Повёрнутые прямоугольники не реализованы!')
+        msg = 'Повёрнутые прямоугольники не реализованы!'
+        raise NotImplementedError(msg)
 
     elif result.keypoints is not None:
-        raise NotImplementedError('Скелеты не реализованы!')
+        msg = 'Скелеты не реализованы!'
+        raise NotImplementedError(msg)
 
     # Если есть только обычные обрамляющие прямоугольники:
     else:
-        for xyxy, cls, conf, id in zip(xyxys, clses, confs, ids):
+        for xyxy, cls, conf, id_ in zip(xyxys, clses, confs, ids, strict=False):
             attribs_ = attribs | {
                 'label': result.names[cls],
                 'confidence': conf,
-                'track_id': id,
+                'track_id': id_,
             }
             objs.append(BBox(xyxy, imsize=result.orig_shape, attribs=attribs_))
 
     return objs
 
 
-class UltralyticsModel:
-    """Обёртка вокруг моделей от Ultralytics для инференса.
+# Минимально и максимально допустимые числоа агрументов для postprocess_filter:
+_one_filter_arg = 1
+_two_filter_args = 2
 
-    mode:
-        'preannotation' - создаётся датафрейм, поддерживаемый cvat.py;
-        'preview' - Рисует на исходном изображении все обнаруженные объекты.
+
+class UltralyticsModel:
+    """Обёртка для моделей Ultralytics (YOLO) с поддержкой CVAT-формата.
+
+    Инкапсулирует работу с моделями детекции/сегментации Ultralytics,
+    предоставляет единый интерфейс для инференса с конвертацией результатов
+    в формат, совместимый с cv_utils и cvat модулями.
+
+    Поддерживает:
+        - автоматическую загрузку моделей в ~/models/
+        - трекинг объектов
+        - различные режимы вывода (разметка, превью)
+        - цепочки постобработки
+
+    Attributes:
+        model: Загруженная YOLO модель
+        tracker: Название трекера (если используется)
+        mode: Режим работы ('preannotation' или 'preview')
+        postprocess_filters: Список фильтров постобработки
+        frame_ind: Текущий номер кадра (для трекинга)
+
+    Примеры:
+        >>> model = UltralyticsModel('yolo11n.pt', mode='preannotation')
+        >>> df = model.img2df(image)  # Датафрейм разметки
+        >>> preview = model.draw(image)  # Изображение с визуализацией
+
     """
 
     def __init__(
         self,
-        model: str | YOLO = 'rtdetr-x.pt',
-        tracker=None,
+        model: str | Path | YOLO = 'rtdetr-x.pt',
+        tracker: str | None = None,
         mode: str = 'preannotation',
-        postprocess_filters: list = [],
-        *args,
-        **kwargs,
-    ):
+        postprocess_filters: list[Callable] | None = None,
+        *args: object,
+        **kwargs: object,
+    ) -> None:
+        """Инициализирует Ultralytics модель.
+
+        Args:
+            model: Путь к файлу модели (.pt/.pth), имя модели для загрузки
+                   из ~/models/ или готовый объект YOLO
+            tracker: Название трекера (например, 'bytetrack.yaml') или None
+            mode: Режим работы:
+                  'preannotation' - возвращает датафрейм разметки
+                  'preview' - возвращает изображение с визуализацией
+            postprocess_filters: Список функций для постобработки объектов
+                                 (например, [NMS(), Tracker()])
+            *args: Дополнительные позиционные аргументы для конструктора YOLO
+            **kwargs: Дополнительные именованные аргументы для конструктора YOLO
+
+        Raises:
+            TypeError: Если передан неверный тип model
+
+        """
+        # Отстутствие фильтров соответствует пустому списку:
+        if postprocess_filters is None:
+            postprocess_filters = []
+
         # Если передано название файла модели:
-        if isinstance(model, str):
-            # Eсли файл torch-модели не существует, а путь не задан явно,
-            # то скачаем моель в ~/models/:
+        if isinstance(model, (str, Path)):
+            model_path = Path(model)
+
+            # Если файл torch-модели не существует, а путь не задан явно,
+            # то скачаем модель в ~/models/:
             if (
-                os.path.splitext(model)[1].lower() in {'.pt', 'pth'}
-                and not os.path.isfile(model)
-                and model == os.path.basename(model)
+                model_path.suffix.lower() in {'.pt', '.pth'}
+                and not model_path.is_file()
+                and str(model) == model_path.name
             ):
-                model = os.path.join(os.path.expanduser('~user'), 'models', model)
+                models_dir = Path.home() / 'models'  # Путь к директории ~/models/
+                model_path = models_dir / model_path.name
 
-                model = YOLO(model)
+            # Загружаем YOLO-модель:
+            self.model = YOLO(str(model_path), *args, **kwargs)
 
-            model = YOLO(model, *args, **kwargs)
-
-        # Если уже передана YOLO-модель - ничего не делаем:
+        # Если передана уже загруженная YOLO-модель - используем её:
         elif isinstance(model, YOLO):
-            pass
+            self.model = model
 
         else:
-            raise TypeError(
+            msg = (
                 'Объект model должен быть строкой или '
-                f'YOLO-моделью. Получено: {type(mode)}!',
+                f'YOLO-моделью. Получено: {type(model)}!'
             )
+            raise TypeError(msg)
 
-        self.model = model
         self.tracker = tracker
         self.mode = mode.lower()
         self.postprocess_filters = postprocess_filters
@@ -140,14 +248,38 @@ class UltralyticsModel:
         # Сбрасываем все внутренние состояния:
         self.reset()
 
-    def result2df(self, result):
+    def result2df(self, result: engine.results) -> pd.DataFrame | None:
+        """Конвертирует результат работы YOLO в датафрейм CVAT-формата.
+
+        Args:
+            result: Результат работы YOLO модели (после вызова model())
+
+        Returns:
+            pd.DataFrame | None: Датафрейм с колонками как в df_columns_type из cvat
+
+        Note:
+            Для масок автоматически применяется масштабирование к исходному
+            размеру изображения
+
+        """
         # Формируем список объектов:
         attribs = {'frame': self.frame_ind, 'true_frame': self.frame_ind}
         objs = _result2objs(result, attribs)
 
         # Обрабатываем список объектов, если надо:
         for postprocess_filter in self.postprocess_filters:
-            objs = postprocess_filter(objs)
+            nargs = len(inspect.signature(postprocess_filter).parameters)
+            if nargs == _one_filter_arg:
+                objs = postprocess_filter(objs)
+            elif nargs == _two_filter_args:
+                objs = postprocess_filter(objs, result.orig_img)
+            else:
+                msg = (
+                    'Фильтр постобработки должен принимать аргументы (objs) или '
+                    f'(objs, img), но {postprocess_filter} имеет {nargs} '
+                    'аргументов!'
+                )
+                raise ValueError(msg)
 
         # Формируем датафрейм:
         dfs = []
@@ -166,13 +298,14 @@ class UltralyticsModel:
                     points = points.scale((scale_x, scale_y))
 
             else:
-                raise TypeError(f'Неподдерживаемый тип: {type(obj)}!')
+                msg = f'Неподдерживаемый тип: {type(obj)}!'
+                raise TypeError(msg)
 
             dfs.append(points.to_dfrow())
 
         return concat_dfs(dfs)
 
-    def _img2result(self, img: np.ndarray):
+    def _img2result(self, img: np.ndarray) -> engine.results:
         if self.tracker is None:
             result = self.model(img, verbose=False)[0]
         else:
@@ -184,17 +317,25 @@ class UltralyticsModel:
             )[0]
         return result.cpu()
 
-    def img2df(self, img: np.ndarray):
-        """Ф-ия применения модели с представлением результатов в виде датафрейма."""
+    def img2df(self, img: np.ndarray) -> pd.DataFrame | None:
+        """Обрабатывает изображение и возвращает разметку в виде датафрейма.
+
+        Args:
+            img: Входное изображение
+
+        Returns:
+            pd.DataFrame | None: Датафрейм с обнаруженными объектами в формате CVAT
+
+        """
         df = self.result2df(self._img2result(img))
         self.frame_ind += 1
         return df
 
-    def draw(self, img: np.ndarray):
+    def draw(self, img: np.ndarray) -> np.ndarray:
         """Создаёт превью обработанного кадра."""
         return self._img2result(img).plot()
 
-    def reset(self):
+    def reset(self) -> None:
         """Сбрасывает состояние трекера, если есть."""
         # Сбрасываем номер кадра:
         self.frame_ind = 0
@@ -210,17 +351,29 @@ class UltralyticsModel:
             for tracker in predictor.trackers:
                 tracker.reset()
 
-    def __call__(self, img):
-        # Определяем способ обработы в зависимости от режима:
-        if self.mode == 'preannotation':
-            processor = self.img2df
-        elif self.mode == 'preview':
-            processor = self.draw
-        else:
-            raise ValueError(f'Неподдерживаемый режим: {self.mode}!')
+    def __call__(self, img: np.ndarray) -> pd.DataFrame | None | np.ndarray:
+        """Обрабатывает изображение в соответствии с установленным режимом.
 
-        # Применяем выборанный способ обработки:
-        return processor(img)
+        Args:
+            img: Входное изображение
+
+        Returns:
+            Зависит от mode:
+                'preannotation' -> pd.DataFrame | None
+                'preview' -> np.ndarray (изображение)
+
+        Raises:
+            ValueError: При неподдерживаемом режиме работы
+
+        """
+        # Применяем способ обработки в зависимости от режима:
+        if self.mode == 'preannotation':
+            return self.img2df(img)
+        if self.mode == 'preview':
+            return self.draw(img)
+
+        msg = f'Неподдерживаемый режим: {self.mode}!'
+        raise ValueError(msg)
 
 
 # При автономном запуске закачиваем ряд моделей в "~/models/":
