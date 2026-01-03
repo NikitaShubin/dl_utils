@@ -1,26 +1,30 @@
-'''boxmot_utils.py.
+#!/usr/bin/env python3
+"""boxmot_utils.py.
 
 ********************************************
 *        Работа с библиотекой boxmot.      *
 *                                          *
 ********************************************
 .
-'''
+"""
 
-import cv2
-import boxmot
-import numpy as np
 import inspect
 import textwrap
-from loguru import logger
+from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
+from typing import ClassVar
+
+import boxmot  # type: ignore[import-untyped]
+import cv2
+import numpy as np
+from loguru import logger
 
 from cv_utils import BBox, Mask
 
 
 @contextmanager
-def suppress_module_logs(module_name="boxmot"):
+def suppress_module_logs(module_name: str = 'boxmot') -> Iterator[None]:
     """Контекст, подавляющий логи модуля."""
     logger.disable(module_name)
     try:
@@ -45,15 +49,15 @@ class Tracker:
     """
 
     # Словарь перехода от имён поддерживаемых трекеров к их конструкторам:
-    trackers: dict[str, type] = {}
-    for name, call in boxmot.trackers.tracker_zoo.TRACKER_MAPPING.items():
-        trackers[name] = eval(call)
+    trackers: ClassVar[dict] = {}
+    for name, constructor_name in boxmot.trackers.tracker_zoo.TRACKER_MAPPING.items():
+        trackers[name] = eval(constructor_name)  # noqa: S307
 
     # Трекеры, требующие модель ReID для работы:
-    reid_trackers: list[str] = boxmot.trackers.tracker_zoo.REID_TRACKERS
+    reid_trackers: ClassVar[list[str]] = boxmot.trackers.tracker_zoo.REID_TRACKERS
 
     # Параметры ReID по-умолчанию:
-    default_reid_kwargs: dict = {
+    default_reid_kwargs: ClassVar[dict] = {
         'reid_weights': Path('~/models/osnet_x0_25_msmt17.pt').expanduser(),
         'device': None,
         'half': False,
@@ -62,17 +66,30 @@ class Tracker:
     def __init__(
         self,
         tracker_type: str = 'ocsort',
+        *,
         store_untracked: bool = False,
-        **tracker_kwargs: dict,
+        **tracker_kwargs: dict[str, int | float | str | Path | None],
     ) -> None:
         """Инициализирует трекер.
 
         Параметры:
         ----------
+        """
+        # Строки документации будут дополнены вне функции
 
+        # Фиксируем параметры:
+        self.tracker_type = tracker_type
+        self.store_untracked = store_untracked  # Флаг сохранения объектов без треков
+        self.tracker_kwargs = self.default_reid_kwargs | tracker_kwargs
+
+        # Установка самого трекера через сброс:
+        self.reset()
+
+    # Инициируем одполнительые строки с информацией из самого boxmot:
+    add_doc = f"""
         tracker_type
             Тип трекера. Доступные варианты: [
-                {(',' + chr(10) + chr(9)).join(trackers)}
+                {(',' + chr(10) + '    ' * 4).join(trackers)}
             ]
 
         store_untracked
@@ -81,7 +98,7 @@ class Tracker:
 
         **tracker_kwargs:
             Параметры трекера. Включает параметры ReID для трекеров из списка: [
-                {(',' + chr(10) + chr(9)).join(reid_trackers)}
+                {(',' + chr(10) + '    ' * 4).join(reid_trackers)}
             ]
             По-умолчанию, зачения для ReID следующие:
 
@@ -94,27 +111,26 @@ class Tracker:
 
                 half = {default_reid_kwargs['half']}
                     Использовать половинную точность (float16) для вычислений.
-        """
-        # Фиксируем параметры:
-        self.tracker_type = tracker_type
-        self.store_untracked = store_untracked   # Флаг сохранения объектов без треков
-        self.tracker_kwargs = self.default_reid_kwargs | tracker_kwargs
 
-        # Установка самого трекера через сброс:
-        self.tracker = None
-        self.reset()
+        Параметры для каждого из трекеров:"""
+    add_doc = inspect.cleandoc(add_doc)  # Убираем лишний отступ
 
-    # Добавление с отступом внешней справочной строки:
-    init_doc = inspect.cleandoc(__init__.__doc__)
-    init_doc = eval(f'f"""{init_doc}"""')  # Для замены переменных их значениями
-
-    init_doc = init_doc + '\n\nПараметры для каждого из трекеров:'
-    init_doc + '\n\n'
-    for tracker_name, tracker in trackers.items():
-        tracker_doc = inspect.cleandoc(tracker.__doc__)
+    # Добавляем с отступом внешней справочной строки:
+    for tracker_name, tracker_constructor in trackers.items():
+        # Формируем строки:
+        if tracker_constructor.__doc__:
+            tracker_doc = inspect.cleandoc(tracker_constructor.__doc__)
+        else:
+            tracker_doc = 'Информация отсутствует.'
         tracker_doc = textwrap.indent(tracker_doc, '    ')  # Отступ
-        init_doc = init_doc + '\n\n' + '=' * 88 + '\n\n' + tracker_name + ':\n\n' + tracker_doc
-        __init__.__doc__ = init_doc
+
+        # Добавляем к основному корпусу:
+        add_doc = (
+            add_doc + '\n\n' + '=' * 88 + '\n\n' + tracker_name + ':\n\n' + tracker_doc
+        )
+
+    # Добалвяем результат к исходному документу:
+    __init__.__doc__ = inspect.cleandoc(__init__.__doc__ or '') + '\n' + add_doc
 
     def reset(self) -> None:
         """Сбрасывает внутренние состояния трекера.
@@ -130,10 +146,11 @@ class Tracker:
         так как последний в текущей версии boxmot не работает.
         См. https://github.com/mikel-brostrom/boxmot/issues/1461
         """
-        self._labels = []
+        self._labels: list[str] = []
 
         # Удаляем старый трекер и создаём новый:
-        del self.tracker
+        if hasattr(self, 'tracker'):
+            delattr(self, 'tracker')
         with suppress_module_logs():
             self.tracker = self.trackers[self.tracker_type](**self.tracker_kwargs)
         # tracker.reset() пока не работает
@@ -189,10 +206,12 @@ class Tracker:
             if 'is not in list' in str(e):
                 self._labels.append(label)
                 return len(self._labels) - 1
-            else:
-                raise e
+            raise
 
-    def _obj2det(self, obj: BBox | Mask):
+    def _obj2det(
+        self,
+        obj: BBox | Mask,
+    ) -> tuple[float, float, float, float, float, int]:
         """Конвертирует объект Mask или BBox в формат детекции для трекера.
 
         Параметры:
@@ -235,9 +254,9 @@ class Tracker:
 
     def update(
         self,
-        objs: list | tuple,
+        objs: list[BBox | Mask] | tuple[BBox | Mask, ...],
         img: np.ndarray,
-    ) -> list:
+    ) -> list[BBox | Mask]:
         """Применяет трекер к очередному кадру и его объектам.
 
         Параметры:
@@ -272,26 +291,26 @@ class Tracker:
 
         # Применяем трекер:
         tracks = self.tracker.update(dets, cv2.cvtColor(img, cv2.COLOR_RGB2BGR))
-        #   dets  : M X (x, y, x, y, conf, cls)
-        #   tracks: M X (x, y, x, y, id, conf, cls, ind)
+        #   M X (x, y, x, y, conf, cls) -> N X (x, y, x, y, id, conf, cls, ind)
 
         # Исправляем размер пустой таблицы:
         if len(tracks) == 0:
             tracks = np.zeros((0, 8))
 
         # Словарь перехода от индекса объекта в списке к его track_id:
-        ind2track_id = {int(ind): int(id) - 1 for id, ind in tracks[:, [4, 7]]}
+        ind2track_id = {
+            int(ind): int(track_id) - 1 for track_id, ind in tracks[:, [4, 7]]
+        }
         # id на выходе из трекеров начинаются с 1, поэтому мы берём id - 1.
 
         # Прописываем номера треков в атрибутах каждого объекта:
         for ind, obj in enumerate(objs):
-            obj.attribs['track_id'] = ind2track_id.get(ind, None)
+            obj.attribs['track_id'] = ind2track_id.get(ind)
 
         # Возвращаем все объекты, либо только оттреченные:
         if self.store_untracked:
-            return objs
-        else:
-            return [obj for obj in objs if obj.attribs['track_id'] is not None]
+            return list(objs)
+        return [obj for obj in objs if obj.attribs['track_id'] is not None]
 
     __call__ = update
 
