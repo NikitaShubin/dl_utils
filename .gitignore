@@ -93,3 +93,6 @@ target/
 # Video
 *.avi
 *.mp4
+
+# Граф связностей модулей
+dependency_graph.mmd
