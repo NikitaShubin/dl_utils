@@ -2005,28 +2005,136 @@ class ImportVisitor(ast.NodeVisitor):
 
         return new_graph
 
-    def to_mermaid(self, graph, filename=None, sort_edges=False):
-        """Конвертирует граф в формат Mermaid.
+    def _sort_edges_for_minimal_crossings(self, edges, safe_names, sink_nodes, graph):
+        """
+        Простой алгоритм сортировки рёбер:
+        1. Сначала рёбра от узлов с низкими индексами (центр) к узлам с низкими индексами
+        2. Затем рёбра от центра к периферии
+        3. Затем рёбра от периферии к центру
+        4. Затем рёбра между периферийными узлами
+        """
+        # Получаем порядок узлов
+        node_order = self._reorder_nodes_by_importance(graph, safe_names)
+
+        # Определяем, какие узлы считаем центральными (топ-8 по важности)
+        central_nodes = set(sorted(graph.keys(), key=lambda x: node_order[x])[:8])
+
+        # Разделяем рёбра на 4 группы
+        center_to_center = []  # Центр → Центр
+        center_to_edge = []    # Центр → Периферия
+        edge_to_center = []    # Периферия → Центр
+        edge_to_edge = []      # Периферия → Периферия
+
+        for edge in edges:
+            edge_type, source, target = edge
+
+            source_is_center = source in central_nodes
+            target_is_center = target in central_nodes
+
+            if source_is_center and target_is_center:
+                center_to_center.append(edge)
+            elif source_is_center:
+                center_to_edge.append(edge)
+            elif target_is_center:
+                edge_to_center.append(edge)
+            else:
+                edge_to_edge.append(edge)
+
+        # Функция для сортировки рёбер: сначала по источнику, потом по цели
+        def sort_key(edge):
+            return (node_order[edge[1]], node_order[edge[2]])
+
+        # Сортируем каждую группу
+        center_to_center.sort(key=sort_key)
+        center_to_edge.sort(key=sort_key)
+        edge_to_center.sort(key=sort_key)
+        edge_to_edge.sort(key=sort_key)
+
+        # Объединяем в порядке: центр→центр, центр→край, край→центр, край→край
+        return center_to_center + center_to_edge + edge_to_center + edge_to_edge
+
+    def _reorder_nodes_by_importance(self, graph, safe_names):
+        """
+        Смешанный подход: ручные приоритеты для известных узлов +
+        автоматическая сортировка для остальных
+        """
+        # Ручные приоритеты (чем меньше число, тем выше приоритет)
+        manual_priorities = {
+            'cvat': 1,
+            'utils': 2,
+            'pt_utils': 3,
+            'ml_utils': 4,
+            'cv_utils': 5,
+            'video_utils': 6,
+            # Остальные получат приоритет 100 + алфавитный порядок
+        }
+
+        # Считаем indegree для автоматической сортировки
+        indegree = defaultdict(int)
+        for source, data in graph.items():
+            for target in data['unconditional']:
+                indegree[target] += 1
+
+        # Определяем важность
+        importance = {}
+        for node in graph:
+            if node in manual_priorities:
+                # Используем ручной приоритет
+                importance[node] = manual_priorities[node]
+            else:
+                # Автоматическая сортировка: сначала по indegree, потом по алфавиту
+                # Инвертируем: чем больше indegree, тем меньше значение
+                importance[node] = 100 - indegree.get(node, 0) * 10
+
+        # Сортируем узлы по важности (возрастание)
+        sorted_nodes = sorted(graph.keys(), key=lambda x: (importance[x], x))
+
+        return {node: i for i, node in enumerate(sorted_nodes)}
+
+    def to_mermaid(self, graph, filename=None, sort=False):
+        """
+        Конвертирует граф в формат Mermaid.
 
         Параметры:
             graph (dict): Граф зависимостей
             filename (str, optional): Файл для сохранения
-            sort_edges (bool): Сортировать рёбра для уменьшения визуальных пересечений
-
-        Возвращает:
-            str: Строка в формате Mermaid (если filename=None)
-
-        Особенности:
-            - Стоки (модули без исходящих зависимостей) группируются и выравниваются
-                горизонтально
-            - Безусловные зависимости: сплошная стрелка (-->)
-            - Условные зависимости: пунктирная стрелка (-.->)
-            - При наличии обеих зависимостей отрисовывается только безусловная
-            - Группа стоков помещается в невидимый подграф для выравнивания
+            sort (bool | callable): 
+                - False: не сортировать
+                - True: использовать встроенную сортировку
+                - callable: внешняя функция сортировки, которая принимает граф
+                  и возвращает (ordered_nodes, ordered_edges)
         """
+        # Обрабатываем разные варианты параметра sort
+        if callable(sort):
+            # Внешняя функция сортировки
+            try:
+                ordered_nodes, ordered_edges = sort(graph)
+                # Используем упорядоченные узлы от внешнего алгоритма
+                sorted_nodes = ordered_nodes
+                edges = ordered_edges
+                use_external_sort = True
+            except Exception as e:
+                print(f"Ошибка во внешнем алгоритме сортировки: {e}")
+                # Возвращаемся к стандартному порядку
+                sorted_nodes = sorted(graph.keys())
+                edges = []
+                use_external_sort = False
+        elif sort:
+            # Встроенная сортировка
+            # Получаем порядок узлов по важности
+            node_order = self._reorder_nodes_by_importance(graph, None)
+            sorted_nodes = sorted(graph.keys(), key=lambda x: node_order[x])
+            edges = []
+            use_external_sort = False
+        else:
+            # Без сортировки
+            sorted_nodes = sorted(graph.keys())
+            edges = []
+            use_external_sort = False
+
         # Генерация безопасных имён узлов
         safe_names = {}
-        for i, node in enumerate(graph.keys()):
+        for i, node in enumerate(sorted_nodes):
             safe_names[node] = f"node_{i}"
 
         lines = ["graph RL;"]
@@ -2035,7 +2143,6 @@ class ImportVisitor(ast.NodeVisitor):
         all_nodes = set(graph.keys())
         sink_nodes = set()
         for node in all_nodes:
-            # Проверяем отсутствие исходящих зависимостей
             if not graph[node]['unconditional'] and not graph[node]['conditional']:
                 sink_nodes.add(node)
 
@@ -2045,8 +2152,30 @@ class ImportVisitor(ast.NodeVisitor):
             for target in data['unconditional']:
                 unconditional_set.add((source, target))
 
+        # Если не использовался внешний алгоритм, собираем рёбра стандартным способом
+        if not use_external_sort:
+            # Собираем все рёбра
+            for source, data in graph.items():
+                # Безусловные зависимости
+                for target in data['unconditional']:
+                    if target in safe_names:
+                        edges.append(('-->', source, target))
+
+                # Условные зависимости (только если нет безусловной)
+                for target in data['conditional']:
+                    if target in safe_names:
+                        if (source, target) in unconditional_set:
+                            continue
+                        edges.append(('-.->', source, target))
+
+            # Если включена встроенная сортировка рёбер
+            if sort and callable(sort) is False:
+                edges = self._sort_edges_for_minimal_crossings(
+                    edges, safe_names, sink_nodes, graph
+                )
+
         # Добавление всех узлов
-        for node in all_nodes:
+        for node in sorted_nodes:
             lines.append(f"    {safe_names[node]}[{node}];")
 
         # Создание подграфа для стоков (горизонтальное выравнивание)
@@ -2059,28 +2188,7 @@ class ImportVisitor(ast.NodeVisitor):
             lines.append("    end")
             lines.append("    style SinkGroup fill:none,stroke:none;")
 
-        # Собираем все рёбра
-        edges = []
-
-        for source, data in graph.items():
-            # Безусловные зависимости
-            for target in data['unconditional']:
-                if target in safe_names:  # Проверка существования узла
-                    edges.append(('-->', source, target))
-
-            # Условные зависимости (только если нет безусловной)
-            for target in data['conditional']:
-                if target in safe_names:  # Проверка существования узла
-                    # Пропускаем если есть безусловная зависимость
-                    if (source, target) in unconditional_set:
-                        continue
-                    edges.append(('-.->', source, target))
-
-        # Сортировка рёбер для уменьшения визуальных пересечений
-        if sort_edges:
-            edges = self._sort_edges_for_minimal_crossings(edges, safe_names, sink_nodes)
-
-        # Добавление отсортированных рёбер
+        # Добавление рёбер
         for edge_type, source, target in edges:
             lines.append(f"    {safe_names[source]} {edge_type} {safe_names[target]};")
 
@@ -2093,93 +2201,8 @@ class ImportVisitor(ast.NodeVisitor):
         else:
             return mermaid_content
 
-    def _sort_edges_for_minimal_crossings(self, edges, safe_names, sink_nodes, graph):
-        """
-        Улучшенный алгоритм сортировки рёбер, основанный на эвристиках:
-        1. Сначала рёбра от узлов с наибольшим количеством исходящих связей
-        2. Группировка рёбер по целевым узлам
-        3. Учёт длинных цепочек зависимостей
-        """
-        # Собираем статистику по узлам
-        outgoing_count = defaultdict(int)
-        incoming_count = defaultdict(int)
-
-        # Создаём обратное отображение безопасных имён
-        idx_to_node = {idx: node for node, idx in safe_names.items()}
-
-        # Считаем количество входящих и исходящих рёбер
-        for source, data in graph.items():
-            outgoing_count[source] = len(data['unconditional']) + len(data['conditional'])
-            for target in data['unconditional']:
-                incoming_count[target] += 1
-            for target in data['conditional']:
-                incoming_count[target] += 1
-
-        # Преобразуем рёбра в удобный формат для сортировки
-        edge_records = []
-        for edge in edges:
-            edge_type, source, target = edge
-            edge_records.append({
-                'type': edge_type,
-                'source': source,
-                'target': target,
-                'outgoing_source': outgoing_count[source],
-                'incoming_target': incoming_count[target],
-                'is_sink_target': target in sink_nodes
-            })
-
-        # Эвристика 1: Сначала рёбра от узлов с наибольшим числом исходящих связей
-        # Эвристика 2: Затем рёбра к узлам с наибольшим числом входящих связей
-        # Эвристика 3: Группировка по целевым узлам
-        # Эвристика 4: Учёт того, является ли целевой узел стоком
-
-        # Создаём словарь для группировки рёбер по целевым узлам
-        edges_by_target = defaultdict(list)
-        for edge in edge_records:
-            edges_by_target[edge['target']].append(edge)
-
-        # Определяем порядок целевых узлов:
-        # 1. Сначала узлы с большим количеством входящих рёбер (популярные узлы)
-        # 2. Стоки обрабатываем отдельно
-        target_nodes = list(edges_by_target.keys())
-
-        # Разделяем стоки и нестоки
-        sink_targets = [t for t in target_nodes if t in sink_nodes]
-        non_sink_targets = [t for t in target_nodes if t not in sink_nodes]
-
-        # Сортируем нестоки по количеству входящих рёбер (убывание)
-        non_sink_targets.sort(key=lambda t: incoming_count[t], reverse=True)
-
-        # Сортируем стоки по их индексу для стабильности
-        sink_targets.sort(key=lambda t: list(safe_names.keys()).index(t))
-
-        # Собираем окончательный порядок целевых узлов
-        ordered_targets = non_sink_targets + sink_targets
-
-        # Теперь для каждого целевого узла сортируем входящие рёбра:
-        # 1. Сначала рёбра от узлов с большим количеством исходящих рёбер
-        # 2. Затем учитываем длинные цепочки (если источник сам имеет много входящих)
-        sorted_edges = []
-
-        for target in ordered_targets:
-            target_edges = edges_by_target[target]
-
-            # Сортируем рёбра для этого целевого узла
-            target_edges.sort(key=lambda e: (
-                -e['outgoing_source'],  # Больше исходящих -> раньше
-                -incoming_count[e['source']],  # Больше входящих -> раньше (цепочки)
-                list(safe_names.keys()).index(e['source'])  # Стабильность
-            ))
-
-            # Добавляем в общий список
-            sorted_edges.extend(
-                [(e['type'], e['source'], e['target']) for e in target_edges]
-            )
-
-        return sorted_edges
-
     def draw_dependency_in_mermaid(self, files, filter_short_paths=False,
-                                   output_file=None, sort_edges=False):
+                                   output_file=None, sort=True):
         """
         Строит граф зависимостей модулей в формате Mermaid.
 
@@ -2187,34 +2210,26 @@ class ImportVisitor(ast.NodeVisitor):
             files (list): Список .py файлов
             filter_short_paths (bool): Флаг фильтрации коротких путей
             output_file (str, optional): Файл для сохранения результата
-            sort_edges (bool): Сортировать рёбра для уменьшения визуальных пересечений
-
-        Возвращает:
-            str: Результат в формате Mermaid (если output_file=None)
-
-        Процесс:
-            1. Построение графа зависимостей
-            2. Применение фильтра (если включено)
-            3. Экспорт в Mermaid с опциональной сортировкой рёбер
+            sort (bool | callable): Сортировать рёбра да / нет / внешная функция
         """
         graph = self.build_dependency_graph(files)
 
         if filter_short_paths:
             graph = self.filter_longest_paths(graph)
 
-        return self.to_mermaid(graph, filename=output_file, sort_edges=sort_edges)
+        return self.to_mermaid(graph, filename=output_file, sort=sort)
 
 
-def draw_repo_dependency_graph(dirname: str = '', sort_edges: bool = True) -> str:
+def draw_repo_dependency_graph(
+    dirname: str = '',
+    sort: bool | Callable = True,
+) -> str:
     '''
     Строит графы зависимостей Python-модулей в заданной папке с проектом.
-    Граф сохраняется в файле dependency_graph.mmd в папке проекта.
-    Может использоваться в README.md репозитория.
-    По-умолчанию, используется для dl_utils.
 
     Параметры:
         dirname (str): Путь к папке с проектом
-        sort_edges (bool): Сортировать рёбра для уменьшения визуальных пересечений
+        sort (bool | callable): Сортировать рёбра да / нет / внешная функция
     '''
     # Полный список модулей библиотеки:
     dirname = dirname or os.path.dirname(__file__)
@@ -2226,30 +2241,7 @@ def draw_repo_dependency_graph(dirname: str = '', sort_edges: bool = True) -> st
                 if os.path.basename(py_file)[0] != '_']
 
     iv = ImportVisitor()
-    iv.draw_dependency_in_mermaid(py_files, True, filename, sort_edges=sort_edges)
-
-    return filename
-
-
-def draw_repo_dependency_graph(dirname: str = '') -> str:
-    '''
-    Строит графы зависимостей Python-модулей в заданной папке с проектом.
-    Граф сохраняется в файле dependency_graph.mmd в папке проекта.
-    Может использоваться в README.md репозитория.
-    По-умолчанию, используется для dl_utils.
-    '''
-    # Полный список модулей библиотеки:
-    dirname = dirname or os.path.dirname(__file__)
-    filename = os.path.join(dirname, 'dependency_graph.mmd')
-    py_files = sorted(get_file_list(dirname, '.py', False))
-
-    # Выкидываем все файлы, начинающиеся с '_':
-    py_files = [py_file for py_file in py_files
-                if os.path.basename(py_file)[0] != '_']
-
-    iv = ImportVisitor()
-    iv.draw_dependency_in_mermaid(py_files, True, filename)
-    # iv.draw_dependency_in_mermaid(py_files, False, 'full.mmd')
+    iv.draw_dependency_in_mermaid(py_files, True, filename, sort)
 
     return filename
 

@@ -75,60 +75,60 @@
 
 ```mermaid
 graph RL;
-    node_0[cvat_srv];
-    node_1[ul_utils];
-    node_2[tf_utils];
-    node_4[yolo];
-    node_3[alb_utils];
-    node_5[gdinoal];
-    node_6[pt_utils];
-    node_7[sam2al];
-    node_8[ipy_utils];
-    node_9[ml_utils];
-    node_10[keras_utils];
-    node_11[video_utils];
-    node_12[cvat];
-    node_13[boxmot_utils];
+    node_0[cvat];
+    node_1[utils];
+    node_2[pt_utils];
+    node_3[ml_utils];
+    node_4[cv_utils];
+    node_5[video_utils];
+    node_6[alb_utils];
+    node_7[keras_utils];
+    node_8[seg];
+    node_9[boxmot_utils];
+    node_10[cvat_srv];
+    node_11[gdinoal];
+    node_12[ipy_utils];
+    node_13[labels];
     node_14[ollm_utils];
-    node_15[tfmot_utils];
-    node_16[utils];
-    node_17[seg];
-    node_18[cv_utils];
-    node_19[samal];
-    node_20[labels];
-    node_21[onnx_utils];
+    node_15[onnx_utils];
+    node_16[sam2al];
+    node_17[samal];
+    node_18[tf_utils];
+    node_19[tfmot_utils];
+    node_20[ul_utils];
+    node_21[yolo];
     %% Выравнивание стоков на одном уровне
     subgraph SinkGroup [ ]
         direction LR
-        node_6
-        node_16
+        node_2
+        node_1
     end
     style SinkGroup fill:none,stroke:none;
-    node_0 --> node_12;
-    node_1 --> node_12;
-    node_2 --> node_3;
-    node_3 --> node_16;
-    node_4 --> node_12;
-    node_4 --> node_9;
-    node_5 --> node_6;
-    node_5 --> node_12;
-    node_7 --> node_6;
-    node_7 --> node_17;
-    node_8 --> node_12;
-    node_9 --> node_16;
-    node_10 --> node_16;
-    node_11 --> node_16;
-    node_12 --> node_11;
-    node_12 --> node_18;
-    node_13 --> node_18;
-    node_14 --> node_16;
-    node_15 --> node_10;
-    node_17 --> node_12;
-    node_18 --> node_16;
-    node_19 --> node_6;
-    node_19 --> node_12;
-    node_20 --> node_16;
-    node_21 --> node_9;
+    node_0 --> node_4;
+    node_0 --> node_5;
+    node_3 --> node_1;
+    node_4 --> node_1;
+    node_5 --> node_1;
+    node_6 --> node_1;
+    node_7 --> node_1;
+    node_8 --> node_0;
+    node_9 --> node_4;
+    node_10 --> node_0;
+    node_11 --> node_0;
+    node_11 --> node_2;
+    node_12 --> node_0;
+    node_13 --> node_1;
+    node_14 --> node_1;
+    node_15 --> node_3;
+    node_16 --> node_2;
+    node_17 --> node_0;
+    node_17 --> node_2;
+    node_18 --> node_6;
+    node_19 --> node_7;
+    node_20 --> node_0;
+    node_21 --> node_0;
+    node_21 --> node_3;
+    node_16 --> node_8;
 ```
 
 </details>
