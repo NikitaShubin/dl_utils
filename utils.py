@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 '''
 ********************************************
 *   Различные утилиты общего назначения,   *
@@ -2004,19 +2005,20 @@ class ImportVisitor(ast.NodeVisitor):
 
         return new_graph
 
-    def to_mermaid(self, graph, filename=None):
-        """
-        Конвертирует граф в формат Mermaid с выравниванием стоков (модулей без зависимостей).
+    def to_mermaid(self, graph, filename=None, sort_edges=False):
+        """Конвертирует граф в формат Mermaid.
 
         Параметры:
             graph (dict): Граф зависимостей
             filename (str, optional): Файл для сохранения
+            sort_edges (bool): Сортировать рёбра для уменьшения визуальных пересечений
 
         Возвращает:
             str: Строка в формате Mermaid (если filename=None)
 
         Особенности:
-            - Стоки (модули без исходящих зависимостей) группируются и выравниваются горизонтально
+            - Стоки (модули без исходящих зависимостей) группируются и выравниваются
+                горизонтально
             - Безусловные зависимости: сплошная стрелка (-->)
             - Условные зависимости: пунктирная стрелка (-.->)
             - При наличии обеих зависимостей отрисовывается только безусловная
@@ -2057,13 +2059,14 @@ class ImportVisitor(ast.NodeVisitor):
             lines.append("    end")
             lines.append("    style SinkGroup fill:none,stroke:none;")
 
-        # Добавление рёбер с приоритетом безусловных
+        # Собираем все рёбра
+        edges = []
+
         for source, data in graph.items():
             # Безусловные зависимости
             for target in data['unconditional']:
                 if target in safe_names:  # Проверка существования узла
-                    line = f"    {safe_names[source]} --> {safe_names[target]};"
-                    lines.append(line)
+                    edges.append(('-->', source, target))
 
             # Условные зависимости (только если нет безусловной)
             for target in data['conditional']:
@@ -2071,8 +2074,15 @@ class ImportVisitor(ast.NodeVisitor):
                     # Пропускаем если есть безусловная зависимость
                     if (source, target) in unconditional_set:
                         continue
-                    line = f"    {safe_names[source]} -.-> {safe_names[target]};"
-                    lines.append(line)
+                    edges.append(('-.->', source, target))
+
+        # Сортировка рёбер для уменьшения визуальных пересечений
+        if sort_edges:
+            edges = self._sort_edges_for_minimal_crossings(edges, safe_names, sink_nodes)
+
+        # Добавление отсортированных рёбер
+        for edge_type, source, target in edges:
+            lines.append(f"    {safe_names[source]} {edge_type} {safe_names[target]};")
 
         mermaid_content = "\n".join(lines)
 
@@ -2083,8 +2093,93 @@ class ImportVisitor(ast.NodeVisitor):
         else:
             return mermaid_content
 
+    def _sort_edges_for_minimal_crossings(self, edges, safe_names, sink_nodes, graph):
+        """
+        Улучшенный алгоритм сортировки рёбер, основанный на эвристиках:
+        1. Сначала рёбра от узлов с наибольшим количеством исходящих связей
+        2. Группировка рёбер по целевым узлам
+        3. Учёт длинных цепочек зависимостей
+        """
+        # Собираем статистику по узлам
+        outgoing_count = defaultdict(int)
+        incoming_count = defaultdict(int)
+
+        # Создаём обратное отображение безопасных имён
+        idx_to_node = {idx: node for node, idx in safe_names.items()}
+
+        # Считаем количество входящих и исходящих рёбер
+        for source, data in graph.items():
+            outgoing_count[source] = len(data['unconditional']) + len(data['conditional'])
+            for target in data['unconditional']:
+                incoming_count[target] += 1
+            for target in data['conditional']:
+                incoming_count[target] += 1
+
+        # Преобразуем рёбра в удобный формат для сортировки
+        edge_records = []
+        for edge in edges:
+            edge_type, source, target = edge
+            edge_records.append({
+                'type': edge_type,
+                'source': source,
+                'target': target,
+                'outgoing_source': outgoing_count[source],
+                'incoming_target': incoming_count[target],
+                'is_sink_target': target in sink_nodes
+            })
+
+        # Эвристика 1: Сначала рёбра от узлов с наибольшим числом исходящих связей
+        # Эвристика 2: Затем рёбра к узлам с наибольшим числом входящих связей
+        # Эвристика 3: Группировка по целевым узлам
+        # Эвристика 4: Учёт того, является ли целевой узел стоком
+
+        # Создаём словарь для группировки рёбер по целевым узлам
+        edges_by_target = defaultdict(list)
+        for edge in edge_records:
+            edges_by_target[edge['target']].append(edge)
+
+        # Определяем порядок целевых узлов:
+        # 1. Сначала узлы с большим количеством входящих рёбер (популярные узлы)
+        # 2. Стоки обрабатываем отдельно
+        target_nodes = list(edges_by_target.keys())
+
+        # Разделяем стоки и нестоки
+        sink_targets = [t for t in target_nodes if t in sink_nodes]
+        non_sink_targets = [t for t in target_nodes if t not in sink_nodes]
+
+        # Сортируем нестоки по количеству входящих рёбер (убывание)
+        non_sink_targets.sort(key=lambda t: incoming_count[t], reverse=True)
+
+        # Сортируем стоки по их индексу для стабильности
+        sink_targets.sort(key=lambda t: list(safe_names.keys()).index(t))
+
+        # Собираем окончательный порядок целевых узлов
+        ordered_targets = non_sink_targets + sink_targets
+
+        # Теперь для каждого целевого узла сортируем входящие рёбра:
+        # 1. Сначала рёбра от узлов с большим количеством исходящих рёбер
+        # 2. Затем учитываем длинные цепочки (если источник сам имеет много входящих)
+        sorted_edges = []
+
+        for target in ordered_targets:
+            target_edges = edges_by_target[target]
+
+            # Сортируем рёбра для этого целевого узла
+            target_edges.sort(key=lambda e: (
+                -e['outgoing_source'],  # Больше исходящих -> раньше
+                -incoming_count[e['source']],  # Больше входящих -> раньше (цепочки)
+                list(safe_names.keys()).index(e['source'])  # Стабильность
+            ))
+
+            # Добавляем в общий список
+            sorted_edges.extend(
+                [(e['type'], e['source'], e['target']) for e in target_edges]
+            )
+
+        return sorted_edges
+
     def draw_dependency_in_mermaid(self, files, filter_short_paths=False,
-                                   output_file=None):
+                                   output_file=None, sort_edges=False):
         """
         Строит граф зависимостей модулей в формате Mermaid.
 
@@ -2092,6 +2187,7 @@ class ImportVisitor(ast.NodeVisitor):
             files (list): Список .py файлов
             filter_short_paths (bool): Флаг фильтрации коротких путей
             output_file (str, optional): Файл для сохранения результата
+            sort_edges (bool): Сортировать рёбра для уменьшения визуальных пересечений
 
         Возвращает:
             str: Результат в формате Mermaid (если output_file=None)
@@ -2099,32 +2195,55 @@ class ImportVisitor(ast.NodeVisitor):
         Процесс:
             1. Построение графа зависимостей
             2. Применение фильтра (если включено)
-            3. Экспорт в Mermaid
+            3. Экспорт в Mermaid с опциональной сортировкой рёбер
         """
         graph = self.build_dependency_graph(files)
 
         if filter_short_paths:
             graph = self.filter_longest_paths(graph)
 
-        return self.to_mermaid(graph, filename=output_file)
-
-        '''
-        Чтобы создать граф для модулей dl_utils достаточно выполнить:
-        py_files = sorted(get_file_list(os.path.dirname(__file__), '.py', False))
-        '''
+        return self.to_mermaid(graph, filename=output_file, sort_edges=sort_edges)
 
 
-def _dl_utils_dependency_graph():
+def draw_repo_dependency_graph(dirname: str = '', sort_edges: bool = True) -> str:
     '''
-    Строит графы зависимостей модулей библиотеки dl_utils.
-    Используется для обновления README.md
+    Строит графы зависимостей Python-модулей в заданной папке с проектом.
+    Граф сохраняется в файле dependency_graph.mmd в папке проекта.
+    Может использоваться в README.md репозитория.
+    По-умолчанию, используется для dl_utils.
+
+    Параметры:
+        dirname (str): Путь к папке с проектом
+        sort_edges (bool): Сортировать рёбра для уменьшения визуальных пересечений
     '''
     # Полный список модулей библиотеки:
-    dirname = os.path.dirname(__file__)
+    dirname = dirname or os.path.dirname(__file__)
     filename = os.path.join(dirname, 'dependency_graph.mmd')
     py_files = sorted(get_file_list(dirname, '.py', False))
 
-    # Выкидываем все файлы, начинающиеся с '_'
+    # Выкидываем все файлы, начинающиеся с '_':
+    py_files = [py_file for py_file in py_files
+                if os.path.basename(py_file)[0] != '_']
+
+    iv = ImportVisitor()
+    iv.draw_dependency_in_mermaid(py_files, True, filename, sort_edges=sort_edges)
+
+    return filename
+
+
+def draw_repo_dependency_graph(dirname: str = '') -> str:
+    '''
+    Строит графы зависимостей Python-модулей в заданной папке с проектом.
+    Граф сохраняется в файле dependency_graph.mmd в папке проекта.
+    Может использоваться в README.md репозитория.
+    По-умолчанию, используется для dl_utils.
+    '''
+    # Полный список модулей библиотеки:
+    dirname = dirname or os.path.dirname(__file__)
+    filename = os.path.join(dirname, 'dependency_graph.mmd')
+    py_files = sorted(get_file_list(dirname, '.py', False))
+
+    # Выкидываем все файлы, начинающиеся с '_':
     py_files = [py_file for py_file in py_files
                 if os.path.basename(py_file)[0] != '_']
 
@@ -3563,6 +3682,11 @@ def obj_diff(obj1, obj2, prefix=''):
                 return ''
 
     return f'Несовпадение значений {prefix}: {obj1} != {obj2}!'
+
+
+# При автономном запуске создаётся dependency_graph.mmd для dl_utils:
+if __name__ == '__main__':
+    draw_repo_dependency_graph()
 
 
 __all__ = [
