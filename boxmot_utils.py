@@ -317,4 +317,4 @@ class Tracker:
 
 # При автономном запуске закачиваем модель osnet_x0_25_msmt17.pt в "~/models/":
 if __name__ == '__main__':
-    Tracker('botsort')
+    Tracker('botsort', device='cpu')

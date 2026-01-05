@@ -41,13 +41,13 @@ IMAGE_NAME_AND_TAGS=(
 )
 
 # Пытаемся собирать образ каждый раз заново:
-#if ! docker build --progress=plain "${IMAGE_NAME_AND_TAGS[@]}" "${DOCKERFILE_DIR}";
-if ! docker build "${IMAGE_NAME_AND_TAGS[@]}" "${DOCKERFILE_DIR}";
+if ! docker build --progress=plain "${IMAGE_NAME_AND_TAGS[@]}" -f "${DOCKERFILE_DIR}"/Dockerfile "${DOCKERFILE_DIR}/..";
+# if ! docker build "${IMAGE_NAME_AND_TAGS[@]}" -f "${DOCKERFILE_DIR}"/Dockerfile "${DOCKERFILE_DIR}/..";
 then
     # Если образ собрать не удалось - берём готовый с DockerHub:
     printf "%bОбраз не собран!\n" "$RED"
     printf "Берётся версия из DockerHub!\n%b" "$NC"
-    docker pull $IMAGE_NAME
+    docker pull "$IMAGE_NAME:latest"
 else
     # Если образ успешно собран, отправляем ВСЕ теги в одном фоновом процессе:
     nohup bash -c "
@@ -107,8 +107,8 @@ RUNPARAMS=(
 
     # Путь до датасета подменяем локальной его копией:
     # -v "$home/projects/AP2.0/local_files/ds/":"/workspace/data/processed"
-    -v "$home/projects/IQF/local_files/ds/":"/workspace/data/processed"
-    #-v "/":"/outroot"
+    -v "$home/projects/docker/ds/":"/workspace/data/processed"
+    # -v "/":"/outroot"
     -v "/":"/outroot":ro
     #-v "$home/.ssh/":"/home/user/.ssh":ro
 
@@ -118,12 +118,13 @@ RUNPARAMS=(
     # Пароль и порт для Jupyter:
     -e JUPYTER_PASS
     -e JUPYTER_PORT
-    # Адрес локального Ollama-сервера:
+    # Адрес Ollama-сервера в локальной сети:
     -e OLLAMA_HOST
     # Берутся из внешних переменных окружения.
     # Рекомендуется добавить строки вроде
     # ```
     # JUPYTER_PASS="my_password"; export JUPYTER_PASS
+    # ... и т.п. ...
     # ```
     # в файл ~/.profile, если используется bash,
     # или ~/.zshenv при использовании zsh.

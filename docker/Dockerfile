@@ -40,7 +40,7 @@ ARG APPLICATIONS="                                    \
     sudo gosu nano mc git ssh p7zip-full zip unzip    \
                                                       \
     # Консольные утилиты для загрузки файлов из сети: \
-    curl wget                                         \
+    curl wget wget2                                   \
                                                       \
     # Пакеты для работы manim:                        \
     python3-dev libcairo2-dev libpango1.0-dev         \
@@ -221,32 +221,23 @@ RUN ${PIP} install $PIPPARAMS --upgrade pip && \
 #    ${PIP} install $PIPPARAMS tensorflow==${TFVER} $PYTHONMODULES --upgrade --no-deps && \
 #    ${PIP} install $PIPPARAMS $PYTHONMODULES && \
 
-
-# Исправляем баг SAM2 с недоступностью конфигурационных файлов:
-# RUN wget --progress=dot:giga https://github.com/facebookresearch/sam2/archive/refs/heads/main.zip && \
-#     7z x ./main.zip && ls -laht && cd sam2-main && pip install -e ".[notebooks]" && cd .. && rm -rf sam2-main
-#RUN pypackagesdir=`${PIP} show sam-2 | grep Location | cut -d' ' -f2` && \
-RUN pypackagesdir=$(python -m pip show sam2 | grep Location | cut -d' ' -f2) && \
-    cp -R "$pypackagesdir/sam2/configs/sam2.1/." "$pypackagesdir/sam2/" && \
-    wget --progress=dot:giga -P "$pypackagesdir/sam2/" \
-    "https://github.com/SysCV/sam-hq/blob/main/sam-hq2/sam2/configs/sam2.1/sam2.1_hq_hiera_l.yaml"
-
 # Отключаем у JupyterLab надоедливый вопрос об обновлении
 RUN jupyter labextension disable '@jupyterlab/apputils-extension:announcements'
 
-# Создаём пользователя, даём ему право использовать sudo без пароля и устанавливаем его по умолчанию:
+# Создаём пользователя и даём ему право использовать sudo без пароля:
 RUN useradd -ms "${SHELL_PATH}" "${USERNAME}"              && \
     adduser "${USERNAME}" sudo                             && \
     echo "${USERNAME}" ALL = NOPASSWD: ALL >> /etc/sudoers && \
     chmod 1777 /etc && chmod 1777 "${HOMEDIR}"
 
-# Скачиваем самые мощные модели SAM2 и DINO:
-ARG SAM2URL="https://dl.fbaipublicfiles.com/segment_anything_2/092824/sam2.1_hiera_large.pt"
-ARG GDURL="https://github.com/IDEA-Research/GroundingDINO/releases/download/v0.1.0-alpha2/groundingdino_swinb_cogcoor.pth"
-RUN wget --progress=dot:giga -c --retry-connrefused -t 10 -T 900 -P "${HOMEDIR}"/models/ "${SAM2URL}" "${GDURL}" && \
-    chmod -R 777 "${HOMEDIR}"/models/ && \
-    # Доустановка мелочей для GroundingDINO:
-    python -c "import os; import groundingdino; from groundingdino.util.inference import load_model; load_model(os.path.join(os.path.dirname(os.path.abspath(groundingdino.__file__)), 'config', 'GroundingDINO_SwinB_cfg.py'), '${HOMEDIR}/models/groundingdino_swinb_cogcoor.pth')"
+# Скачиваем модели SAM2 и DINO в ~/models/:
+ARG MODELSDIR="${HOMEDIR}"/models/
+COPY *.py /tmp/py/
+RUN gosu "${USERNAME}" python /tmp/py/gdinoal.py          && \
+    python /tmp/py/sam2al.py                     && \
+    mv /root/models/* "${MODELSDIR}"             && \
+    rm -rf /root/models /tmp/py/                 && \
+    chown -R "${USERNAME}:${USERNAME}" "${MODELSDIR}"
 
 # Переключаемся на пользователя:
 USER "${USERNAME}"
@@ -259,13 +250,6 @@ USER "${USERNAME}"
 # Грязно отключаем support_message, используемый в silence-tensorflow, т.к. он работает некорректно без root-a:
 #RUN echo 'def support_message(*args, **kwargs): pass' > `python -c \
 #    'import inspect, support_developer; print(inspect.getfile(support_developer.support_message))'`
-
-# ADD "${SAM2URL}" "${HOMEDIR}"/models/
-# ADD "${GDURL}" "${HOMEDIR}"/models/
-#RUN gosu chmod -R 777 "${HOMEDIR}"/models/ && \
-#    python -c "import os; import groundingdino; from groundingdino.util.inference import load_model; load_model(os.path.join(os.path.dirname(os.path.abspath(groundingdino.__file__)), 'config', 'GroundingDINO_SwinB_cfg.py'), '${HOMEDIR}/models/groundingdino_swinb_cogcoor.pth')"
-
-
 
 # Установка тёмной темы в JupyterLab:
 ARG THEMEDIR="${HOMEDIR}"/.jupyter/lab/user-settings/\@jupyterlab/apputils-extension/

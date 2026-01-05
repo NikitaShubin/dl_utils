@@ -25,12 +25,14 @@ import numpy as np
 from tqdm import tqdm
 from segment_anything import SamAutomaticMaskGenerator, sam_model_registry
 from urllib.request import urlretrieve
+from pathlib import Path
 import inspect
 
 from utils import mkdirs, AnnotateIt
 from cvat import CVATPoints, add_row2df
 from cv_utils import Mask
 from pt_utils import AutoDevice
+from ml_utils import model2home
 
 
 class SAM:
@@ -38,21 +40,23 @@ class SAM:
     Класс предварительной сегментации с помощью Segment Anything Model.
     '''
 
-    def __init__(self,
-                 model_path          = '../sam_vit_h_4b8939.pth',
-                 device              = 'auto'                   ,
-                 use_tta             = True                     ,
-                 postprocess_filters = []                       ):
-
+    def __init__(
+        self,
+        model_path='sam_vit_h_4b8939.pth',
+        device='auto',
+        use_tta=True,
+        postprocess_filters=[]
+    ):
         # Определяем, доступно ли GPU:
         if device == 'auto':
-            device = AutoDevice()
+            device = AutoDevice().device
 
         # Если передан только один путь, то делаем из него список:
-        if isinstance(model_path, str):
-            model_paths = [model_path]
+        if isinstance(model_path, (str, Path)):
+            model_paths = [str(model2home(model_path))]
         else:
-            model_paths = model_path
+            model_paths = [str(model2home(path)) for path in model_path]
+        # Доопределяем пути до моделей там, где надо.
 
         # Инициируем список генераторов масок?
         self.mask_generators = []
@@ -358,3 +362,10 @@ class SAM:
         Сброс внутренних состояний.
         '''
         [_.reset() for _ in self.postprocess_filters if hasattr(_, 'reset')]
+
+
+# При автономном запуске закачиваем самую тяжёлую модель в "~/models/":
+if __name__ == '__main__':
+    os.environ['CUDA_VISIBLE_DEVICES'] = ''
+    # Для загрузки моделей без их использования отключаем GPU.
+    SAM()

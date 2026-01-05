@@ -1,4 +1,5 @@
 import os
+import sys
 import numpy as np
 from tempfile import TemporaryDirectory
 from hashlib import sha256
@@ -6,10 +7,14 @@ from hashlib import sha256
 import pandas as pd
 import cv2
 import torch
+import shutil
 from tqdm import tqdm
+import sam2
 from sam2.build_sam import build_sam2_video_predictor
 import warnings
 from contextlib import contextmanager
+from urllib.request import urlretrieve
+from pathlib import Path
 
 from pt_utils import AutoDevice
 from video_utils import VideoGenerator
@@ -17,9 +22,9 @@ from cvat import (df_save, df_load, new_df, add_row2df, CVATPoints,
                   concat_dfs, ergonomic_draw_df_frame, subtask2preview,
                   hide_skipped_objects_in_df, subtask2xml, df_list2tuple,
                   df_tuple2list)
-from utils import (unflatten_list, mkdirs,
-                   color_float_hsv_to_uint8_rgb)
+from utils import unflatten_list, mkdirs, color_float_hsv_to_uint8_rgb, AnnotateIt
 from seg import fit_segments_in_df
+from ml_utils import model2home
 
 
 class Prompts:
@@ -331,8 +336,6 @@ class Prompts:
     def _key_frames_preprop(self, frames):
         if frames is None:
             return self.get_all_key_frames()
-        elif isinstance(obj_ids, (list, tuple, set)):
-            return frames
         else:
             return [frames]
 
@@ -511,14 +514,35 @@ class SAM2:
 
         return mask, box, points, labels
 
-    def __init__(self                                     ,
-                 model_path   = '../sam2.1_hiera_large.pt',
-                 config       = 'auto'                    ,
-                 device       = 'auto'                    ,
-                 tmp_dir      = None                      ):
+    def _download_model(self):
+        """Качает модель, если её не оказалось в указанном месте."""
+        if not os.path.exists(self.model_path):
 
-        # Путь для модели:
-        self.model_path = model_path
+            # Определяем имя и путь до файла-модели:
+            file_dir, file_name = os.path.split(self.model_path)
+
+            # Создаём папку, если её не было:
+            mkdirs(file_dir)
+
+            # Путь до модели в вебе:
+            url = os.path.join(
+                'https://dl.fbaipublicfiles.com/segment_anything_2/092824/',
+                file_name,
+            )
+
+            # Загрузка:
+            prefix = f'Загрузка модели {url} в "{file_dir}" '
+            with AnnotateIt(prefix + '...', prefix + 'завершена!'):
+                urlretrieve(url, self.model_path)
+
+    def __init__(self                                  ,
+                 model_path   = 'sam2.1_hiera_large.pt',
+                 config       = 'auto'                 ,
+                 device       = 'auto'                 ,
+                 tmp_dir      = None                   ):
+
+        self.model_path = str(model2home(model_path))  # Доопределяем путь до модели
+        self._download_model()                         # Качаем модель, если её нет
 
         # Доопределяем конфигурационый файл, если надо:
         if config == 'auto':
@@ -968,3 +992,19 @@ class SAM2:
             task.obj.update({'subset': 'Train'})
 
         return task.values()[0].url
+
+
+# При автономном запуске закачиваем самую точную модель в "~/models/" и выполняем
+# другие подготовительные работы:
+if __name__ == '__main__':
+    # Пути к конфигурационным файлам:
+    src = Path(sam2.__file__).parent / 'configs' / 'sam2.1'
+    dst = Path(sam2.__file__).parent
+
+    # Копируем конфигурационные файлы SAM2:
+    shutil.copytree(src, dst, dirs_exist_ok=True)
+
+    # Создаём экземпляр для загрузки модели:
+    os.environ['CUDA_VISIBLE_DEVICES'] = ''
+    # Для загрузки моделей без их использования отключаем GPU.
+    SAM2()

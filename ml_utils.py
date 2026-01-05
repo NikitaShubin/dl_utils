@@ -1,7 +1,22 @@
 import numpy as np
+from pathlib import Path
 from sklearn.model_selection import train_test_split
 
-from utils import isint, isfloat, flatten_list
+from utils import isint, isfloat, flatten_list, mkdirs
+
+
+def model2home(model_path: str | Path) -> Path:
+    """Доопределяет путь к модели.
+
+    Если по заданному пути файла нет, а сам путь представляет собой только имя файла,
+    то доопределяем путь до ~/models/*.
+    """
+    model_path = Path(model_path)
+    if not model_path.exists() and str(model_path) == model_path.name:
+        dir_path = Path.home() / 'models'
+        model_path = dir_path / model_path
+        mkdirs(dir_path)  # Создаём эту папку, если её ещё нет
+    return model_path
 
 
 def ohe(tensor, num_classes):

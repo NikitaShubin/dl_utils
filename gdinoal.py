@@ -1,3 +1,4 @@
+from pathlib import Path
 from matplotlib import pyplot as plt
 from groundingdino.util.inference import load_model, predict, T, Image
 import groundingdino
@@ -11,6 +12,7 @@ from pt_utils import AutoDevice
 from cvat import CVATPoints, concat_dfs
 from utils import color_float_hsv_to_uint8_rgb, mkdirs, AnnotateIt
 from cv_utils import BBox
+from ml_utils import model2home
 
 
 class GDino:
@@ -72,13 +74,17 @@ class GDino:
     def _build_caption(prompt2label):
         return '.'.join(prompt2label.keys())
 
-    def __init__(self                                                     ,
-                 model_path          = './groundingdino_swinb_cogcoor.pth',
-                 box_threshold       = 0.35                               ,
-                 text_threshold      = 0.25                               ,
-                 device              = 'auto'                             ,
-                 prompt2label        = {}                                 ,
-                 postprocess_filters = []                                 ):
+    def __init__(self                                                   ,
+                 model_path          = 'groundingdino_swinb_cogcoor.pth',
+                 box_threshold       = 0.35                             ,
+                 text_threshold      = 0.25                             ,
+                 device              = 'auto'                           ,
+                 prompt2label        = {}                               ,
+                 postprocess_filters = []                               ):
+
+        # Если указано только имя файла, а сам он ещё не существует, размещаем его
+        # в ~/models/:
+        model_path = str(model2home(model_path))
 
         # Если в пути не указано имя ни одной модели, то считаем это
         # именем папки, а моделью выберем groundingdino_swinb_cogcoor.pth:
@@ -329,3 +335,8 @@ class GDino:
     def show(self, *args, **kwargs):
         plt.imshow(self.draw(*args, **kwargs))
         plt.axis(False)
+
+
+# При автономном запуске закачиваем самую тяжёлую модель в "~/models/":
+if __name__ == '__main__':
+    GDino(device='cpu')

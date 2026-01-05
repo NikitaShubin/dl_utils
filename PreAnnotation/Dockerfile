@@ -16,7 +16,7 @@ SHELL ["/bin/bash", "-l", "-o", "pipefail", "-c"]
 # В данном случае не нужно, т.к. выбранный прообраз лишён этого недостатка.
 
 # Устанавливаем доп. приложения:
-ARG APPLICATIONS="git ffmpeg wget"
+ARG APPLICATIONS="git ffmpeg wget gosu"
 
 RUN echo $APPLICATIONS
 RUN apt-get update                                           && \
@@ -79,17 +79,10 @@ RUN ${PIP} install $PIPPARAMS --upgrade pip && \
     eval "${PIP} install $PIPPARAMS $PYTHONMODULES --upgrade" && \
     eval "${PIP} cache purge"
 
-# Исправляем баг SAM2 с недоступностью конфигурационных файлов:
-RUN pypackagesdir=$(${PIP} show sam-2 | grep Location | cut -d' ' -f2) && \
-    cp -R "$pypackagesdir/sam2/configs/sam2.1/." "$pypackagesdir/sam2/" && \
-    wget --progress=dot -P "$pypackagesdir/sam2/" \
-    "https://github.com/SysCV/sam-hq/blob/main/sam-hq2/sam2/configs/sam2.1/sam2.1_hq_hiera_l.yaml"
-
 # Отключаем у JupyterLab надоедливый вопрос об обновлении и
 # выключаем поддержку voila, т.к. внтури JupyterLab она всё равно не работает:
 RUN jupyter labextension disable '@jupyterlab/apputils-extension:announcements' && \
     jupyter server extension disable voila
-
 
 # Точка монтирования внутри контейнера:
 VOLUME  "${WORKSPACE}"
@@ -103,28 +96,22 @@ COPY --chown="${USERNAME}:${USERNAME}" --chmod=777 *.py ./src/
 COPY --chown="${USERNAME}:${USERNAME}" --chmod=777 PreAnnotation/*.ipynb PreAnnotation/*.xlsx ./
 # Интерфейсные юпитер-ноутбуки.
 
-
-# Создаём пользователя, даём ему право использовать sudo без пароля и устанавливаем его по умолчанию:
+# Создаём пользователя и даём ему право использовать sudo без пароля:
 RUN useradd -ms "${SHELL_PATH}" "${USERNAME}"         && \
     adduser "${USERNAME}" sudo                        && \
     echo "${USERNAME}" ALL = NOPASSWD: ALL >> /etc/sudoers
+
+# Скачиваем модели SAM2, DINO, YOLO и ReID в ~/models/:
+ARG MODELSDIR="${HOMEDIR}"/models/
+RUN gosu "${USERNAME}" python ./src/gdinoal.py      && \
+    python ./src/sam2al.py                          && \
+    gosu "${USERNAME}" python ./src/ul_utils.py     && \
+    gosu "${USERNAME}" python ./src/boxmot_utils.py && \
+    mv /root/models "${MODELSDIR}"                  && \
+    chown -R "${USERNAME}:${USERNAME}" "${MODELSDIR}"
+
+# Устанавливаем пользователя по умолчанию:
 USER "${USERNAME}"
-
-
-# Создаём папку для моделей:
-RUN mkdir "${HOMEDIR}"/models/
-
-# Скачиваем самые мощные модели SAM2 и DINO:
-ARG SAM2URL="https://dl.fbaipublicfiles.com/segment_anything_2/092824/sam2.1_hiera_large.pt"
-ARG GDURL="https://github.com/IDEA-Research/GroundingDINO/releases/download/v0.1.0-alpha2/groundingdino_swinb_cogcoor.pth"
-RUN wget --progress=dot:giga -c --retry-connrefused -t 10 -T 900 -P "${HOMEDIR}"/models/ "${SAM2URL}" "${GDURL}" && \
-    # Доустановка некоторых моделей для Ultralytics:
-    python -c "import sys; sys.path.append('./src'); from src.ul_utils import UltralyticsModel; list(map(UltralyticsModel, ['rtdetr-x.pt', 'yolo11x-seg.pt']))" && \
-    # Полные права доступа ко всем моделям:
-    chmod -R 777 "${HOMEDIR}"/models/ && \
-    # Доустановка мелочей для GroundingDINO:
-    python -c "import os; import groundingdino; from groundingdino.util.inference import load_model; load_model(os.path.join(os.path.dirname(os.path.abspath(groundingdino.__file__)), 'config', 'GroundingDINO_SwinB_cfg.py'), '${HOMEDIR}/models/groundingdino_swinb_cogcoor.pth')"
-
 
 # Установка тёмной темы в JupyterLab:
 ARG THEMEDIR="${HOMEDIR}"/.jupyter/lab/user-settings/\@jupyterlab/apputils-extension/
