@@ -231,13 +231,14 @@ RUN useradd -ms "${SHELL_PATH}" "${USERNAME}"              && \
     chmod 1777 /etc && chmod 1777 "${HOMEDIR}"
 
 # Скачиваем модели SAM2 и DINO в ~/models/:
-ARG MODELSDIR="${HOMEDIR}"/models/
 COPY *.py /tmp/py/
-RUN gosu "${USERNAME}" python /tmp/py/gdinoal.py          && \
-    python /tmp/py/sam2al.py                     && \
-    mv /root/models/* "${MODELSDIR}"             && \
-    rm -rf /root/models /tmp/py/                 && \
-    chown -R "${USERNAME}:${USERNAME}" "${MODELSDIR}"
+RUN python ./tmp/py/sam2al.py                       && \
+    mv /root/models "${HOMEDIR}"                    && \
+    # Модель для SAM2 приходится качать под root из-за необходимости править сам модуль sam2.
+    chown -R "${USERNAME}:${USERNAME}" "${HOMEDIR}" && \
+    # Все файлы в домашней папке пользователя должны снова пренадлежать пользователю.
+    gosu "${USERNAME}" python ./tmp/py/gdinoal.py
+    # Остальные модели можно качать под обычным пользователем.
 
 # Переключаемся на пользователя:
 USER "${USERNAME}"

@@ -102,13 +102,15 @@ RUN useradd -ms "${SHELL_PATH}" "${USERNAME}"         && \
     echo "${USERNAME}" ALL = NOPASSWD: ALL >> /etc/sudoers
 
 # Скачиваем модели SAM2, DINO, YOLO и ReID в ~/models/:
-ARG MODELSDIR="${HOMEDIR}"/models/
-RUN gosu "${USERNAME}" python ./src/gdinoal.py      && \
-    python ./src/sam2al.py                          && \
+RUN python ./src/sam2al.py                          && \
+    mv /root/models "${HOMEDIR}"                    && \
+    # Модель для SAM2 приходится качать под root из-за необходимости править сам модуль sam2.
+    chown -R "${USERNAME}:${USERNAME}" "${HOMEDIR}" && \
+    # Все файлы в домашней папке пользователя должны снова пренадлежать пользователю.
+    gosu "${USERNAME}" python ./src/gdinoal.py      && \
     gosu "${USERNAME}" python ./src/ul_utils.py     && \
-    gosu "${USERNAME}" python ./src/boxmot_utils.py && \
-    mv /root/models "${MODELSDIR}"                  && \
-    chown -R "${USERNAME}:${USERNAME}" "${MODELSDIR}"
+    gosu "${USERNAME}" python ./src/boxmot_utils.py
+    # Остальные модели можно качать под обычным пользователем.
 
 # Устанавливаем пользователя по умолчанию:
 USER "${USERNAME}"
