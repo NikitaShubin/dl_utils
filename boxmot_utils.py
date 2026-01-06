@@ -68,7 +68,7 @@ class Tracker:
         tracker_type: str = 'ocsort',
         *,
         store_untracked: bool = False,
-        **tracker_kwargs: dict[str, int | float | str | Path | None],
+        **tracker_kwargs: object,
     ) -> None:
         """Инициализирует трекер.
 
