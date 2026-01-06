@@ -41,8 +41,8 @@ IMAGE_NAME_AND_TAGS=(
 )
 
 # Пытаемся собирать образ каждый раз заново:
-if ! docker build --progress=plain "${IMAGE_NAME_AND_TAGS[@]}" -f "${DOCKERFILE_DIR}"/Dockerfile "${DOCKERFILE_DIR}/..";
-# if ! docker build "${IMAGE_NAME_AND_TAGS[@]}" -f "${DOCKERFILE_DIR}"/Dockerfile "${DOCKERFILE_DIR}/..";
+# if ! docker build --progress=plain "${IMAGE_NAME_AND_TAGS[@]}" -f "${DOCKERFILE_DIR}"/Dockerfile "${DOCKERFILE_DIR}/..";
+if ! docker build "${IMAGE_NAME_AND_TAGS[@]}" -f "${DOCKERFILE_DIR}"/Dockerfile "${DOCKERFILE_DIR}/..";
 then
     # Если образ собрать не удалось - берём готовый с DockerHub:
     printf "%bОбраз не собран!\n" "$RED"
