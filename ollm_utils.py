@@ -26,6 +26,10 @@
 * • set_jupyter_ai_settings() - настройка  *
 *   Jupyter AI.                            *
 *                                          *
+* Основные классы:                         *
+* • Chat - объект, через который можно     *
+*   везти диалог с моделью.                *
+*                                          *
 * Вызов модуля как исполняемого файла      *
 * запускает set_jupyter_ai_settings без    *
 * параметров - доступный Ollama-сервер     *
@@ -229,12 +233,17 @@ def hosts2chat_embd_cmpl_models(
 
             # Вносим запись в соответствующий словарь, если надо:
             if model_name not in cur_dict:
-                cur_dict['ollama:' + model_name] = {'base_url': host}
+                cur_dict[model_name] = {'base_url': host}
 
     return chat_models, embd_models, cmpl_models
 
 
-def _first_model(fields: Fields) -> str | None:
+def _ollama_prefix(models: dict[str, dict[str, str]]) -> dict[str, dict[str, str]]:
+    """Добавляет "ollama:" к началу имени каждой модели."""
+    return {'ollama:' + key: val for key, val in models.items()}
+
+
+def _first_model(fields: Fields | list[str]) -> str | None:
     """Берёт имя первой модели из словаря."""
     return next(iter(fields), None)
 
@@ -274,6 +283,11 @@ def set_jupyter_ai_settings(
     # Определяем доступные модели:
     chat_models, embd_models, cmpl_models = hosts2chat_embd_cmpl_models(hosts)
 
+    # Добавляем "ollama:" к началу имени каждой модели:
+    chat_models = _ollama_prefix(chat_models)
+    embd_models = _ollama_prefix(embd_models)
+    cmpl_models = _ollama_prefix(cmpl_models)
+
     # Собираем словари моделей для конфигураций:
     fields = {**chat_models, **embd_models}
     embeddings_fields = {**embd_models, **chat_models}
@@ -293,12 +307,188 @@ def set_jupyter_ai_settings(
     return obj2json(cfg, cfg_path)
 
 
+def file2context(file: list[str | Path] | str | Path) -> str:
+    """Преобразует файл или список файлов в текстовое представление.
+
+    Args:
+        file: Путь или список путей к текстовым файлам
+
+    Returns:
+        Строка с содержимым всех файлов, разделённых заголовками
+
+    """
+    result = []
+
+    # Если передан один файл, делаем список из одного элемента:
+    files = [file] if isinstance(file, (str, Path)) else file
+
+    # Преобразуем в каждый путь в Path-объект:
+    for path in map(Path, files):
+        # Добавляем заголовок файла:
+        result.append(f'\n{"=" * 60}')
+        result.append(f'ФАЙЛ: {path.name} (путь: {path})')
+        result.append(f'{"=" * 60}\n')
+
+        # Добавляем содержимое файла:
+        result.append(path.read_text(encoding='utf-8'))
+
+        # Добавляем конец файла:
+        result.append(f'\n{"=" * 60}')
+        result.append(f'КОНЕЦ ФАЙЛА: {path.name}')
+        result.append(f'{"=" * 60}\n')
+
+    return ''.join(result)
+
+
+class Chat:
+    """Класс для взаимодействия с моделями Ollama через чат-интерфейс."""
+
+    def __init__(
+        self,
+        host: str = '',
+        model: str = '',
+        temperature: float = 0.0,
+        timeout: int = 300,
+        seed: int = 42,
+    ) -> None:
+        """Инициализация чата с Ollama.
+
+        Args:
+            host: Адрес Ollama-сервера. Если None, берётся из OLLAMA_HOST
+            model: Имя модели. Если None, берётся первая доступная модель
+            temperature: Температура инференса [0., 1.]
+                (0 - полная воспроизводимость результатов)
+            timeout: Время ожидания ответа
+            seed: Seed для генерации случайных чисел
+                (в сочетании с temperature=0 даёт какое-то подобие детерминированности)
+
+        """
+        # Доопределяем и фиксируем адрес Ollama-сервера:
+        host = host or os.getenv(env_var_host, '')
+        if not host.startswith(('http://', 'https://')):
+            host = f'http://{host}'
+        self.host = host
+
+        # Доопределяем и фиксируем используемую модель:
+        if not model:
+            chat_models, _embd_models, cmpl_models = self.get_models()
+            first_model = _first_model(chat_models + cmpl_models)
+            if first_model is None:
+                msg = 'Модель не найдена!'
+                raise ValueError(msg)
+            model = first_model
+        self.model = model
+
+        # Фиксируем остальные параметры:
+        self.temperature = temperature
+        self.timeout = timeout
+        self.seed = seed
+
+        # Инициируем историю диалога:
+        self.messages: list[dict[str, str]] = []
+
+    def _warmup_model(self) -> None:
+        """Отправляет тестовый запрос для стабилизации модели."""
+        warmup_payload = {
+            'model': self.model,
+            'prompt': 'ping',
+            'stream': False,
+            'options': {
+                'temperature': self.temperature,
+                'seed': self.seed,
+                'num_predict': 1,  # Минимальная длина ответа
+            },
+        }
+        response = requests.post(
+            f'{self.host}/api/generate',
+            json=warmup_payload,
+            timeout=self.timeout,
+        )
+        response.raise_for_status()
+
+    def get_models(self) -> tuple[list[str], list[str], list[str]]:
+        """Получает и классифицирует все модели, доступные на Ollama-сервере.
+
+        Использует функцию hosts2chat_embd_cmpl_models для получения списка моделей
+        с сервера и их автоматической классификации по типам.
+
+        Returns:
+            Кортеж из трех списков:
+            - chat_models: модели, оптимизированные для диалога
+            - embd_models: модели для создания эмбеддингов
+            - cmpl_models: модели для генерации кода и дополнения текста
+
+        """
+        chat_models, embd_models, cmpl_models = hosts2chat_embd_cmpl_models([self.host])
+        return list(chat_models), list(embd_models), list(cmpl_models)
+
+    def __call__(
+        self,
+        message: str,
+        file: list[str | Path] | str | Path | None = None,
+    ) -> str:
+        """Отправляет сообщение модели и возвращает ответ.
+
+        Args:
+            message: Текст сообщения
+            file: Список путей к файлам
+
+        Returns:
+            Ответ модели в виде строки
+
+        """
+        # Добавляем к запросу содержимое файлов, если надо:
+        if file:
+            message = file2context(file) + message
+
+        # Добавляем сообщение пользователя в историю диалога:
+        self.messages.append({'role': 'user', 'content': message})
+
+        # Формируем запрос:
+        payload = {
+            'model': self.model,
+            'messages': self.messages,
+            'stream': False,
+            'options': {
+                'temperature': self.temperature,
+                'seed': self.seed,
+            },
+        }
+
+        # Если нужна полная детерминированность - выполняем прогрев модели:
+        if self.temperature == 0.0:
+            self._warmup_model()
+
+        # Отправляем запрос:
+        response = requests.post(
+            f'{self.host}/api/chat',
+            json=payload,
+            timeout=self.timeout,
+        )
+        response.raise_for_status()
+
+        # Получаем ответ:
+        result = response.json()
+        assistant_response = result['message']['content']
+
+        # Добавляем ответ модели в историю диалога:
+        self.messages.append({'role': 'assistant', 'content': assistant_response})
+
+        return assistant_response
+
+    def reset(self) -> None:
+        """Очищает историю диалога."""
+        self.messages.clear()
+
+
 if __name__ == '__main__':
     set_jupyter_ai_settings()
 
 
 __all__ = [
+    'Chat',
     'env_var_host',
+    'file2context',
     'host2models_info',
     'hosts2chat_embd_cmpl_models',
     'model_name2type',
