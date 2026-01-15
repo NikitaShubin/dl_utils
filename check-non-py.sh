@@ -25,14 +25,38 @@ print_error() { echo -e "${RED}❌ $1${NC}"; }
 # Получаем абсолютный путь к директории скрипта:
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 
-# Проверяем Git-репозиторий относительно директории скрипта
-if ! git -C "$SCRIPT_DIR" rev-parse --git-dir > /dev/null 2>&1; then
-    print_error "Этот скрипт должен запускаться внутри Git-репозитория"
+# Определяем целевую директорию: либо аргумент, либо директория скрипта
+TARGET_DIR="${1:-$SCRIPT_DIR}"
+
+# Преобразуем относительный путь в абсолютный, если это не абсолютный путь
+if [[ ! "$TARGET_DIR" = /* ]]; then
+    TARGET_DIR="$(cd "$TARGET_DIR" && pwd)"
+fi
+
+# Убираем возможный завершающий слэш для корректной работы git -C
+TARGET_DIR="${TARGET_DIR%/}"
+
+echo -e "${BLUE}🎯 Целевая директория: $TARGET_DIR${NC}"
+echo
+
+# Проверяем, существует ли целевая директория
+if [[ ! -d "$TARGET_DIR" ]]; then
+    print_error "Целевая директория не существует: $TARGET_DIR"
     exit 1
 fi
 
-# Получаем корень Git-репозитория (относительно директории скрипта):
-GIT_ROOT="$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel)"
+# Проверяем Git-репозиторий относительно целевой директории
+if ! git -C "$TARGET_DIR" rev-parse --git-dir > /dev/null 2>&1; then
+    print_error "Целевая директория должна находиться внутри Git-репозитория"
+    echo "Запуск из: $TARGET_DIR"
+    exit 1
+fi
+
+# Получаем корень Git-репозитория (относительно целевой директории):
+GIT_ROOT="$(git -C "$TARGET_DIR" rev-parse --show-toplevel)"
+
+echo -e "${BLUE}📦 Корень Git-репозитория: $GIT_ROOT${NC}"
+echo
 
 # Функция для получения списка файлов из Git-индекса
 get_git_files_by_extension() {
@@ -53,6 +77,20 @@ get_dockerfiles() {
     git -C "$GIT_ROOT" ls-files | grep -E '\.Dockerfile$' || true
 }
 
+# Функция для поиска docker-compose файлов
+get_docker_compose_files() {
+    # Ищем файлы с именами docker-compose*.yml, docker-compose*.yaml, compose*.yml, compose*.yaml
+    git -C "$GIT_ROOT" ls-files | while IFS= read -r file; do
+        # Получаем имя файла отдельно, чтобы избежать предупреждения SC2155
+        local filename
+        filename=$(basename "$file")
+        # Проверяем, что имя файла соответствует шаблону docker-compose
+        if [[ "$filename" =~ ^(docker-)?compose[^/]*\.(yml|yaml)$ ]] && [[ ! "$filename" =~ ^\. ]]; then
+            echo "$file"
+        fi
+    done
+}
+
 # Функция для выполнения проверки
 run_check() {
     local description="$1"
@@ -61,9 +99,11 @@ run_check() {
     local get_files_func="$4"  # Функция для получения файлов
 
     print_separator "Проверка $description"
-
-    echo -e "${BLUE}📁 Конфигурационный файл: $config_file${NC}"
-    echo
+    
+    if [[ -n "$config_file" ]]; then
+        echo -e "${BLUE}📁 Конфигурационный файл: $config_file${NC}"
+        echo
+    fi
 
     found_files=0
     all_files=()
@@ -105,14 +145,21 @@ run_check() {
     fi
 }
 
+# Проверка docker-compose файлов:
+cfg="$SCRIPT_DIR/.dclintrc"
+run_check "🐙 docker-compose файлы" "dclint -c \"$cfg\"" "$cfg" "get_docker_compose_files"
+
 # Проверка Dockerfile:
-run_check "Dockerfile" "hadolint --config \"$SCRIPT_DIR/.hadolint.yaml\"" "$SCRIPT_DIR/.hadolint.yaml" "get_dockerfiles"
+cfg="$SCRIPT_DIR/.hadolint.yaml"
+run_check "🐋 Dockerfile" "hadolint --config \"$cfg\"" "$cfg" "get_dockerfiles"
 
 # Проверка shell-скриптов:
-run_check "shell-скрипты" "shellcheck --source-path=\"$SCRIPT_DIR\"" "$SCRIPT_DIR/.shellcheckrc" "get_git_files_by_extension sh"
+cfg="$SCRIPT_DIR/.shellcheckrc"
+run_check "🐚 shell-скрипты" "shellcheck --source-path=\"$cfg\"" "$cfg" "get_git_files_by_extension sh"
 
 # Проверка Markdown файлов:
-run_check "Markdown файлы" "markdownlint --config \"$SCRIPT_DIR/.markdownlint.yaml\"" "$SCRIPT_DIR/.markdownlint.yaml" "get_git_files_by_extension md"
+cfg="$SCRIPT_DIR/.markdownlint.yaml"
+run_check "📖 Markdown файлы" "markdownlint --config \"$cfg\"" "$cfg" "get_git_files_by_extension md"
 
 print_separator "ВСЕ ПРОВЕРКИ ЗАВЕРШЕНЫ"
 print_success "Все проверки прошли успешно!"
