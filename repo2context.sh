@@ -43,24 +43,33 @@ if ! command -v tree &> /dev/null; then
     exit 1
 fi
 
+# Создаем временный файл вне текущего каталога
+TEMP_FILE=$(mktemp -p /tmp)
+
 # 1. Структура файловой системы (исключаем скрипт и итоговый файл)
-echo "=== СТРУКТУРА РЕПОЗИТОРИЯ ===" > "$OUTPUT"
-tree -a -I ".git|__pycache__|node_modules|*.pyc|$OUTPUT|$SCRIPT_NAME" --dirsfirst . >> "$OUTPUT" 2>/dev/null
+{
+    echo "=== СТРУКТУРА РЕПОЗИТОРИЯ ==="
+    tree -a -I ".git|__pycache__|node_modules|*.pyc|$OUTPUT|$SCRIPT_NAME" --dirsfirst . 2>/dev/null
+    echo -e "\n\n=== СОДЕРЖИМОЕ ТЕКСТОВЫХ ФАЙЛОВ ==="
+} > "$TEMP_FILE"
 
 # 2. Содержимое текстовых файлов
-echo -e "\n\n=== СОДЕРЖИМОЕ ТЕКСТОВЫХ ФАЙЛОВ ===" >> "$OUTPUT"
-
 find . -type f ! -path "./.git/*" ! -name "$OUTPUT" ! -name "$SCRIPT_NAME" -print0 | while IFS= read -r -d '' file; do
     # Проверяем, является ли файл текстовым по кодировке
     if file -b --mime-encoding "$file" | grep -q -E 'utf-8|us-ascii|iso-8859'; then
-        echo -e "\n--- Файл: $file ---" >> "$OUTPUT"
-        cat "$file" >> "$OUTPUT" 2>/dev/null
-        echo "" >> "$OUTPUT"
+        {
+            echo -e "\n--- Файл: $file ---"
+            cat "$file" 2>/dev/null
+            echo ""
+        } >> "$TEMP_FILE"
     fi
 done
 
 # 3. Явное указание окончания
-echo -e "\n\n=== КОНЕЦ ПЕРЕЧИСЛЕНИЯ ФАЙЛОВ ===" >> "$OUTPUT"
+echo -e "\n\n=== КОНЕЦ ПЕРЕЧИСЛЕНИЯ ФАЙЛОВ ===" >> "$TEMP_FILE"
+
+# Перемещаем временный файл в окончательное место
+mv "$TEMP_FILE" "$OUTPUT"
 
 # Цветной вывод в терминал
 echo -e "${GREEN}✓ Промпт сохранён в:${NC} $(pwd)/$OUTPUT"
