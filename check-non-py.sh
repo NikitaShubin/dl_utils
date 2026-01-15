@@ -5,7 +5,7 @@ set -e
 # Цвета для вывода:
 RED='\033[0;31m'
 GREEN='\033[0;32m'
-BLUE='\033[0;34m'
+BLUE='\033[1;34m'
 CYAN='\033[0;36m'
 MAGENTA='\033[0;35m'
 GRAY='\033[0;90m'
@@ -35,10 +35,15 @@ fi
 GIT_ROOT="$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel)"
 
 # Функция для получения списка файлов из Git-индекса
-get_git_files() {
-    local pattern="$1"
-    # Используем git -C для работы с репозиторием без изменения текущей директории
-    git -C "$GIT_ROOT" ls-files "$pattern" 2>/dev/null || true
+get_git_files_by_extension() {
+    local extension="$1"
+    # Ищем все файлы с указанным расширением, исключая скрытые файлы (начинающиеся с .)
+    git -C "$GIT_ROOT" ls-files | while IFS= read -r file; do
+        # Проверяем, что файл имеет нужное расширение и не является скрытым
+        if [[ "$file" =~ \.${extension}$ ]] && [[ ! "$(basename "$file")" =~ ^\. ]]; then
+            echo "$file"
+        fi
+    done
 }
 
 # Функция для рекурсивного поиска файлов Dockerfile
@@ -52,33 +57,25 @@ get_dockerfiles() {
 run_check() {
     local description="$1"
     local lint_cmd="$2"
-    shift 2
-    local patterns=("$@")
+    local config_file="$3"
+    local get_files_func="$4"  # Функция для получения файлов
 
     print_separator "Проверка $description"
+
+    echo -e "${BLUE}📁 Конфигурационный файл: $config_file${NC}"
+    echo
 
     found_files=0
     all_files=()
 
-    # Для Dockerfile используем специальную функцию
-    if [[ "$description" == "Dockerfile" ]]; then
-        while IFS= read -r file; do
-            if [[ -n "$file" && -f "$GIT_ROOT/$file" ]]; then
-                all_files+=("$file")
-            fi
-        done < <(get_dockerfiles)
-    else
-        # Для остальных файлов используем паттерны
-        for pattern in "${patterns[@]}"; do
-            while IFS= read -r file; do
-                if [[ -n "$file" && -f "$GIT_ROOT/$file" ]]; then
-                    all_files+=("$file")
-                fi
-            done < <(get_git_files "$pattern")
-        done
-    fi
+    # Получаем файлы
+    while IFS= read -r file; do
+        if [[ -n "$file" && -f "$GIT_ROOT/$file" ]]; then
+            all_files+=("$file")
+        fi
+    done < <($get_files_func)
 
-    # Убираем дубликаты (на случай если файл попал под несколько паттернов)
+    # Убираем дубликаты
     if [[ ${#all_files[@]} -gt 0 ]]; then
         mapfile -t all_files < <(printf "%s\n" "${all_files[@]}" | sort -u)
     fi
@@ -97,7 +94,7 @@ run_check() {
         file_dir="$(dirname "$file_path")"
         file_name="$(basename "$file_path")"
 
-        # Запускаем линтер из директории файла (в подпроцессе)
+        # Запускаем линтер из директории файла
         (cd "$file_dir" && eval "$lint_cmd \"$file_name\"")
     done
 
@@ -109,16 +106,13 @@ run_check() {
 }
 
 # Проверка Dockerfile:
-echo -e "${BLUE}📁 Конфигурационный файл: $SCRIPT_DIR/.hadolint.yaml${NC}"
-run_check "Dockerfile" "hadolint --config \"$SCRIPT_DIR/.hadolint.yaml\""
+run_check "Dockerfile" "hadolint --config \"$SCRIPT_DIR/.hadolint.yaml\"" "$SCRIPT_DIR/.hadolint.yaml" "get_dockerfiles"
 
 # Проверка shell-скриптов:
-echo -e "${BLUE}📁 Конфигурационный файл: $SCRIPT_DIR/.shellcheckrc${NC}"
-run_check "shell-скрипты" "shellcheck --source-path=\"$SCRIPT_DIR\"" "**/*.sh"
+run_check "shell-скрипты" "shellcheck --source-path=\"$SCRIPT_DIR\"" "$SCRIPT_DIR/.shellcheckrc" "get_git_files_by_extension sh"
 
 # Проверка Markdown файлов:
-echo -e "${BLUE}📁 Конфигурационный файл: $SCRIPT_DIR/.markdownlint.yaml${NC}"
-run_check "Markdown файлы" "markdownlint --config \"$SCRIPT_DIR/.markdownlint.yaml\"" "**/*.md"
+run_check "Markdown файлы" "markdownlint --config \"$SCRIPT_DIR/.markdownlint.yaml\"" "$SCRIPT_DIR/.markdownlint.yaml" "get_git_files_by_extension md"
 
 print_separator "ВСЕ ПРОВЕРКИ ЗАВЕРШЕНЫ"
 print_success "Все проверки прошли успешно!"
