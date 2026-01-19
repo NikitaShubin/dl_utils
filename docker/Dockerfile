@@ -115,6 +115,12 @@ ARG PYTHONMODULES_BASE="                                                 \
     # Большой банк предобученных CV-моделей                              \
     git+https://github.com/leondgarse/keras_cv_attention_models          \
                                                                          \
+    # Torch:                                                             \
+    torchsummary torchmetrics                                            \
+                                                                         \
+    # Дополнительно для CV:                                              \
+    kornia                                                               \
+                                                                         \
     # Математическая анимация:                                           \
     manim                                                                \
                                                                          \
