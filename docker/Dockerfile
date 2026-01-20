@@ -134,6 +134,7 @@ ARG PYTHONMODULES_BASE="                                                 \
     jupyterlab_nvdashboard jupyter-resource-usage                        \
     jupyterlab-latex jupyterlab-git                                      \
     ipympl mpl_point_clicker mpl_interactions[jupyter]                   \
+    Jupyter-Beeper                                                       \
     # jupyter-collaboration jupyterlab_autoscrollcelloutput              \
     # pydevd-pycharm jupyverse[jupyterlab,auth]                          \
     # ipympl, mpl_point_clicker и mpl_interactions для интерактивного    \

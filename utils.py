@@ -99,13 +99,13 @@ import numpy as np
 import zipfile
 import glob
 import json
+import time
 
 # from inspect import isclass
 from pathlib import Path
 from functools import reduce
 from shutil import rmtree, copyfile, move
 from tqdm import tqdm
-from time import time
 from multiprocessing import pool, Pool
 from IPython.display import clear_output, HTML  # , Javascript, display
 from matplotlib import pyplot as plt
@@ -2249,7 +2249,7 @@ def draw_repo_dependency_graph(
 def obj2yaml(obj, file='./cfg.yaml', encoding='utf-8', allow_unicode=True):
     '''
     Пишет словарь, множество или кортеж в yaml-файл.
-    Параметры по-умолчанию позволяют сохранять кириллицу.
+    Параметры по умолчанию позволяют сохранять кириллицу.
     '''
     with open(file, 'w', encoding=encoding) as f:
         yaml.safe_dump(obj,
@@ -2605,7 +2605,7 @@ def get_file_list(path: str,
         get_dirs = False
 
     # Если в списках расширений есть '.*' или 'all',
-    # или исходный extentions оставлен по-умолчанию,
+    # или исходный extentions оставлен по умолчанию,
     # то искать надо все файлы:
     get_all_files = (file_extentions & {'.*', 'all'}) or len(extentions) == 0
 
@@ -2716,7 +2716,7 @@ def mpmap(func      : 'Функция, применяемая отдельно �
           *args     : 'Список аргументов'                                                             ,
           num_procs : 'Число одновременно запускаемых процессов. По умолчанию = числу ядер ЦПУ' = 0   ,
           batch_size: 'Группировать несколько элементов в одном процессе для мелких задач'      = 1   ,
-          desc      : 'Текст статус-бара. По-умолчанию статус-бар не отображается'              = None):
+          desc      : 'Текст статус-бара. По умолчанию статус-бар не отображается'              = None):
     '''
     Обрабатывает каждый элемент списка в отдельном процессе.
     Т.е. это некий аналог map-функции в параллельном режиме.
@@ -3147,11 +3147,11 @@ class TimeIt():
         self.title = title
 
     def __enter__(self):
-        self.start = time()
+        self.start = time.time()
         return self
 
     def __exit__(self, type, value, traceback):
-        self.time_spent = time() - self.start
+        self.time_spent = time.time() - self.start
         if self.title:
             print(
                 'На %s потрачено %.6s секунд.' % (self.title, self.time_spent))
@@ -3175,6 +3175,7 @@ class AnnotateIt():
     def __init__(self,
                  start_annotation: 'Предворяющий текст' = '',
                  end_annotation: 'Завершающий  текст' = None):
+        """Инициализация."""
 
         # Если оба текста не указаны, то выводиться ничего не будет:
         self.enable = start_annotation or end_annotation
@@ -3204,6 +3205,89 @@ class AnnotateIt():
     def __exit__(self, type, value, traceback):
         if self.enable:
             print('\r' + self.end_annotation)
+
+
+class Beep:
+    """Контекст для кода в Jupyter, издающий звук при завершении.
+
+    Требуется установка модуля jupyter_beeper.
+    """
+
+    def __init__(self, *args):
+        """Инициализация.
+
+        В качестве агрументов должны перечисляться паузы в секундах для
+        однократного, двукратного, трёхкратного и т.д. гудков соответственно. Список
+        сортируется по возрастанию. По умолчанию будет одинарный при любой задержке.
+
+        Примеры:
+            > with Beep():
+            >     pass
+            > # Одинарный сигнал.
+
+            > with Beep(60, 300):
+            >     time.sleep(30)
+            > # Сигнала не будет.
+
+            > with Beep(60, 300):
+            >     time.sleep(100)
+            > # Одинарный сигнал.
+
+            > with Beep(60, 300):
+            >     time.sleep(500)
+            > # Двойной сигнал.
+        """
+
+        # Убеждаемся, что это действительно Jupyter:
+        try:
+            from IPython import get_ipython
+            ip = get_ipython()
+            # Проверяем различные признаки Jupyter:
+            if ip is None or not hasattr(ip, 'kernel'):
+                raise ImportError
+        except ImportError:
+            print(
+                'Код запущен не в ноутбуке.',
+                'Звукового уведомления не будет!',
+            )
+            return
+
+        # Загрузка необходимого модуля:
+        try:
+            import jupyter_beeper
+            self.beeper = jupyter_beeper.Beeper()
+        except ImportError:
+            print(
+                'Модуль "jupyter_beeper" не установлен.',
+                'Звукового уведомления не будет!',
+            )
+            return
+
+        # По умолчанию - одинарный гудок для любой задержки:
+        if len(args):
+            self.pauses = sorted(args)
+        else:
+            self.pauses = [0]
+
+    def __enter__(self):
+        """Засекаем время в начале."""
+        self.start = time.time()
+        return self
+
+    def __exit__(self, type, value, traceback):
+        """Издаём звук в конце с нужным числом повторений."""
+        # Если звук всё равно издать не удастся - ничего не делаем:
+        if not hasattr(self, 'beeper'):
+            return
+
+        # Определяем временной инрервал:
+        time_spent = time.time() - self.start
+
+        for pause in self.pauses:
+            if time_spent < pause:
+                break
+            self.beeper.beep(frequency=440, secs=0.5, blocking=True)
+            self.beeper.beep(frequency=530, secs=0.5, blocking=True)
 
 
 class DelayedInit:
