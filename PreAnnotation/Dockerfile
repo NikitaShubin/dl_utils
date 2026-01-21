@@ -46,6 +46,7 @@ ARG PYTHONMODULES="                                                      \
     jupyterlab_nvdashboard                                               \
     # jupyter-collaboration                                              \
     ipympl mpl_point_clicker mpl_interactions[jupyter] matplotlib        \
+    Jupyter-Beeper                                                       \
                                                                          \
     # Базовые модули:                                                    \
     opencv-python scikit-learn pandas numba scikit-image                 \
@@ -62,7 +63,8 @@ ARG PYTHONMODULES="                                                      \
     #                    Фундаментальные модели:                         \
                                                                          \
     # HQSAM (используется в samal.py вместо Segment Anything Model):     \
-    git+https://github.com/SysCV/sam-hq.git timm                         \
+    # git+https://github.com/SysCV/sam-hq.git timm                       \
+    segment-anything-hq                                                  \
                                                                          \
     # Segment Anything Model 2.1 (для сегментации видео):                \
     git+https://github.com/facebookresearch/sam2.git decord              \

@@ -176,7 +176,8 @@ com/PublicPackages/_packaging/onnxruntime-cuda-12/pypi/simple/           \
     # git+https://github.com/hkchengrex/Tracking-Anything-with-DEVA.git  \
                                                                          \
     # HQSAM (используется в samal.py вместо Segment Anything Model):     \
-    git+https://github.com/SysCV/sam-hq.git timm                         \
+    # git+https://github.com/SysCV/sam-hq.git timm                       \
+    segment-anything-hq                                                  \
                                                                          \
     # Segment Anything Model 2.1 (для сегментации видео):                \
     # git+https://github.com/facebookresearch/sam2.git decord            \
