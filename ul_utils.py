@@ -379,7 +379,10 @@ class UltralyticsModel:
 # При автономном запуске закачиваем ряд моделей в "~/models/":
 if __name__ == '__main__':
     models = {
+        'yolo26x.pt',
+        'yolo12x.pt',
         'rtdetr-x.pt',
+        'yolo26x-seg.pt',
         'yolo11x-seg.pt',
     }
     for model in models:
