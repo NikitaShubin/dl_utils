@@ -1174,20 +1174,22 @@ def rmpath(paths, desc=None):
         return False
 
     try:
-        # Если это папка:
-        if os.path.isdir(path):
-            with AnnotateIt(desc):
+        with AnnotateIt(desc):
+            # Если это папка:
+            if os.path.isdir(path):
+                for file in get_file_list(path):
+                    os.remove(file)
                 rmtree(path)
-            return True
 
-        # Если это Файл:
-        elif os.path.isfile(path):
-            with AnnotateIt(desc):
+            # Если это Файл:
+            elif os.path.isfile(path):
                 os.remove(path)
-            return True
 
-        else:
-            raise ValueError(f'Не файл и не папка "{path}"!')
+            else:
+                msg = f'Не файл и не папка "{path}"!'
+                raise ValueError(msg)
+
+            return True
 
     except PermissionError:
         raise PermissionError(f'Недостаточно прав удалить "{path}"!')
