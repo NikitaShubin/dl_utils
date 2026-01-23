@@ -108,8 +108,8 @@ RUNPARAMS=(
     # Путь до датасета подменяем локальной его копией:
     # -v "$home/projects/AP2.0/local_files/ds/":"/workspace/data/processed"
     -v "$home/projects/docker/ds/":"/workspace/data/processed"
-    # -v "/":"/outroot"
-    -v "/":"/outroot":ro
+    -v "/":"/outroot"
+    # -v "/":"/outroot":ro
     #-v "$home/.ssh/":"/home/user/.ssh":ro
 
     # Имя контейнера:
