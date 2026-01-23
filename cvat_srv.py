@@ -97,7 +97,7 @@ class Client:
         # Если передан список строк - преобразуем элементы в словари:
         if isinstance(labels[0], str):
             labels_ = []
-            for color, label in zip(labels, get_n_colors(len(labels))):
+            for label, color in zip(labels, get_n_colors(len(labels))):
                 labels_.append({'name': label,
                                 'attributes': [],
                                 'color': '#%02x%02x%02x' % color})
