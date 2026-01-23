@@ -97,7 +97,7 @@ class YOLOLabels:
         height, width = imsize
 
         # Проходим по всем строкам, где контуры не скрыты:
-        sub_df = df[~df['outside']][
+        sub_df = df[~df['outside'].astype(bool)][
             [
                 'label',  # noqa: E712
                 'type',
