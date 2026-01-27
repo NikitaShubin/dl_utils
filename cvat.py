@@ -83,7 +83,7 @@ from scipy.optimize import linear_sum_assignment
 from collections import defaultdict, Counter
 
 from utils import (mpmap, ImReadBuffer, reorder_lists, mkdirs, CircleInd,
-                   apply_on_cartesian_product, DelayedInit,
+                   apply_on_cartesian_product, DelayedInit, get_n_colors,
                    color_float_hsv_to_uint8_rgb, draw_contrast_text,
                    put_text_carefully, cv2_vid_exts, cv2_img_exts,
                    split_dir_name_ext, get_file_list, cv2_exts, json2obj)
@@ -104,6 +104,7 @@ df_columns_type = {'track_id': object,
                    'rotation': float,
                    'attributes': object,
                    'mutable_attributes': object,
+                   'attribs': object,
                    'group': int,
                    'source': str,
                    'elements': object}
@@ -121,6 +122,7 @@ df_default_vals = {'track_id': None,
                    'rotation': 0.,
                    'attributes': [],
                    'mutable_attributes': [],
+                   'attribs': {},
                    'group': 0,
                    'source': 'manual',
                    'elements': []}
@@ -154,9 +156,18 @@ def update_row(row, inplace=False, **kwargs):
         row = row.copy()
 
     # Заменяем все сзначения:
+    attribs = {}
     for name, val in kwargs.items():
         if name in row.keys():
             row[name] = val
+
+        # Если атрибут не имеет своего столбика, то заносится в
+        # специальный cловарь:
+        else:
+            attribs[name] = val
+
+    # Специальный словарь вносится в отдельный столбик:
+    row['attribs'] = attribs
 
     return row
 
@@ -2479,9 +2490,7 @@ class CVATLabelSVG:
 
 
 class CVATLabel:
-    '''
-    Класс для работы с CVAT-меткой.
-    '''
+    '''Класс для работы с CVAT-меткой.'''
 
     # Базовые, дополнительные, избыточные и лишние поля меток:
     base_cvat_label_keys = ['name', 'color', 'type', 'attributes']
@@ -2512,14 +2521,6 @@ class CVATLabel:
         self.attributes = label.get('attributes', [])
         self.sublabels = CVATLabels(label.get('sublabels', []))
         self.svg = CVATLabelSVG(label.get('svg', ''))
-
-        '''
-        if 'svg' in label:
-            print(label['svg'])
-            print('-' * 50)
-            print(self.svg.to_str())
-            print('=' * 50)
-        '''
 
         # Фиксируем все избыточные параметры:
         self.id = label.get('id', None)
@@ -2559,9 +2560,7 @@ class CVATLabel:
         return self.color
 
     def to_dict(self, *args, **kwargs):
-        '''
-        Возвращает метку в формате словаря.
-        '''
+        '''Возвращает метку в формате словаря.'''
         label = {}
 
         # Пополняем дополнительными значениями, если они есть:
@@ -2581,10 +2580,7 @@ class CVATLabel:
 
 
 class CVATLabels:
-    '''
-    Класс для работы с набором CVAT-меток.
-    '''
-
+    '''Класс для работы с набором CVAT-меток.'''
     def __init__(self, labels: list | tuple | set | str):
 
         # Если передана строка - считаем её путём к json-файлу:
@@ -2592,25 +2588,27 @@ class CVATLabels:
             assert os.path.splitext(labels)[-1].lower() in {'.json', '.jsonl'}
             labels = json2obj(labels)
 
+        # Инициируеем каждую метку отдельно:
         self.labels = list(map(CVATLabel, labels))
 
+        # Если все метки были строками, то цвета надо поменять на разнообразные:
+        for label in labels:
+            if not isinstance(label, str):
+                break
+        else:
+            for label, color in zip(self.labels, get_n_colors(len(labels))):
+                label.rgb = color
+
     def to_dicts(self, *args, **kwargs):
-        '''
-        Возвращает список словарей, описывающих каждую метку.
-        '''
+        '''Возвращает список словарей, описывающих каждую метку.'''
         return [label.to_dict(*args, **kwargs) for label in self.labels]
 
     def copy(self):
-        '''
-        Создаёт глубокую копию набора меток.
-        '''
+        '''Создаёт глубокую копию набора меток.'''
         return type(self)(self.to_dicts())
 
     def sort(self):
-        '''
-        Сортировка меток по имени.
-        '''
-
+        '''Сортировка меток по имени.'''
         copy = self.copy()
 
         # Сортируем сами метки:
@@ -2630,35 +2628,33 @@ class CVATLabels:
         return next(self.labels)
 
     def __getattr__(self, attr):
-        '''
-        Проброс атрибутов вложенного объекта наружу.
-        '''
+        '''Проброс атрибутов вложенного объекта наружу.'''
         return getattr(self.labels, attr)
 
     def names(self):
-        '''
-        Возвращает список имён меток.
-        '''
+        '''Возвращает список имён меток.'''
         return [label.name for label in self.labels]
 
-    # Возвращает аргументы создания радиокнопки списка классов в Jupyter:
     def get_ipy_radio_buttons_kwargs(self, description='Класс:'):
+        '''Возвращает аргументы создания радиокнопки списка классов в Jupyter.
+
+        Пример использования:
+            from IPython.display import display
+            from ipywidgets import RadioButtons
+
+            cvat_labels = CVATLabels(...)
+            rb = RadioButtons(**cvat_labels.get_ipy_radio_buttons_kwargs())
+
+            def on_button_clicked(b):
+                ...
+            rb.observe(on_button_clicked, names='value')
+            display(rb)
+        '''
         return  {'options': self.names(), 'description': description}
-    # from IPython.display import display
-    # from ipywidgets import RadioButtons
-    #
-    # cvat_labels = CVATLabels(...)
-    # rb = RadioButtons(**cvat_labels.get_ipy_radio_buttons_kwargs())
-    #
-    # def on_button_clicked(b):
-    #     ...
-    # rb.observe(on_button_clicked, names='value')
-    # display(rb)
+
 
 def interpolate_df(df, true_frames, interpolated_only=False):
-    '''
-    Дополняет датафрейм интерполированными контурами.
-    '''
+    '''Дополняет датафрейм интерполированными контурами.'''
     # Формируем словари перехода номеров кадров полной и прореженной
     # последовательностей к их порядковому номеру:
     '''
@@ -2762,22 +2758,18 @@ def interpolate_df(df, true_frames, interpolated_only=False):
 
 
 def interpolate_task(task):
-    '''
-    Дополняет все датафреймы текущей задачи интерполированными контурами.
-    '''
+    '''Дополняет все датафреймы текущей задачи интерполированными контурами.'''
     return [(interpolate_df(df, true_frames), file, true_frames)
             for df, file, true_frames in task]
 
 
 def interpolate_tasks_df(tasks, desc=None):
-    '''
-    Интерполирует контуры всех датафреймов в датасете:
-    '''
+    '''Интерполирует контуры всех датафреймов в датасете.'''
     # Параллельная обработка данных:
     return mpmap(interpolate_task, tasks, desc=desc)
 
 
-def split_subtask_by_labels(subtask                           ,
+def split_subtask_by_labels(subtask,
                             debug_mode: 'Режим отладки' = True):
     '''
     Дробит подзадачу (df, file, true_frames) на более мелкие подзадачи,
@@ -3342,7 +3334,7 @@ def dir2unlabeled_tasks(path: str | list[str] | tuple[str] | set[str],
                         check_frames: bool = False,
                         **mpmap_kwargs):
     '''
-    Перебирае все фото и видео из заданной папки и её подпапок,
+    Перебирает все фото и видео из заданной папки и её подпапок,
     создавая из них список неразмеченных задач.
     Используется для авторазметки неупорядоченных данных.
 
@@ -3624,7 +3616,7 @@ def df2bboxes(
 def df2objs(
     df: pd.DataFrame,
     imsize,
-) -> list[BBox]:
+) -> list[BBox | Mask]:
     """Переводит датафрейм с объектами в список масок и обрамляющих прямоугольников."""
     # Создаём и наполняем список объектов:
     objs = []
@@ -3640,6 +3632,35 @@ def df2objs(
         objs.append(obj)
 
     return objs
+
+
+def objs2df(
+    objs: list[BBox | Mask] | tuple[BBox | Mask],
+    concat: bool = True,
+    **kwargs: object,
+) -> pd.DataFrame:
+    """Переводит список масок и обрамляющих прямоугольников в датафрейм с объектами."""
+    # Создаём и наполняем список датафреймов для каждого объекта:
+    dfs = []
+    for obj in objs:
+
+        # Составляем словарь имя -> значение столбца в строке датафрейма:
+        kwargs_ = kwargs | obj.attribs
+
+        # Конвертируем в CVATPoints:
+        if isinstance(obj, Mask):
+            points = CVATPoints.from_mask(obj, cv2.CHAIN_APPROX_TC89_KCOS)
+        elif isinstance(obj, BBox):
+            points = CVATPoints.from_bbox(obj)
+        else:
+            msg = f'Неподдерживаемый тип объекта: {type(obj)}!'
+            raise TypeError(msg)
+
+        # Конвертируем в строку датафррейма и вносим резульатт в список:
+        dfs.append(points.to_dfrow(**kwargs_))
+
+    # Возвращаем результат списоком или одним дарафреймом:
+    return concat_dfs(dfs) if concat else dfs
 
 
 def concat_dfs(*args):
