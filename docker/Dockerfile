@@ -170,6 +170,9 @@ com/PublicPackages/_packaging/onnxruntime-cuda-12/pypi/simple/           \
     # Ускорение Python-кода:                                             \
     numba                                                                \
                                                                          \
+    # ClearML:                                                           \
+    clearml                                                              \
+                                                                         \
     #                    Фундаментальные модели:                         \
                                                                          \
     # DEVA (Tracking Anything with Decoupled Video Segmentation):        \
