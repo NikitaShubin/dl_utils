@@ -1204,7 +1204,7 @@ def emptydir(path):
     mkdirs(path)
 
 
-def get_empty_dir(path=None, clear=False):
+def get_empty_dir(path: str | Path = None, clear: bool = False):
     '''
     Возвращает путь до пустой папки.
     Она может быть либо задана явно,

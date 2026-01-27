@@ -877,10 +877,10 @@ class CVATSRVBase:
 
         return file
 
-    # Возвращает экземпляр класса, дочерего к CVATBase, создающего локальную
+    # Возвращает экземпляр класса, дочерего к _CVATBase, создающего локальную
     # копию бекапа исходного объекта, который можно редактировать и отправлять
     # изменённую версию обратно на сервер (аргументы соответствуют аргументам
-    # CVATBase):
+    # _CVATBase):
     def clone(self, *args, **kwargs):
 
         # Если локальный представитель ещё не создан:
@@ -1229,47 +1229,45 @@ class ReadTasks:
 #########################################################################
 
 
-class CVATBase:
-    '''
-    Базовый класс объектов редактирования данных в CVAT.
-    '''
-
+class _CVATBase:
+    '''Базовый класс объектов редактирования данных в CVAT.'''
     def __init__(self,
                  cvat_srv_obj: CVATSRVBase | None = None,
                  zipped_backup: str | None = None,
                  unzipped_backup: str | None = None,
+                 *,
                  parted: bool = True,
                  verbose: bool = True,
                  take_data_from: str = 'auto'):
-        '''
-        cvat_srv_obj    - объект-представитель задачи или датасета из CVAТ,
-                          через который осуществляется доступ к серверу.
-        zipped_backup   - путь до zip-архива, содержащего бекап CVAT-объекта.
-        unzipped_backup - путь до папки, содержащей распакованную версию
-                          zipped_backup.
-        parted          - флаг экспорта/импорта бекапа по частям (работает
-                          только для датасетов, которые можро разрезать на
-                          задачи).
-        verbose         - флаг вывода информации о статусе процессов.
-        take_data_from  - источник, который считается первичным.
-                          Возможные значения:
-                            'cvat_srv_obj',
-                            'zipped_backup',
-                            'unzipped_backup',
-                            'auto'.
+        ''' Инициализация базового класса.
+
+        Входные параметры:
+            cvat_srv_obj    - объект-представитель задачи или датасета из CVAТ,
+                              через который осуществляется доступ к серверу.
+            zipped_backup   - путь до zip-архива, содержащего бекап CVAT-объекта.
+            unzipped_backup - путь до папки, содержащей распакованную версию
+                              zipped_backup.
+            parted          - флаг экспорта/импорта бекапа по частям (работает
+                              только для датасетов, которые можро разрезать на
+                              задачи).
+            verbose         - флаг вывода информации о статусе процессов.
+            take_data_from  - источник, который считается первичным.
+                              Возможные значения:
+                                'cvat_srv_obj',
+                                'zipped_backup',
+                                'unzipped_backup',
+                                'auto'.
 
         Общий алгоритм подготовки файлов (при инициализации экземпляра класса)
         к работе следующий:
-            1) посредством cvat_srv_obj закачиваем бекап в файл
-               zipped_backup;
+            1) посредством cvat_srv_obj закачиваем бекап в файл zipped_backup;
             2) распаковываем архив zipped_backup в папку unzipped_backup;
             3) парсим (загружаем в оперативную память) всю разметку из папки
                unzipped_backup.
 
         Если take_data_from = 'cvat_srv_obj', то весь алгоритм воспроизводится
-        полностью. Если take_data_from = 'zipped_backup', то пропускается
-        первый пункт. Если take_data_from = 'unzipped_backup', то выполняется
-        только пункт 3.
+        полностью. Если take_data_from = 'zipped_backup', то пропускается первый пункт.
+        Если take_data_from = 'unzipped_backup', то выполняется только пункт 3.
 
         Если take_data_from = 'auto', то:
             Если папка unzipped_backup не пуста, то:
@@ -1300,8 +1298,8 @@ class CVATBase:
                                   unzipped_backup,
                                   verbose,
                                   take_data_from):
-        '''
-        Проверяет существование нужного ресурса и доопределяет take_data_from.
+        '''Проверяет существование нужного ресурса и доопределяет take_data_from.
+
         Используется в __prepare_variables.
         '''
         # Проверяем существование нужного ресурса:
@@ -1340,7 +1338,6 @@ class CVATBase:
 
         return take_data_from
 
-    # Приводит переменные к рабочему состоянию:
     @classmethod
     def __prepare_variables(cls,
                             cvat_srv_obj,
@@ -1350,7 +1347,7 @@ class CVATBase:
                             verbose,
                             take_data_from,
                             self=None):
-
+        '''Приводит переменные к рабочему состоянию.'''
         # Проверяем существование нужного ресурса и доопределяем
         # take_data_from:
         take_data_from = cls.__redetermine_data_source(cvat_srv_obj,
@@ -1398,9 +1395,8 @@ class CVATBase:
             self.verbose = verbose
             self.paths2remove = paths2remove
 
-    # Выполнчет сжатие бекапа(ов):
     def _compress(self):
-
+        '''Выполнчет сжатие бекапа(ов).'''
         # Определяем текстовое сопровождение процесса:
         desc = 'Сжатие бекапа' if self.verbose else ''
 
@@ -1443,9 +1439,8 @@ class CVATBase:
                     desc=desc
                 )
 
-    # Выполнчет распаковку бекапа(ов):
     def _extract(self):
-
+        '''Выполнчет распаковку бекапа(ов).'''
         # Определяем текстовое сопровождение процесса:
         desc = 'Извлечение бекапа' if self.verbose else ''
 
@@ -1479,16 +1474,14 @@ class CVATBase:
                     desc=desc
                 )
 
-    # Приводит все файлы к рабочему состоянию:
     def __prepare_resources(self):
-
+        '''Приводит все файлы к рабочему состоянию.'''
         # Если unzipped_backup уже не пуста:
         if os.listdir(self.unzipped_backup):
 
             # Если при этом архив бекапа существует или хотя бы задан
             # объект взаимодействия с сервером:
-            if os.path.isfile(self.zipped_backup) or \
-                    self.cvat_srv_obj is not None:
+            if os.path.isfile(self.zipped_backup) or self.cvat_srv_obj is not None:
 
                 # Значит, в папке может быть что-то важное, так что
                 # очищать её не будем, а вернём ошибку.
@@ -1539,72 +1532,73 @@ class CVATBase:
         # Должен создавать поля data и info:
         self._parse_unzipped_backup()
 
-    # Парсит распакованный бекап:
     def _parse_unzipped_backup(self):
+        '''Парсит распакованный бекап.'''
         raise NotImplementedError('Метод должен быть переопределён!')
 
-    # Пишет текстовое описания (гайд) датасета annotation_guide.md:
     @staticmethod
     def _write_guide(guide, unzipped_backup):
+        '''Пишет текстовое описания (гайд) датасета annotation_guide.md.'''
         raise NotImplementedError('Метод должен быть переопределён!')
 
-    # Создаёт новый экземпляр класса из фото/видео/дирректории с данными:
     @classmethod
     def from_raw_data(cls,
                       data_path: str | list[str] | tuple[str],
+                      *,
                       include_as_is: bool = False,
                       # Дальше параметры, аналогичные __init__:
                       **init_kwargs):
-
+        '''Создаёт новый экземпляр класса из фото/видео/дирректории с данными.'''
         # Параметр take_data_from должен отсутствовать или быть равен
-        # 'zipped_backup':
-        if init_kwargs.get('take_data_from',
-                           'unzipped_backup') != 'unzipped_backup':
-            raise ValueError('Параметр "take_data_from" не используется '
-                             'при создании бекапа с нуля!')
+        # 'unzipped_backup':
+        if init_kwargs.get('take_data_from', 'unzipped_backup') != 'unzipped_backup':
+            msg = (
+                'Параметр "take_data_from" не используется при создании бекапа с нуля!'
+            )
+            raise ValueError(msg)
+
+        # Копирование переменной (отвязка от оригинала для свободного редактирования):
+        init_kwargs = dict(init_kwargs)
 
         # Реальное значение "take_data_from" будет недокументированным:
         init_kwargs['take_data_from'] = 'unzipped_backup'
 
-        # Создаём папку для распакованных данных и доопределяем путь до неё,
-        # если надо:
+        # Создаём папку для распакованных данных и доопределяем путь до неё, если надо:
         unzipped_backup = init_kwargs.get('unzipped_backup', None)
         unzipped_backup = get_empty_dir(unzipped_backup)
-        init_kwargs = dict(init_kwargs)  # Копирование переменной
         init_kwargs['unzipped_backup'] = unzipped_backup
 
-        # Копируем файлы во папку с распакованным дадасетом:
+        # Копируем файлы в пустую папку с распакованным дадасетом, и
+        # воссоздаём там остальные необходимые файлы:
         init_files_kwargs = cls._copy_files2unzipped_backup(data_path,
                                                             include_as_is,
                                                             unzipped_backup)
-        # Возвращает параметры, используемые далее в
-        # _init_files_in_unzipped_backup.
-
-        # Создаём остальные файлы в папке с распакованным дадасетом:
-        cls._init_files_in_unzipped_backup(unzipped_backup,
-                                           **init_files_kwargs)
-        # init_files_kwargs берётся из _copy_files2unzipped_backup
+        cls._init_files_in_unzipped_backup(unzipped_backup, **init_files_kwargs)
 
         # Создаём новый экземпляр класса для уже подготовленной дирректории:
+        cvat_srv_obj = init_kwargs.get('cvat_srv_obj', None)
+        init_kwargs['cvat_srv_obj'] = None
         cvat_obj = cls(**init_kwargs)
+        cvat_obj.cvat_srv_obj = cvat_srv_obj
+        # Параметр cvat_srv_obj добавляется уже после инициализации во избежание
+        # конфликтов в __prepare_resources.
 
         # Явно добавляем папку с распакованным бекапов в список на удаление:
         cvat_obj.paths2remove.add(unzipped_backup)
 
         return cvat_obj
 
-    # Копирует файлы в папку с распакованным бекапом:
     @classmethod
     def _copy_files2unzipped_backup(cls,
                                     data_path,
                                     include_as_is,
                                     unzipped_backup):
+        '''Копирует файлы в папку с распакованным бекапом.'''
         raise NotImplementedError('Метод должен быть переопределён!')
 
-    # Создаёт метаданные (всё кроме самих фото/видео) в папке с распакованным
-    # бекапом:
     @classmethod
     def _init_files_in_unzipped_backup(cls, unzipped_backup, **kwargs):
+        '''Создаёт в папке с распакованным бекапом всё, кроме самих фото/видео.'''
         raise NotImplementedError('Метод должен быть переопределён!')
 
     # Пишет текущее состояние разметки в папку с распакованным бекапом,
@@ -1612,12 +1606,12 @@ class CVATBase:
     def push(self, local_only=False):
         raise NotImplementedError('Метод должен быть переопределён!')
 
-    # Размер объекта = размеру поля data:
     def __len__(self):
+        '''Размер объекта = размеру поля data.'''
         return len(self.data)
 
-    # Удаляет все файлы и папки, подлежащие удалению:
     def rm_all_paths2remove(self):
+        '''Удаляет все файлы и папки, подлежащие удалению.'''
         for path in self.paths2remove:
             rmpath(path)
             '''
@@ -1625,12 +1619,12 @@ class CVATBase:
                 print(f'"{path}" удалён!')
             '''
 
-    # Перед закрытием объекта надо удалять все файлы/папки из списка:
     def __del__(self):
+        '''Перед закрытием объекта надо удалять все файлы/папки из списка.'''
         self.rm_all_paths2remove()
 
-    # Запускает метод с заданными параметрами для каждой подзадачи объекта:
     def apply2all_jobs(self, method, *args, **kwargs):
+        '''Запускает метод с заданными параметрами для каждой подзадачи объекта.'''
 
         # Для проектов перебираются задачи, а для задач - поздазачи:
         if hasattr(self, 'data'):
@@ -1645,11 +1639,10 @@ class CVATBase:
             raise NotImplementedError('Метод {method} не объявлен!')
 
     def copy2(self, other_cvat_srv_obj, desc=None):
-        '''
-        Разворачивает текущий бекап в новом месте, не меняя старый.
+        '''Разворачивает текущий бекап в новом месте, не меняя старый.
+
         Возвращает представитель нового объекта на CVAT-сервере.
         '''
-
         # Создаём бекап:
         self.push(local_only=True)
         self._compress()
@@ -1687,11 +1680,8 @@ class CVATBase:
             raise
 
 
-class CVATProject(CVATBase):
-    '''
-    Интерфейс для работы с CVAT-датасетами.
-    '''
-
+class CVATProject(_CVATBase):
+    '''Интерфейс для работы с CVAT-датасетами.'''
     # Парсит распакованный бекап:
     def _parse_unzipped_backup(self):
 
@@ -1855,7 +1845,7 @@ class CVATProject(CVATBase):
                     rmpath(self.zipped_backup)
 
 
-class CVATTask(CVATBase):
+class CVATTask(_CVATBase):
     '''
     Интерфейс для работы с CVAT-задачами.
     '''
@@ -2065,7 +2055,6 @@ class CVATTask(CVATBase):
                                   'start_frame': 0,
                                   'stop_frame': stop_frame
                               }])
-
         # Создаём пустую разметку:
         data = cls._init_annotations(file_list)
 
@@ -2102,7 +2091,7 @@ class CVATTask(CVATBase):
                     bug_tracker=bug_tracker,
                     status=status,
                     subset=subset,
-                    labels=labels,
+                    labels=CVATLabels(labels),
                     version=version,
                     data=data,
                     jobs=jobs)
@@ -2275,6 +2264,9 @@ class CVATTask(CVATBase):
 
         # Создаём копию info и представляем метки в виде словарей:
         info = dict(info)
+
+        # Конвертрируем набор меток, если надо:
+        labels = info['labels']
         info['labels'] = info['labels'].to_dicts()
 
         # Пишем всю информацию о задаче в соответствующий файл:
