@@ -1,7 +1,7 @@
 # hadolint global ignore = DL3008, DL3016  # Не фиксируем версии, т.к. в этом образе нужны свежие пакеты
-ARG TFVER='2.19.0'
-FROM tensorflow/tensorflow:${TFVER}-gpu
-#FROM tensorflow/tensorflow:latest-gpu
+# ARG TFVER='2.19.0'
+#FROM tensorflow/tensorflow:${TFVER}-gpu
+FROM tensorflow/tensorflow:latest-gpu
 #FROM tensorflow/tensorflow:nightly-gpu
 
 
@@ -55,7 +55,6 @@ ARG APPLICATIONS="                                    \
     # Для PyCUDA:                                     \
     nvidia-cuda-toolkit                               \
 "
-ARG HADOLINTURL="https://github.com/hadolint/hadolint/releases/latest/download/hadolint-Linux-x86_64"
 # graphviz     - для работы keras.utils.plot_model
 # pandoc       - для работы экспорта ipynb в HTML
 # nethogs      - мониторинг загрузки сети
@@ -67,6 +66,7 @@ ARG HADOLINTURL="https://github.com/hadolint/hadolint/releases/latest/download/h
 # bsdmainutils - для работы команды col
 # iputils-ping - для работы команды ping
 # coreutils    - для работы команды wc
+ARG HADOLINTURL="https://github.com/hadolint/hadolint/releases/latest/download/hadolint-Linux-x86_64"
 RUN apt-get update                                            && \
     # Удаление python3-blinker необходимо для нормальной установки open3d:
     apt-get purge -y python3-blinker                          && \
@@ -81,7 +81,7 @@ RUN apt-get update                                            && \
     # Установка Node.js из NodeSource (вместо старых версий из репозитория):
     wget -qO- https://deb.nodesource.com/setup_lts.x | bash - && \
     apt-get install -y --no-install-recommends nodejs         && \
-    npm install -g markdownlint-cli dclint
+    npm install -g markdownlint-cli dclint @openai/codex
 
 # См. http://bugs.python.org/issue19846
 ENV LANG C.UTF-8
@@ -108,6 +108,8 @@ ARG PYTHONMODULES_BASE="                                                 \
                                                                          \
     # YOLO и трекинг в ней + Roboflow:                                   \
     ultralytics lapx supervision                                         \
+    git+https://github.com/ultralytics/CLIP.git                          \
+    # CLIP нужен для работы SAM3 в ultralytics                           \
                                                                          \
     # Трекеры:                                                           \
     stonesoup                                                            \
@@ -149,7 +151,7 @@ ARG PYTHONMODULES_BASE="                                                 \
                                                                          \
     # Всё для ONNX (используется в onnx_utils.py):                       \
     onnx onnxmltools onnxconverter-common                                \
-    git+https://github.com/onnx/tensorflow-onnx                          \
+    # git+https://github.com/onnx/tensorflow-onnx                        \
                                                                          \
     onnxruntime-gpu --extra-index-url  https://aiinfra.pkgs.visualstudio.\
 com/PublicPackages/_packaging/onnxruntime-cuda-12/pypi/simple/           \
@@ -175,23 +177,15 @@ com/PublicPackages/_packaging/onnxruntime-cuda-12/pypi/simple/           \
                                                                          \
     #                    Фундаментальные модели:                         \
                                                                          \
-    # DEVA (Tracking Anything with Decoupled Video Segmentation):        \
-    # git+https://github.com/hkchengrex/Tracking-Anything-with-DEVA.git  \
-                                                                         \
     # HQSAM (используется в samal.py вместо Segment Anything Model):     \
-    # git+https://github.com/SysCV/sam-hq.git timm                       \
     segment-anything-hq                                                  \
                                                                          \
     # Segment Anything Model 2.1 (для сегментации видео):                \
-    # git+https://github.com/facebookresearch/sam2.git decord            \
     sam2 decord                                                          \
                                                                          \
     # Segment Anything Model 3:                                          \
     # https://github.com/facebookresearch/sam3.git                       \
     sam3                                                                 \
-                                                                         \
-    # Language Segment-Anything:                                         \
-    # git+https://github.com/luca-medeiros/lang-segment-anything.git     \
                                                                          \
     # Grounding DINO:                                                    \
     groundingdino-py                                                     \
@@ -200,8 +194,14 @@ com/PublicPackages/_packaging/onnxruntime-cuda-12/pypi/simple/           \
     # git+https://github.com/huggingface/transformers.git                \
     # Нужна более старая версия для работы Grounding DINO                \
                                                                          \
+    # Китайский аналог huggingface без заморочек с правами:              \
+    modelscope                                                           \
+                                                                         \
     # Вейвлеты:                                                          \
     PyWavelets                                                           \
+                                                                         \
+    # Работа с AI-агентами:                                              \
+    open-interpreter pyautogen streamlit                                 \
                                                                          \
     #                            Прочее:                                 \
                                                                          \
@@ -210,7 +210,7 @@ com/PublicPackages/_packaging/onnxruntime-cuda-12/pypi/simple/           \
 ARG PYTHONMODULES_EXTRA="                                                \
     # Трекеры:                                                           \
     boxmot regex>=2025.11.3                                              \
-
+                                                                         \
     # Навороты в Jupyter:                                                \
     jupyter-ai[all]                                                      \
     # jupyter-ai для использования API всяких LLM-ок.                    \
@@ -242,7 +242,7 @@ RUN useradd -ms "${SHELL_PATH}" "${USERNAME}"              && \
     chmod 1777 /etc && chmod 1777 "${HOMEDIR}"
 
 # Скачиваем модели SAM2 и DINO в ~/models/:
-COPY *.py /tmp/py/
+COPY --chown=user:user *.py /tmp/py/
 RUN python ./tmp/py/sam2al.py                       && \
     mv /root/models "${HOMEDIR}"                    && \
     # Модель для SAM2 приходится качать под root из-за необходимости править сам модуль sam2.

@@ -55,7 +55,8 @@ ARG PYTHONMODULES="                                                      \
     treelib openpyxl                                                     \
                                                                          \
     # Коллекция YOLO-моделей:                                            \
-    ultralytics lapx                                                     \
+    ultralytics lapx git+https://github.com/ultralytics/CLIP.git         \
+    # CLIP нужен для работы SAM3 в ultralytics                           \
                                                                          \
     # Трекеры:                                                           \
     boxmot                                                               \
@@ -69,8 +70,15 @@ ARG PYTHONMODULES="                                                      \
     # Segment Anything Model 2.1 (для сегментации видео):                \
     git+https://github.com/facebookresearch/sam2.git decord              \
                                                                          \
+    # Segment Anything Model 3:                                          \
+    # https://github.com/facebookresearch/sam3.git                       \
+    sam3                                                                 \
+                                                                         \
     # Grounding DINO:                                                    \
     groundingdino-py                                                     \
+                                                                         \
+    # Китайский аналог huggingface без заморочек с правами:              \
+    modelscope                                                           \
 "
 
 # Сначала обновляем сам pip.
