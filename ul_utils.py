@@ -24,13 +24,22 @@
 import inspect
 from collections.abc import Callable
 from pathlib import Path
+from typing import TypeAlias
 
 import numpy as np
 import pandas as pd
+import ultralytics
+from tqdm import tqdm
 from ultralytics import YOLO, engine
 
 from cv_utils import BBox, Mask
-from cvat import CVATPoints, concat_dfs
+from cvat import CVATPoints, Subtask, concat_dfs
+from video_utils import VideoGenerator
+
+# Класс моделей:
+ULModel: TypeAlias = (
+    ultralytics.engine.model.Model | ultralytics.engine.predictor.BasePredictor
+)
 
 
 def _unpad_ul_masks(masks: np.ndarray, orig_shape: tuple[int, ...]) -> np.ndarray:
@@ -105,7 +114,7 @@ def _result2objs(
     objs = []
     if result.masks is not None:
         # Удаление рамок у масок:
-        masks = result.masks.data.numpy() * 255  # [0, 1] -> [0, 255] (uint8)
+        masks = (result.masks.data.numpy() * 255).astype(np.uint8)  # bool -> uint8
         masks = _unpad_ul_masks(masks, result.orig_shape)
 
         # Размер масок может отличаться от размеров исходного изображения,
@@ -123,7 +132,7 @@ def _result2objs(
             strict=False,
         ):
             attribs_ = attribs | {
-                'label': result.names[cls],
+                'label': result.names[int(cls)],
                 'confidence': conf,
                 'track_id': id_,
             }
@@ -141,7 +150,7 @@ def _result2objs(
     else:
         for xyxy, cls, conf, id_ in zip(xyxys, clses, confs, ids, strict=False):
             attribs_ = attribs | {
-                'label': result.names[cls],
+                'label': result.names[int(cls)],
                 'confidence': conf,
                 'track_id': id_,
             }
@@ -184,26 +193,36 @@ class UltralyticsModel:
 
     def __init__(
         self,
-        model: str | Path | YOLO = 'rtdetr-x.pt',
+        model: str | Path | ULModel = 'rtdetr-x.pt',
         tracker: str | None = None,
         mode: str = 'preannotation',
         postprocess_filters: list[Callable] | None = None,
-        *args: object,
         **kwargs: object,
     ) -> None:
         """Инициализирует Ultralytics модель.
 
         Args:
-            model: Путь к файлу модели (.pt/.pth), имя модели для загрузки
-                   из ~/models/ или готовый объект YOLO
-            tracker: Название трекера (например, 'bytetrack.yaml') или None
-            mode: Режим работы:
-                  'preannotation' - возвращает датафрейм разметки
-                  'preview' - возвращает изображение с визуализацией
-            postprocess_filters: Список функций для постобработки объектов
-                                 (например, [NMS(), Tracker()])
-            *args: Дополнительные позиционные аргументы для конструктора YOLO
-            **kwargs: Дополнительные именованные аргументы для конструктора YOLO
+            model:
+                Путь к файлу модели (.pt/.pth), имя модели для загрузки
+                из ~/models/ или готовый объект YOLO.
+
+            tracker:
+                Название трекера (например, 'bytetrack.yaml') или None.
+
+            mode:
+                Режим работы:
+                    'preannotation' - возвращает датафрейм разметки;
+                    'preview' - возвращает изображение с визуализацией.
+
+            postprocess_filters:
+                Список функций для постобработки объектов
+                (например, [NMS(), Tracker()])
+
+            **kwargs:
+                Дополнительные именованные аргументы для:
+                    - конструктора модели, если задан лишь путь до неё;
+                    - для инференса модели, если передан экземпляр класса
+                    ultralytics.engine.model.Model.
 
         Raises:
             TypeError: Если передан неверный тип model
@@ -228,16 +247,22 @@ class UltralyticsModel:
                 model_path = models_dir / model_path.name
 
             # Загружаем YOLO-модель:
-            self.model = YOLO(str(model_path), *args, **kwargs)
+            self.model = YOLO(str(model_path), **kwargs)
+
+            # Фиксируем отсутствия доп. параметров для инференса:
+            self.kwargs: dict[str, object] = {}
 
         # Если передана уже загруженная YOLO-модель - используем её:
-        elif isinstance(model, YOLO):
+        elif isinstance(model, ULModel):
             self.model = model
+
+            # Фиксируем доп. параметры для инференса:
+            self.kwargs = kwargs
 
         else:
             msg = (
                 'Объект model должен быть строкой или '
-                f'YOLO-моделью. Получено: {type(model)}!'
+                f'зкземпляром класса {ULModel}. Получен объект типа: {type(model)}!'
             )
             raise TypeError(msg)
 
@@ -301,19 +326,23 @@ class UltralyticsModel:
                 msg = f'Неподдерживаемый тип: {type(obj)}!'
                 raise TypeError(msg)
 
-            dfs.append(points.to_dfrow())
+            # Отмечаем объект только если он имеется:
+            if points is not None and len(points):
+                dfs.append(points.to_dfrow())
 
         return concat_dfs(dfs)
 
     def _img2result(self, img: np.ndarray) -> engine.results:
+        """Обрабатывает изображение и возвращает разметку во внутреннем формате."""
         if self.tracker is None:
-            result = self.model(img, verbose=False)[0]
+            result = self.model(img, verbose=False, **self.kwargs)[0]
         else:
             result = self.model.track(
                 img,
                 tracker=self.tracker,
                 persist=True,
                 verbose=False,
+                **self.kwargs,
             )[0]
         return result.cpu()
 
@@ -346,7 +375,9 @@ class UltralyticsModel:
                 postprocess_filter.reset()
 
         # Сбрасываем состояния трекеров, если надо:
-        predictor = self.model.predictor
+        predictor = self.model
+        if hasattr(predictor, 'predictor'):
+            predictor = predictor.predictor
         if hasattr(predictor, 'trackers'):
             for tracker in predictor.trackers:
                 tracker.reset()
@@ -374,6 +405,43 @@ class UltralyticsModel:
 
         msg = f'Неподдерживаемый режим: {self.mode}!'
         raise ValueError(msg)
+
+    def video2subtask(self, file: str | Path, desc: str | None = None) -> Subtask:
+        """Формирует CVAT-подзадачу с объектами в заданном видеофайле."""
+        # Сбрасываем внутренние состояния:
+        self.reset()
+
+        # Создаём генератор, формирующий результаты обработки кадров:
+        results_generator = self.model(
+            source=file,
+            stream=True,
+            **self.kwargs,
+        )
+
+        # Оцениваем общее число кадров:
+        total = len(VideoGenerator(file))
+
+        # Оборачиваем генератор в tqdm, если указан сопроводительный текст:
+        if desc:
+            results_generator = tqdm(results_generator, desc, total)
+
+        # Выполняем обработку:
+        dfs = []
+        results_iter = iter(results_generator)
+        while True:
+            # Обрабатываем следующий кадр, если есть:
+            try:
+                result = next(results_iter)
+            except (IndexError, StopIteration):
+                break
+
+            # Преобразовываем результат обработки в датафйермф и вносим его в список:
+            df = self.result2df(result.cpu())
+            dfs.append(df)
+            self.frame_ind += 1
+
+        # Возвращаем подзадачу со всеми найденными объектами:
+        return concat_dfs(dfs), file, {frame: frame for frame in range(self.frame_ind)}
 
 
 # При автономном запуске закачиваем ряд моделей в "~/models/":

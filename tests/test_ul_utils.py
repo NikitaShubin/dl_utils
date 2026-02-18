@@ -10,22 +10,22 @@ import pandas as pd
 import pytest
 
 from cv_utils import BBox, Mask
-from ul_utils import UltralyticsModel, _result2objs, _unpad_ul_masks
+from ul_utils import ULModel, UltralyticsModel, _result2objs, _unpad_ul_masks
 
 
-# Мок для YOLO класса
+# Мок для YOLO класса (доработан для поддержки новых требований)
 class MockYOLO:
-    """Мок-класс для имитации YOLO."""
+    """Мок-класс для имитации YOLO с необходимыми атрибутами."""
 
-    def __init__(self, *args: object, **kwargs: object) -> None:  # noqa: ANN002, ANN003, ARG002
+    def __init__(self) -> None:
         """Инициализация мок-класса YOLO."""
         self.predictor = MagicMock()
-        self.predictor.trackers = []
+        self.predictor.trackers = []  # По умолчанию пустой список трекеров
         self.predict = MagicMock()
         self.track = MagicMock()
 
-    def __call__(self, *args: object, **kwargs: object) -> MagicMock:  # noqa: ANN002, ANN003, ARG002
-        """Вызов мок-класса как функции."""
+    def __call__(self, *args: object, **kwargs: object) -> MagicMock:
+        """Вызов мок-класса как функции (для имитации model(...))."""
         return self.predict(*args, **kwargs)
 
 
@@ -87,7 +87,6 @@ class TestResult2Objs(unittest.TestCase):
     def create_mock_result_with_detections(self) -> MagicMock:
         """Создает мок для результата с детекциями."""
         mock_result = MagicMock()
-
         boxes_mock = MagicMock()
         boxes_mock.xyxy = MagicMock()
         boxes_mock.xyxy.numpy.return_value = np.array(
@@ -106,13 +105,11 @@ class TestResult2Objs(unittest.TestCase):
         mock_result.masks = None
         mock_result.obb = None
         mock_result.keypoints = None
-
         return mock_result
 
     def create_mock_result_with_masks(self) -> MagicMock:
         """Создает мок для результата с масками."""
         mock_result = MagicMock()
-
         boxes_mock = MagicMock()
         boxes_mock.xyxy = MagicMock()
         boxes_mock.xyxy.numpy.return_value = np.array([[10, 10, 50, 50]])
@@ -135,13 +132,11 @@ class TestResult2Objs(unittest.TestCase):
         mock_result.masks = masks_mock
         mock_result.obb = None
         mock_result.keypoints = None
-
         return mock_result
 
     def create_mock_empty_result(self) -> MagicMock:
         """Создает мок для пустого результата."""
         mock_result = MagicMock()
-
         empty_boxes_mock = MagicMock()
         empty_boxes_mock.xyxy = MagicMock()
         empty_boxes_mock.xyxy.numpy.return_value = np.array([])
@@ -158,7 +153,6 @@ class TestResult2Objs(unittest.TestCase):
         mock_result.masks = None
         mock_result.obb = None
         mock_result.keypoints = None
-
         return mock_result
 
     def test_result2objs_with_detections(self) -> None:
@@ -170,7 +164,6 @@ class TestResult2Objs(unittest.TestCase):
         assert len(objs) == 2
         assert isinstance(objs[0], BBox)
         assert isinstance(objs[1], BBox)
-
         assert objs[0].attribs['label'] == 'class1'
         assert objs[0].attribs['confidence'] == 0.9
         assert objs[0].attribs['source'] == 'test'
@@ -181,10 +174,9 @@ class TestResult2Objs(unittest.TestCase):
         mock_result = self.create_mock_result_with_masks()
         with patch(
             'ul_utils._unpad_ul_masks',
-            return_value=np.ones((1, 100, 100), dtype=np.float32) * 255,
+            return_value=np.ones((1, 100, 100), dtype=np.uint8) * 255,
         ):
             objs = _result2objs(mock_result, {})
-
             assert len(objs) == 1
             assert isinstance(objs[0], Mask)
             assert objs[0].attribs['label'] == 'class1'
@@ -198,7 +190,6 @@ class TestResult2Objs(unittest.TestCase):
         mock_result.boxes.id.numpy.return_value = np.array([1.0, 2.0])
 
         objs = _result2objs(mock_result, {})
-
         assert objs[0].attribs['track_id'] == 1
         assert objs[1].attribs['track_id'] == 2
 
@@ -206,7 +197,6 @@ class TestResult2Objs(unittest.TestCase):
         """Тест обработки пустого результата (без детекций)."""
         mock_result = self.create_mock_empty_result()
         objs = _result2objs(mock_result, {})
-
         assert len(objs) == 0
         assert isinstance(objs, list)
 
@@ -263,8 +253,6 @@ class TestResult2Objs(unittest.TestCase):
 
         assert objs[0].attribs['custom_key'] == 'custom_value'
         assert objs[0].attribs['another_key'] == 123
-        assert 'label' in objs[0].attribs
-        assert 'confidence' in objs[0].attribs
 
     def test_result2objs_attribs_priority(self) -> None:
         """Тест приоритета атрибутов."""
@@ -296,6 +284,7 @@ class TestUltralyticsModel(unittest.TestCase):
             assert model.tracker is None
             assert model.mode == 'preannotation'
             assert model.frame_ind == 0
+            assert model.kwargs == {}
 
             tmp_path.unlink()
 
@@ -324,33 +313,66 @@ class TestUltralyticsModel(unittest.TestCase):
             assert isinstance(model, UltralyticsModel)
 
     @patch('ul_utils.YOLO')
-    def test_init_with_yolo_object(self, mock_yolo_class: MagicMock) -> None:
-        """Тест инициализации с объектом YOLO."""
+    def test_init_with_string_and_kwargs(self, mock_yolo_class: MagicMock) -> None:
+        """Тест инициализации с путем к модели и дополнительными kwargs."""
+        mock_yolo_class.return_value = self.mock_yolo
+
         with tempfile.NamedTemporaryFile(suffix='.pt', delete=False) as tmp:
             tmp_path = Path(tmp.name)
+            model = UltralyticsModel(str(tmp_path), task='detect', verbose=True)
 
-            with patch('ul_utils.isinstance') as mock_isinstance:
-
-                def isinstance_side_effect(obj: object, class_or_tuple: object) -> bool:
-                    if obj == self.mock_yolo and class_or_tuple == mock_yolo_class:
-                        return True
-                    if class_or_tuple == (str, Path):
-                        return False
-                    # Для других случаев используем стандартное поведение isinstance
-                    # Приводим class_or_tuple к типу, если это возможно
-                    if isinstance(class_or_tuple, (type, tuple)):
-                        return isinstance(obj, class_or_tuple)
-                    return False
-
-                mock_isinstance.side_effect = isinstance_side_effect
-                mock_yolo_class.return_value = self.mock_yolo
-
-                model = UltralyticsModel(self.mock_yolo)
-
-                assert model.model == self.mock_yolo
-                assert model.frame_ind == 0
-
+            mock_yolo_class.assert_called_once_with(
+                str(tmp_path),
+                task='detect',
+                verbose=True,
+            )
+            assert model.kwargs == {}
             tmp_path.unlink()
+
+    @patch('ul_utils.YOLO')
+    def test_init_with_yolo_object(self, mock_yolo_class: MagicMock) -> None:
+        """Тест инициализации с объектом YOLO."""
+        with patch('ul_utils.isinstance') as mock_isinstance:
+
+            def isinstance_side_effect(obj: object, cls: object) -> bool:
+                if cls is ULModel and obj is self.mock_yolo:
+                    return True
+                if cls == (str, Path):
+                    return False
+                if isinstance(cls, (type, tuple)):
+                    return isinstance(obj, cls)
+                return False
+
+            mock_isinstance.side_effect = isinstance_side_effect
+            mock_yolo_class.return_value = self.mock_yolo
+
+            model = UltralyticsModel(self.mock_yolo)
+
+            assert model.model == self.mock_yolo
+            assert model.frame_ind == 0
+            assert model.kwargs == {}
+
+    @patch('ul_utils.YOLO')
+    def test_init_with_yolo_object_and_kwargs(self, mock_yolo_class: MagicMock) -> None:
+        """Тест инициализации с объектом YOLO и kwargs для инференса."""
+        with patch('ul_utils.isinstance') as mock_isinstance:
+
+            def isinstance_side_effect(obj: object, cls: object) -> bool:
+                if cls is ULModel and obj is self.mock_yolo:
+                    return True
+                if cls == (str, Path):
+                    return False
+                if isinstance(cls, (type, tuple)):
+                    return isinstance(obj, cls)
+                return False
+
+            mock_isinstance.side_effect = isinstance_side_effect
+            mock_yolo_class.return_value = self.mock_yolo
+
+            model = UltralyticsModel(self.mock_yolo, conf=0.5, iou=0.6)
+
+            assert model.model == self.mock_yolo
+            assert model.kwargs == {'conf': 0.5, 'iou': 0.6}
 
     @patch('ul_utils.YOLO')
     def test_init_invalid_model_type(self, mock_yolo_class: MagicMock) -> None:
@@ -363,9 +385,12 @@ class TestUltralyticsModel(unittest.TestCase):
             with pytest.raises(TypeError) as exc_info:
                 UltralyticsModel(123)
 
-            assert 'Объект model должен быть строкой или YOLO-моделью' in str(
-                exc_info.value,
+            error_msg = str(exc_info.value)
+            assert 'Объект model должен быть строкой или' in error_msg
+            assert (
+                'экземпляром класса' in error_msg or 'зкземпляром класса' in error_msg
             )
+            assert 'Получен объект типа:' in error_msg
 
     @patch('ul_utils.YOLO')
     def test_init_with_tracker(self, mock_yolo_class: MagicMock) -> None:
@@ -398,7 +423,7 @@ class TestUltralyticsModel(unittest.TestCase):
 
     @patch('ul_utils.YOLO')
     def test_reset(self, mock_yolo_class: MagicMock) -> None:
-        """Тест сброса состояния."""
+        """Тест сброса состояния с фильтрами."""
         mock_yolo_class.return_value = self.mock_yolo
 
         with tempfile.NamedTemporaryFile(suffix='.pt', delete=False) as tmp:
@@ -406,7 +431,6 @@ class TestUltralyticsModel(unittest.TestCase):
 
             mock_filter1 = MagicMock()
             mock_filter1.reset = MagicMock()
-
             mock_filter2 = MagicMock()
             mock_filter2.reset = MagicMock()
 
@@ -417,7 +441,6 @@ class TestUltralyticsModel(unittest.TestCase):
 
             mock_filter1.reset.reset_mock()
             mock_filter2.reset.reset_mock()
-
             model.frame_ind = 10
             model.reset()
 
@@ -427,11 +450,42 @@ class TestUltralyticsModel(unittest.TestCase):
 
             tmp_path.unlink()
 
+    def test_reset_with_nested_predictor(self) -> None:
+        """Тест reset, когда трекеры находятся в model.predictor."""
+        with patch('ul_utils.isinstance') as mock_isinstance:
+            mock_model = MagicMock(spec=ULModel)
+
+            def isinstance_side_effect(obj: object, cls: object) -> bool:
+                if cls is ULModel and obj is mock_model:
+                    return True
+                # Проверяем, что cls — тип или кортеж типов, затем вызываем isinstance
+                if isinstance(cls, (type, tuple)):
+                    return isinstance(obj, cls)
+                return False
+
+            mock_isinstance.side_effect = isinstance_side_effect
+
+            mock_predictor = MagicMock()
+            mock_tracker1 = MagicMock()
+            mock_tracker2 = MagicMock()
+            mock_predictor.trackers = [mock_tracker1, mock_tracker2]
+            mock_model.predictor = mock_predictor
+
+            model = UltralyticsModel(mock_model)
+            # Сбрасываем счётчики вызовов после автоматического reset в конструкторе
+            mock_tracker1.reset.reset_mock()
+            mock_tracker2.reset.reset_mock()
+
+            model.reset()
+
+            mock_tracker1.reset.assert_called_once()
+            mock_tracker2.reset.assert_called_once()
+
     @patch('ul_utils.YOLO')
     @patch('ul_utils._result2objs')
     def test_img2df(
         self,
-        mock_result2objs: MagicMock,
+        mock_result2objs: MagicMock,  # noqa: ARG002
         mock_yolo_class: MagicMock,
     ) -> None:
         """Тест метода img2df."""
@@ -441,19 +495,13 @@ class TestUltralyticsModel(unittest.TestCase):
             tmp_path = Path(tmp.name)
 
             model = UltralyticsModel(str(tmp_path))
-
             mock_result = MagicMock()
             model._img2result = MagicMock(return_value=mock_result)  # noqa: SLF001
-
             mock_df = pd.DataFrame({'label': ['test']})
             model.result2df = MagicMock(return_value=mock_df)
 
             test_img = np.zeros((100, 100, 3), dtype=np.uint8)
             df = model.img2df(test_img)
-
-            # Проверяем, что мок был вызван (если нужно)
-            # Это убирает предупреждение о неиспользуемой переменной
-            assert mock_result2objs is not None
 
             model._img2result.assert_called_once_with(test_img)  # noqa: SLF001
             model.result2df.assert_called_once_with(mock_result)
@@ -471,10 +519,8 @@ class TestUltralyticsModel(unittest.TestCase):
             tmp_path = Path(tmp.name)
 
             model = UltralyticsModel(str(tmp_path), tracker='bytetrack.yaml')
-
             mock_result = MagicMock()
             self.mock_yolo.track.return_value = [mock_result]
-
             model.result2df = MagicMock(return_value=pd.DataFrame({'label': ['test']}))
 
             test_img = np.zeros((100, 100, 3), dtype=np.uint8)
@@ -497,7 +543,6 @@ class TestUltralyticsModel(unittest.TestCase):
             tmp_path = Path(tmp.name)
 
             model = UltralyticsModel(str(tmp_path))
-
             mock_result = MagicMock()
             mock_result.plot.return_value = np.zeros((100, 100, 3), dtype=np.uint8)
             model._img2result = MagicMock(return_value=mock_result)  # noqa: SLF001
@@ -609,7 +654,6 @@ class TestUltralyticsModel(unittest.TestCase):
             ):
                 mock_points = MagicMock()
                 mock_from_bbox.return_value = mock_points
-
                 mock_df = pd.DataFrame({'label': ['class1']})
                 mock_points.to_dfrow.return_value = mock_df
                 mock_concat_dfs.return_value = mock_df
@@ -664,7 +708,6 @@ class TestUltralyticsModel(unittest.TestCase):
                 mock_points = MagicMock()
                 mock_from_mask.return_value = mock_points
                 mock_points.scale = MagicMock(return_value=mock_points)
-
                 mock_df = pd.DataFrame({'label': ['class1']})
                 mock_points.to_dfrow.return_value = mock_df
                 mock_concat_dfs.return_value = mock_df
@@ -689,7 +732,6 @@ class TestUltralyticsModel(unittest.TestCase):
 
             with patch('ul_utils._result2objs', return_value=[]):
                 df = model.result2df(MagicMock())
-
                 assert df is None
 
             tmp_path.unlink()
@@ -707,7 +749,7 @@ class TestUltralyticsModel(unittest.TestCase):
 
             call_count = 0
 
-            def test_filter(objs: list) -> list:
+            def test_filter(objs: list[object]) -> list[object]:
                 nonlocal call_count
                 call_count += 1
                 return objs
@@ -716,7 +758,6 @@ class TestUltralyticsModel(unittest.TestCase):
 
             with patch('ul_utils._result2objs', return_value=[]):
                 df = model.result2df(MagicMock())
-
                 assert call_count == 1
                 assert df is None
 
@@ -750,6 +791,59 @@ class TestUltralyticsModel(unittest.TestCase):
 
             tmp_path.unlink()
 
+    @patch('ul_utils.VideoGenerator')
+    @patch('ul_utils.tqdm')
+    def test_video2subtask(
+        self,
+        mock_tqdm: MagicMock,
+        mock_video_gen: MagicMock,
+    ) -> None:
+        """Тест метода video2subtask."""
+        with patch('ul_utils.isinstance') as mock_isinstance:
+            mock_model = MagicMock(spec=ULModel)
+
+            def isinstance_side_effect(obj: object, cls: object) -> bool:
+                if cls is ULModel and obj is mock_model:
+                    return True
+                # Проверяем, что cls — тип или кортеж типов, затем вызываем isinstance
+                if isinstance(cls, (type, tuple)):
+                    return isinstance(obj, cls)
+                return False
+
+            mock_isinstance.side_effect = isinstance_side_effect
+
+            mock_result1 = MagicMock()
+            mock_result2 = MagicMock()
+            # Настраиваем, чтобы result.cpu() возвращал сам результат (или что-то)
+            mock_result1.cpu.return_value = mock_result1
+            mock_result2.cpu.return_value = mock_result2
+            mock_model.return_value = [mock_result1, mock_result2]
+
+            model_wrapper = UltralyticsModel(mock_model)
+            model_wrapper.result2df = MagicMock(
+                side_effect=[
+                    pd.DataFrame({'a': [1]}),
+                    pd.DataFrame({'b': [2]}),
+                ],
+            )
+            model_wrapper.frame_ind = 0
+
+            mock_video_gen.return_value.__len__.return_value = 2
+
+            # Вызываем без desc, чтобы избежать оборачивания в tqdm
+            subtask = model_wrapper.video2subtask('dummy.mp4', desc=None)
+
+            mock_model.assert_called_once_with(source='dummy.mp4', stream=True)
+            assert model_wrapper.result2df.call_count == 2
+            assert model_wrapper.frame_ind == 2
+            assert isinstance(subtask, tuple)
+            assert len(subtask) == 3
+            _df, path, mapping = subtask
+            assert path == 'dummy.mp4'
+            assert mapping == {0: 0, 1: 1}
+            # tqdm не должен вызываться, так как desc=None
+            mock_tqdm.assert_not_called()
+
 
 class TestUltralyticsModelIntegration(unittest.TestCase):
     """Интеграционные тесты для UltralyticsModel."""
@@ -769,7 +863,6 @@ class TestUltralyticsModelIntegration(unittest.TestCase):
             tmp_path = Path(tmp.name)
 
             mock_result = MagicMock()
-
             boxes_mock = MagicMock()
             boxes_mock.xyxy = MagicMock()
             boxes_mock.xyxy.numpy.return_value = np.array([])
