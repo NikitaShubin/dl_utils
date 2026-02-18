@@ -77,6 +77,7 @@ import pandas as pd
 
 import xml.etree.ElementTree as ET
 from tqdm import tqdm
+from pathlib import Path
 from PIL import ImageColor, Image
 from matplotlib import pyplot as plt
 from scipy.optimize import linear_sum_assignment
@@ -126,6 +127,11 @@ df_default_vals = {'track_id': None,
                    'group': 0,
                    'source': 'manual',
                    'elements': []}
+
+# Типизация некоторых объектов:
+FileType = str | Path | list[str | Path] | tuple[str | Path, ]
+TrueFrames = dict[int, int]
+Subtask = list[pd.DataFrame, FileType, TrueFrames] | tuple[pd.DataFrame, FileType, TrueFrames]
 
 
 def get_column_ind(df, column):
@@ -1814,20 +1820,12 @@ class CVATPoints:
                 new_points = cls(new_poly).fuse_multipoly().points
                 points = np.vstack([points, new_points, new_points[-1:, :]])
             # В каждой составляющей также удаляем повторяющиеся точки.
-            '''
-            try:
-                cls(points, rotation=rotation, imsize=imsize, attribs=attribs).split_multipoly()
-            except Exception as e:
-                print(poly_list)
-                print(points)
-                raise e
-            '''
-            return cls(points, rotation=rotation,
-                       imsize=imsize, attribs=attribs)
+
+            return cls(points, rotation=rotation, imsize=imsize, attribs=attribs)
 
         # Если контур всего один, то просто делаем его копию:
         elif len(poly_list) == 1:
-            return cls(poly_list[0], rotation=rotation, imsize=imsize)
+            return cls(poly_list[0], rotation=rotation, imsize=imsize, attribs=attribs)
 
         # Если контуров вообще нет, то возвращаем None:
         else:
@@ -2324,6 +2322,10 @@ class CVATPoints:
             img = img.copy()
             shift = np.zeros(2)
 
+        # Если объект пустой, то возвращаем изображение без изменений:
+        if not len(self):
+            return img
+
         # Если отрисовка с полупрозрачностью, то создаём копию исходного
         # изображения для последующего смешения:
         if alpha < 1:
@@ -2340,7 +2342,11 @@ class CVATPoints:
 
             # Рисуем залитый или полый контур:
             if (self.type == 'polygon') and (thickness < 0):
-                img = cv2.fillPoly(img, pts, color)
+                try:
+                    img = cv2.fillPoly(img, pts, color)
+                except:
+                    print(img.shape, pts, color)
+                    raise
             elif thickness > 0:
                 img = cv2.polylines(img, pts, self.type == 'polygon',
                                     color=color, thickness=thickness)
@@ -3105,9 +3111,6 @@ def yandex2subtask(json_file, file):
 
         # Получаем размер очередного кадра:
         img = img_buffer(file, true_frame)
-        if img is None:
-            print(true_frame)
-            raise
         imsize = img.shape[:2]
 
         # Перебираем каждый сегмент в кадре:
@@ -4467,14 +4470,6 @@ def crop_df_labels(df, bbox, area_part_th):
         else:
             s0 = points0.size()
             s1 = points1.size()
-            '''
-            if not isinstance(s0, (float, int)):
-                print(type(s0))
-                raise
-            if not isinstance(s1, (float, int)):
-                print(type(s1))
-                raise
-            '''
             if s0 == 0 or s1 / s0 < area_part_th:
                 return
             

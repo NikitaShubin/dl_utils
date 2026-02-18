@@ -96,3 +96,6 @@ target/
 
 # Граф связностей модулей
 dependency_graph.mmd
+
+# Всякие временные файлы Aider:
+.aider*
