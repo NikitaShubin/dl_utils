@@ -1,5 +1,5 @@
 # hadolint global ignore = DL3008  # Не фиксируем версии, т.к. в этом образе нужны свежие пакеты
-FROM pytorch/pytorch:2.4.1-cuda11.8-cudnn9-runtime
+FROM pytorch/pytorch:2.5.1-cuda12.1-cudnn9-runtime
 
 ARG WORKSPACE='/workspace'       # Рабочая папка
 ARG USERNAME='user'              # Имя пользователя
@@ -37,6 +37,9 @@ ARG PIP="python -m pip"
 ARG PYTHONMODULES="                                                      \
     # Фиксируем версии PyTorch и совместимых пакетов:                    \
     torch==2.5.1 torchvision==0.20.1 torchaudio==2.5.1                   \
+                                                                         \
+    # Совместимая версия transformers для Grounding Dino                 \
+    transformers==4.27.1                                                 \
                                                                          \
     # Для работы с CVAT:                                                 \
     cvat-sdk                                                             \
@@ -111,12 +114,13 @@ RUN useradd -ms "${SHELL_PATH}" "${USERNAME}"         && \
     adduser "${USERNAME}" sudo                        && \
     echo "${USERNAME}" ALL = NOPASSWD: ALL >> /etc/sudoers
 
-# Скачиваем модели SAM2, DINO, YOLO и ReID в ~/models/:
+# Скачиваем модели SAM2, SAM3, DINO, YOLO и ReID в ~/models/:
 RUN python ./src/sam2al.py                          && \
     mv /root/models "${HOMEDIR}"                    && \
     # Модель для SAM2 приходится качать под root из-за необходимости править сам модуль sam2.
     chown -R "${USERNAME}:${USERNAME}" "${HOMEDIR}" && \
     # Все файлы в домашней папке пользователя должны снова пренадлежать пользователю.
+    gosu "${USERNAME}" python ./src/sam3al.py       && \
     gosu "${USERNAME}" python ./src/gdinoal.py      && \
     gosu "${USERNAME}" python ./src/ul_utils.py     && \
     gosu "${USERNAME}" python ./src/boxmot_utils.py
