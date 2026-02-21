@@ -9,6 +9,7 @@ try:
     from modelscope.hub.file_download import (  # type: ignore[import-untyped]
         model_file_download,
     )
+
     ModelscopeNotFoundError = None
 except ModuleNotFoundError as e:
     ModelscopeNotFoundError = e

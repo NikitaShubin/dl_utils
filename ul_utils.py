@@ -34,8 +34,8 @@ from ultralytics import YOLO, engine
 
 from cv_utils import BBox, Mask
 from cvat import CVATPoints, Subtask, concat_dfs
-from video_utils import VideoGenerator
 from utils import SuppressModuleLogs
+from video_utils import VideoGenerator
 
 # Класс моделей:
 ULModel: TypeAlias = (
