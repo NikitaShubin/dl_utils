@@ -35,6 +35,7 @@ from ultralytics import YOLO, engine
 from cv_utils import BBox, Mask
 from cvat import CVATPoints, Subtask, concat_dfs
 from video_utils import VideoGenerator
+from utils import SuppressModuleLogs
 
 # Класс моделей:
 ULModel: TypeAlias = (
@@ -431,7 +432,8 @@ class UltralyticsModel:
         while True:
             # Обрабатываем следующий кадр, если есть:
             try:
-                result = next(results_iter)
+                with SuppressModuleLogs('ultralytics'):
+                    result = next(results_iter)
             except (IndexError, StopIteration):
                 break
 

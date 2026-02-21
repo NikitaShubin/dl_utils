@@ -100,6 +100,7 @@ import zipfile
 import glob
 import json
 import time
+import logging
 
 # from inspect import isclass
 from pathlib import Path
@@ -109,7 +110,7 @@ from tqdm import tqdm
 from multiprocessing import pool, Pool
 from IPython.display import clear_output, HTML  # , Javascript, display
 from matplotlib import pyplot as plt
-from typing import Iterable
+from typing import Iterable, Self
 from collections import defaultdict, deque
 from collections.abc import Callable
 
@@ -3290,6 +3291,73 @@ class Beep:
                 break
             self.beeper.beep(frequency=440, secs=0.5, blocking=True)
             self.beeper.beep(frequency=530, secs=0.5, blocking=True)
+
+
+class SuppressModuleLogs:
+    """Контекст, подавляющий логи указанного модуля ниже заданного уровня.
+
+    По умолчанию подавляются логи всех модулей в контексте.
+    """
+
+    def __init__(self, module_name: str = '', level: int = logging.WARNING) -> None:
+        self.module_name = module_name
+        self.level = level
+        self._active = False
+        # Сохраняем оригинальные функции:
+        self._orig_getLogger = logging.getLogger
+        self._orig_addHandler = logging.Logger.addHandler
+
+    def _is_our_module(self, name: str) -> bool:
+        """Проверяет, относится ли логгер к подавляемому модулю."""
+        if not self.module_name:
+            return True
+        return name == self.module_name or name.startswith(f"{self.module_name}.")
+
+    def _suppress_logger(self, logger: logging.Logger) -> None:
+        """Подавляет уровень логгера и всех его обработчиков."""
+        logger.setLevel(self.level)
+        for handler in logger.handlers:
+            handler.setLevel(self.level)
+
+    def _patch_logging(self) -> None:
+        """Подменяет функции logging для перехвата новых логгеров."""
+        suppressor = self
+
+        def getLogger(name=None):
+            logger = suppressor._orig_getLogger(name)
+            if suppressor._active and name and suppressor._is_our_module(name):
+                suppressor._suppress_logger(logger)
+            return logger
+
+        def addHandler(self_logger, handler):
+            if suppressor._active and suppressor._is_our_module(self_logger.name):
+                handler.setLevel(suppressor.level)
+            return suppressor._orig_addHandler(self_logger, handler)
+
+        logging.getLogger = getLogger
+        logging.Logger.addHandler = addHandler
+
+    def _restore_logging(self) -> None:
+        """Восстанавливает оригинальные функции logging."""
+        logging.getLogger = self._orig_getLogger
+        logging.Logger.addHandler = self._orig_addHandler
+
+    def _suppress_existing(self) -> None:
+        """Подавляет уже существующие логгеры."""
+        for name in list(logging.root.manager.loggerDict.keys()):
+            if self._is_our_module(name):
+                logger = self._orig_getLogger(name)
+                self._suppress_logger(logger)
+
+    def __enter__(self) -> Self:
+        self._active = True
+        self._patch_logging()
+        self._suppress_existing()
+        return self
+
+    def __exit__(self, *_) -> None:
+        self._active = False
+        self._restore_logging()
 
 
 class DelayedInit:
