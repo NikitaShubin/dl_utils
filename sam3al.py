@@ -15,7 +15,7 @@ bpe_path = Path(clip.__file__).parent / 'bpe_simple_vocab_16e6.txt.gz'
 
 # Ошибку отсутствия modelscope вернём только если модуль действительно понадобится:
 try:
-    from modelscope.hub.file_download import (  # type: ignore[import-not-found]
+    from modelscope.hub.file_download import (  # type: ignore[import-untyped]
         model_file_download,
     )
 
