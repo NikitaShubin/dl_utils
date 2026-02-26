@@ -47,7 +47,8 @@ class TestDownloadSam3:
             patch.object(Path, 'mkdir') as mock_mkdir,
             patch('shutil.move') as mock_move,
             patch('shutil.rmtree') as mock_rmtree,
-            patch('sam3al.model_file_download') as mock_download,
+            patch.object(sam3al, 'ModelscopeNotFoundError', None),
+            patch.object(sam3al, 'model_file_download', create=True) as mock_download,
         ):
             mock_download.return_value = str(fake_downloaded_file)
             result = download_sam3(None)
@@ -86,7 +87,8 @@ class TestDownloadSam3:
             patch.object(Path, 'mkdir') as mock_mkdir,
             patch('shutil.move') as mock_move,
             patch('shutil.rmtree') as mock_rmtree,
-            patch('sam3al.model_file_download') as mock_download,
+            patch.object(sam3al, 'ModelscopeNotFoundError', None),
+            patch.object(sam3al, 'model_file_download', create=True) as mock_download,
         ):
             mock_download.return_value = str(fake_downloaded)
             result = download_sam3(path)
@@ -127,7 +129,8 @@ class TestDownloadSam3:
             patch.object(Path, 'mkdir') as mock_mkdir,
             patch('shutil.move') as mock_move,
             patch('shutil.rmtree') as mock_rmtree,
-            patch('sam3al.model_file_download') as mock_download,
+            patch.object(sam3al, 'ModelscopeNotFoundError', None),
+            patch.object(sam3al, 'model_file_download', create=True) as mock_download,
         ):
             mock_download.return_value = str(fake_downloaded)
             result = download_sam3(path)
@@ -165,38 +168,35 @@ class TestDownloadSam3:
             patch.object(Path, 'mkdir') as mock_mkdir,
             patch('shutil.move'),
             patch('shutil.rmtree'),
-            patch('sam3al.model_file_download') as mock_download,
+            patch.object(sam3al, 'ModelscopeNotFoundError', None),
+            patch.object(sam3al, 'model_file_download', create=True) as mock_download,
         ):
             mock_download.return_value = str(temp_dir / 'sam3.pt')
             download_sam3(path)
 
         mock_mkdir.assert_called_once_with(parents=True, exist_ok=False)
 
-    def test_modelscope_not_imported_if_file_exists(self) -> None:
-        """Проверяет, что modelscope не импортируется при наличии файла."""
+    def test_model_file_download_not_called_when_file_exists(self) -> None:
+        """Проверяет, что при наличии файла скачивание не вызывается."""
+        path = Path('/some/path/model.pt')
         with (
             patch.object(Path, 'exists', return_value=True),
-            patch('builtins.__import__') as mock_import,
+            patch.object(sam3al, 'ModelscopeNotFoundError', None),
+            patch.object(sam3al, 'model_file_download', create=True) as mock_download,
         ):
-            download_sam3(None)
-
-            # Убеждаемся, что modelscope не импортировался
-            calls = [
-                call
-                for call in mock_import.call_args_list
-                if call[0][0] == 'modelscope'
-            ]
-            assert not calls
+            download_sam3(path)
+            mock_download.assert_not_called()
 
     def test_raises_if_modelscope_missing(self) -> None:
         """Проверяет, что при отсутствии modelscope выбрасывается исключение."""
-        # Имитируем отсутствие modelscope, подменяя переменную модуля
         fake_error = ModuleNotFoundError("No module named 'modelscope'")
+
+        path = Path('/some/path/model.pt')
         with (
             patch.object(sam3al, 'ModelscopeNotFoundError', fake_error),
             patch.object(Path, 'exists', return_value=False),
             pytest.raises(ModuleNotFoundError) as exc_info,
         ):
-            download_sam3(Path('/some/path/model.pt'))
+            download_sam3(path)
 
         assert exc_info.value is fake_error

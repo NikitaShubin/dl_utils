@@ -4,9 +4,18 @@
 import shutil
 from pathlib import Path
 
-# Ошибку отсутствия modelscope вернём только если он действительно понадобится:
+import clip  # type: ignore[import-untyped]
+
+# Путь к модели по умолчанию:
+default_model_path = Path.home() / 'models' / 'sam3.pt'
+
+# Путь к словарю для токенизатора BPE (Byte Pair Encoding):
+bpe_path = Path(clip.__file__).parent / 'bpe_simple_vocab_16e6.txt.gz'
+
+
+# Ошибку отсутствия modelscope вернём только если модуль действительно понадобится:
 try:
-    from modelscope.hub.file_download import (  # type: ignore[import-untyped]
+    from modelscope.hub.file_download import (  # type: ignore[import-not-found]
         model_file_download,
     )
 
