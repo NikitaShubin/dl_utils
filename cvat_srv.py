@@ -12,7 +12,7 @@ from cvat import (
     add_row2df, concat_dfs, ergonomic_draw_df_frame, cvat_backups2raw_tasks,
     cvat_backup_task_dir2task, get_related_files, df2annotations, new_df,
     interpolate_df, split_df_by_visibility, hide_skipped_objects_in_df,
-    CVATLabels
+    CVATLabels, dir2unlabeled_tasks
 )
 from utils import (
     mkdirs, rmpath, mpmap, get_n_colors, unzip_dir, AnnotateIt, cv2_exts,
@@ -1681,9 +1681,10 @@ class _CVATBase:
 
 
 class CVATProject(_CVATBase):
-    '''Интерфейс для работы с CVAT-датасетами.'''
-    # Парсит распакованный бекап:
+    """Интерфейс для работы с CVAT-датасетами."""
+
     def _parse_unzipped_backup(self):
+        """Парсит распакованный бекап."""
 
         # Список задач:
         self.data = []
@@ -1756,7 +1757,7 @@ class CVATProject(_CVATBase):
         else:
             rmpath(guide_file)
 
-    # Пишет метаданные датасета в папкус распакованным бекапом
+    # Пишет метаданные датасета в папку с распакованным бекапом
     # (данные для отдельных задач не входят):
     @classmethod
     def _write_annotations2unzipped_backup(cls,
@@ -1823,26 +1824,110 @@ class CVATProject(_CVATBase):
             else:  # Если отправлять надо один архив целиком
                 with AnnotateIt(desc):
 
-                    # Переходим в CVAT на один уровень выше:
-                    parent = self.cvat_srv_obj.parent()
+                    # Если интерфейсный объект cvat_srv_obj действительно
+                    # является проектом, то заменяем старый проект на новый:
+                    if self.cvat_srv_obj._hier_lvl == 1:
 
-                    # Фиксируем исходный датасет:
-                    old_cvat_srv_obj = self.cvat_srv_obj
+                        # Переходим в CVAT на один уровень выше:
+                        parent = self.cvat_srv_obj.parent()
 
-                    # Выполняем Выгрузку бекапа и заменяем интерфейсный
-                    # объект:
-                    self.cvat_srv_obj = parent.restore(self.zipped_backup)
+                        # Фиксируем исходный датасет:
+                        old_cvat_srv_obj = self.cvat_srv_obj
 
-                    # После успешного восстановления нового датасета старый
-                    # удаляется:
-                    old_cvat_srv_obj.delete()
+                        # Выполняем Выгрузку бекапа и заменяем интерфейсный
+                        # объект:
+                        self.cvat_srv_obj = parent.restore(self.zipped_backup)
 
-                    # На всякий случай обновляем представителя старого
-                    # датасета в CVAT новым:
-                    old_cvat_srv_obj._update_obj(self.cvat_srv_obj.obj.id)
+                        # После успешного восстановления нового датасета старый
+                        # удаляется:
+                        old_cvat_srv_obj.delete()
+
+                        # На всякий случай обновляем представителя старого
+                        # датасета в CVAT новым:
+                        old_cvat_srv_obj._update_obj(self.cvat_srv_obj.obj.id)
+
+                    # Если интерфейсный объект cvat_srv_obj является сервером,
+                    # то в нём создаём новый проект:
+                    elif self.cvat_srv_obj._hier_lvl == 0:
+                        # Выполняем выгрузку бекапа проекта на сервер:
+                        parent = self.cvat_srv_obj
+                        self.cvat_srv_obj = parent.restore(self.zipped_backup)
+
+                    else:
+                        msg = (
+                            'Интерфейсный параметр "cvat_srv_obj" должен быть '
+                            'экземпляром классов '
+                            f'{CVATSRVBase._hier_lvl2class[lvl] for lvl in range(2)}. '
+                            f'Получен объект типа "{type(self.cvat_srv_obj)}"!'
+                        )
+                        raise ValueError(msg)
 
                     # Удаляем архив после успешной отправки его на сервер:
                     rmpath(self.zipped_backup)
+
+    # Копирует файлы в папку с распакованным бекапом:
+    @classmethod
+    def _copy_files2unzipped_backup(cls,
+                                    data_path,
+                                    include_as_is,
+                                    unzipped_backup):
+        '''Копирует файлы в папку с распакованным бекапом.'''
+        if include_as_is:
+            msg = 'Режим "include_as_is" не поддерживается для проектов!'
+            raise NotImplementedError(msg)
+        # Поддержка include_as_is на уровне целого проекта не реализована.
+        # И, вомзожно, не будет.
+
+        # Находим все данные по указанному пути:
+        tasks = dir2unlabeled_tasks(data_path)
+
+        # Обрабатываем каждую задачу:
+        for task_num, task in enumerate(tasks):
+
+            # Убеждаемся, что в каждой задаче лишь одна подзадача:
+            task_len = len(task)
+            if task_len != 1:
+                msg = (
+                    f'В задаче имеется {task_len} подзадач, а должна быть лиш одна! '
+                    'Возможно, стоит проверить ф-ию dir2unlabeled_tasks или задачу '
+                    f'под номером {task_num}!'
+                )
+                raise ValueError(msg)
+
+            # Копируем все данные в нужную подпапку:
+            task_data_path = task[0][1]  # Файл(ы) для текущей задачи
+            task_unzipped_backup = os.path.join(unzipped_backup, f'task_{task_num}')
+            cvat_task = CVATTask.from_raw_data(
+                task_data_path,
+                include_as_is=include_as_is,
+                unzipped_backup=task_unzipped_backup,
+            )
+            # Копируем отдельную задачу через объект CVATTask.
+            cvat_task.paths2remove = set()
+            # Очищаем множество путей, подлежащих удалению,
+            # чтобы созданные файлы сохранились.
+
+        # Возвращаем аргументы для _init_files_in_unzipped_backup:
+        return {'project_name': os.path.basename(data_path)}
+
+    @classmethod
+    def _init_files_in_unzipped_backup(cls,
+                                       unzipped_backup,
+                                       project_name):
+        """Создаёт метаданные в папке с распакованным бекапом.
+
+        Всё кроме самих фото/видео.
+        """
+
+        # Создаём и пишем минимальную информацию о проекте:
+        info = {
+            'name': project_name,
+            'bug_tracker': '',
+            'status': 'annotation',
+            'labels': CVATLabels([]),
+            'version': '1.0'
+        }
+        cls._write_annotations2unzipped_backup(unzipped_backup, info, guide='')
 
 
 class CVATTask(_CVATBase):
@@ -1854,8 +1939,7 @@ class CVATTask(_CVATBase):
     def _parse_unzipped_backup(self):
 
         # Извлекаем список подзадач и метаданные задачи:
-        task, self.info = cvat_backup_task_dir2task(self.unzipped_backup,
-                                                    True)
+        task, self.info = cvat_backup_task_dir2task(self.unzipped_backup, True)
         self.info['labels'] = CVATLabels(self.info['labels'])  # Парсинг меток
 
         # Создаём для каждой подзадачи экземпляр класса CVATJob:
