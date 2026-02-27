@@ -15,8 +15,8 @@ from cvat import (
     CVATLabels, dir2unlabeled_tasks
 )
 from utils import (
-    mkdirs, rmpath, mpmap, get_n_colors, unzip_dir, AnnotateIt, cv2_exts,
-    cv2_vid_exts, get_file_list, json2obj, get_empty_dir, Zipper, obj2json,
+    mkdirs, rmpath, mpmap, get_n_colors, unzip_dir, AnnotateIt, cv2_exts, cv2_vid_exts,
+    cv2_img_exts, get_file_list, json2obj, get_empty_dir, Zipper, obj2json,
     get_video_info, split_dir_name_ext, invert_index_vector
 )
 from video_utils import VideoGenerator
@@ -1603,7 +1603,7 @@ class _CVATBase:
 
     # Пишет текущее состояние разметки в папку с распакованным бекапом,
     # а при необходимости собирает архив и отправляет его на CVAT-сервер.
-    def push(self, local_only=False):
+    def push(self, local_only=False) -> CVATSRVBase:
         raise NotImplementedError('Метод должен быть переопределён!')
 
     def __len__(self):
@@ -1771,7 +1771,7 @@ class CVATProject(_CVATBase):
 
     # Пишет текущее состояние разметки в папку с распакованным бекапом,
     # а при необходимости собирает архив и отправляет его на CVAT-сервер.
-    def push(self, local_only=False):
+    def push(self, local_only=False) -> CVATSRVBase:
 
         # Вызываем синхронизацю каждого из подобъектов (задач):
         for task_data in tqdm(self.data,
@@ -1865,6 +1865,9 @@ class CVATProject(_CVATBase):
                     # Удаляем архив после успешной отправки его на сервер:
                     rmpath(self.zipped_backup)
 
+        # Возвращаем обновлённый представитель объекта в CVAT:
+        return self.cvat_srv_obj
+
     # Копирует файлы в папку с распакованным бекапом:
     @classmethod
     def _copy_files2unzipped_backup(cls,
@@ -1908,7 +1911,7 @@ class CVATProject(_CVATBase):
             # чтобы созданные файлы сохранились.
 
         # Возвращаем аргументы для _init_files_in_unzipped_backup:
-        return {'project_name': os.path.basename(data_path)}
+        return {'project_name': os.path.basename(os.path.normpath(data_path))}
 
     @classmethod
     def _init_files_in_unzipped_backup(cls,
@@ -2113,6 +2116,53 @@ class CVATTask(_CVATBase):
         return {'file_list': file_list,
                 'task_name': task_name}
 
+    @staticmethod
+    def _file_list2chunk_type(file_list: list[str]) -> str:
+        """Определяет тип данных."""
+
+        # Составляем множетство всех найденных типов:
+        chunk_types = set()
+        for file in file_list:
+
+            # Определяем расширение файла:
+            ext = os.path.splitext(file)[1].lower()
+
+            # Если это изображение:
+            if ext in cv2_img_exts:
+                chunk_types.add('imageset')
+
+            # Если это видео:
+            elif ext in cv2_vid_exts:
+                chunk_types.add('video')
+
+                # Видео должно быть единственным элементом:
+                if len(file_list) > 1:
+                    msg = (
+                        'В случае видео список файлов должен быть из одного элемента. '
+                        f'Получено: {file_list}!'
+                    )
+                    raise FileExistsError(msg)
+
+            # Если это незнакомый тип данных:
+            else:
+                msg = f'Неподдерживаемый тип файла: {ext}!'
+                raise ValueError(msg)
+
+        # Если найден лишь один тип - всё нормально:
+        if len(chunk_types) == 1:
+            chunk_type = chunk_types.pop()
+            return chunk_type
+
+        # Если присутствуют фото и видео одновременно,
+        # или данных нет вообще - возвращаем ошибку:
+        if len(chunk_types):
+            msg = 'Найдены фото- и видео-данные одновременно!'
+            exeption = FileExistsError
+        else:
+            msg = 'Данных не найдено!'
+            exeption = FileNotFoundError
+        raise exeption(msg)
+
     # Создаёт метаданные (всё кроме самих фото/видео) в папке с распакованным
     # бекапом:
     @classmethod
@@ -2121,24 +2171,16 @@ class CVATTask(_CVATBase):
                                        file_list,
                                        task_name):
 
-        # Определяем номер последнего кадра в данных:
+        # Определяем номер последнего кадра и тип данных:
         file = file_list if len(file_list) > 1 else file_list[0]
         stop_frame = VideoGenerator.get_file_total_frames(file) - 1
+        chunk_type = cls._file_list2chunk_type(file_list)
 
-        # Инициируем инфу о задаче:
-        info = cls._init_info(name=task_name,
-                              data={
-                                  'image_quality': 90,
-                                  'chunk_type': 'imageset',
-                                  'sorting_method': 'predefined',
-                                  'start_frame': 0,
-                                  'stop_frame': stop_frame
-                              },
-                              jobs=[{
-                                  'status': 'annotation',
-                                  'start_frame': 0,
-                                  'stop_frame': stop_frame
-                              }])
+        # Инициируем и доопределяем инфу о задаче:
+        info = cls._init_info(task_name)
+        info['data']['stop_frame'] = info['jobs'][0]['stop_frame'] = stop_frame
+        info['data']['chunk_type'] = chunk_type
+
         # Создаём пустую разметку:
         data = cls._init_annotations(file_list)
 
@@ -2154,7 +2196,7 @@ class CVATTask(_CVATBase):
     @staticmethod
     def _init_info(name: str = 'unnamed_task',
                    bug_tracker: str = '',
-                   status: str = 'completed',
+                   status: str = 'annotation',
                    subset: str = 'Train',
                    labels: list[dict] = [],
                    version: str = '1.0',
@@ -2163,7 +2205,7 @@ class CVATTask(_CVATBase):
                        'chunk_type': 'imageset',
                        'sorting_method': 'predefined',
                        'start_frame': 0,
-                       'stop_frame': 0
+                       'stop_frame': 0,
                    },
                    jobs: list[dict] = [{'status': 'annotation',
                                         'start_frame': 0,
@@ -2371,7 +2413,7 @@ class CVATTask(_CVATBase):
 
     # Пишет текущее состояние разметки в папку с распакованным бекапом,
     # а при необходимости собирает архив и отправляет его на CVAT-сервер.
-    def push(self, local_only=False):
+    def push(self, local_only=False) -> CVATSRVBase:
 
         task_data_dir = os.path.join(self.unzipped_backup, 'data')
 
@@ -2438,6 +2480,9 @@ class CVATTask(_CVATBase):
                 # удаляется:
                 if delete_old:
                     old_cvat_srv_obj.delete()
+
+        # Возвращаем обновлённый представитель объекта в CVAT:
+        return self.cvat_srv_obj
 
     '''
     def __del__(self):
