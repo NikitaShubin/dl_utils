@@ -1,83 +1,167 @@
-import numpy as np
 import cv2
-import video
+import numpy as np
+import scipy
 
-help_message = '''
-USAGE: opt_flow.py [<video_source>]
 
-Keys:
- 1 - toggle HSV flow visualization
- 2 - toggle glitch
+class ImDistort:
+    """
+    Класс, позволяющий многократно воспроизводить геометрическое искажение.
+    """
+    # Строит недеформированную координатную сетку:
+    @staticmethod
+    def create_meshgrid(shape):
+        y = np.arange(shape[0], dtype=float)
+        x = np.arange(shape[1], dtype=float)
+        xv, yv = np.meshgrid(x, y)
+        return np.dstack([xv, yv])
 
-'''
+    def __init__(self, meshgrid=None):
+        # Если координатная сетка не задана:
+        if meshgrid is None:
+            self.meshgrid = None
 
-def draw_flow(img, flow, step=16):
-    h, w = img.shape[:2]
-    y, x = np.mgrid[step/2:h:step, step/2:w:step].reshape(2,-1)
-    fx, fy = flow[y,x].T
-    lines = np.vstack([x, y, x+fx, y+fy]).T.reshape(-1, 2, 2)
-    lines = np.int32(lines + 0.5)
-    vis = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
-    cv2.polylines(vis, lines, 0, (0, 255, 0))
-    for (x1, y1), (x2, y2) in lines:
-        cv2.circle(vis, (x1, y1), 1, (0, 255, 0), -1)
-    return vis
+        else:
+            meshgrid = np.array(meshgrid)
 
-def draw_hsv(flow):
-    h, w = flow.shape[:2]
-    fx, fy = flow[:,:,0], flow[:,:,1]
-    ang = np.arctan2(fy, fx) + np.pi
-    v = np.sqrt(fx*fx+fy*fy)
-    hsv = np.zeros((h, w, 3), np.uint8)
-    hsv[...,0] = ang*(180/np.pi/2)
-    hsv[...,1] = 255
-    hsv[...,2] = np.minimum(v*4, 255)
-    bgr = cv2.cvtColor(hsv, cv2.COLOR_HSV2BGR)
-    return bgr
+            # Если вместо координатной сетки дан её размер, то создаём её
+            # без деформации:
+            if meshgrid.ndim == 1:
+                self.meshgrid = self.create_meshgrid(meshgrid)
 
-def warp_flow(img, flow):
-    h, w = flow.shape[:2]
-    flow = -flow
-    flow[:,:,0] += np.arange(w)
-    flow[:,:,1] += np.arange(h)[:,np.newaxis]
-    res = cv2.remap(img, flow, None, cv2.INTER_LINEAR)
-    return res
+            # Если координатная сетка передана, то запоминаем её:
+            elif meshgrid.ndim == 3 and meshgrid.shape[-1] == 2:
+                self.meshgrid = self.meshgrid
 
-if __name__ == '__main__':
-    import sys
-    print(help_message)
-    try: fn = sys.argv[1]
-    except: fn = 0
+            else:
+                raise ValueError('Неожиданный размер координатной сетки: ' +
+                                 f'{meshgrid.shape}!')
 
-    cam = video.create_capture(fn)
-    ret, prev = cam.read()
-    prevgray = cv2.cvtColor(prev, cv2.COLOR_BGR2GRAY)
-    show_hsv = False
-    show_glitch = False
-    cur_glitch = prev.copy()
+    # Создаёт деформацию, повторяющую оптический поток:
+    @classmethod
+    def from_opt_flow(cls, flow):
+        meshgrid = cls.create_meshgrid(flow.shape)
+        cls(meshgrid - flow)
 
-    while True:
-        ret, img = cam.read()
-        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-        flow = cv2.calcOpticalFlowFarneback(prevgray, gray, 0.5, 3, 15, 3, 5, 1.2, 0)
-        prevgray = gray
-        
-        cv2.imshow('flow', draw_flow(gray, flow))
-        if show_hsv:
-            cv2.imshow('flow HSV', draw_hsv(flow))
-        if show_glitch:
-            cur_glitch = warp_flow(cur_glitch, flow)
-            cv2.imshow('glitch', cur_glitch)
+    # Применяем искажения к заданному изображению:
+    def __call__(self, img, mask_mode=False, *args, **kwargs):
+        # Округляем координаты пикселей, если используется режим маски:
+        if mask_mode:
+            meshgrid = np.round(self.meshgrid)
+        else:
+            meshgrid = self.meshgrid
 
-        ch = 0xFF & cv2.waitKey(5)
-        if ch == 27:
-            break
-        if ch == ord('1'):
-            show_hsv = not show_hsv
-            print('HSV flow visualization is', ['off', 'on'][show_hsv])
-        if ch == ord('2'):
-            show_glitch = not show_glitch
-            if show_glitch:
-                cur_glitch = img.copy()
-            print('glitch is', ['off', 'on'][show_glitch])
-    cv2.destroyAllWindows() 			
+        # Для map_coordinates нужен обратный порядок координат:
+        meshgrid = [meshgrid[..., 1],
+                    meshgrid[..., 0]]
+
+        # Если изображение не имеет третьего измерения:
+        ndim = img.ndim
+        if ndim == 2:
+            return scipy.ndimage.map_coordinates(img, meshgrid,
+                                                 *args, **kwargs)
+
+        # Если изображение имеет три измерения:
+        elif ndim == 3:
+            result = []
+            for ch in range(img.shape[-1]):
+                channel = img[..., ch]
+                channel = scipy.ndimage.map_coordinates(channel, meshgrid,
+                                                        *args, **kwargs)
+                result.append(channel)
+            return np.dstack(result)
+
+        else:
+            raise ValueError('Неожиданное число измерений изображения: ' +
+                             f'{ndim}!')
+
+    # Оценка искажений с помощью оптического потока:
+    def from_example(cls, source, target):
+        pass
+
+    # Объединение искажений (некоммутативно!):
+    def __add__(self, other):
+        return type(self)(other(self.meshgrid))
+    # dist2(dist1(img)) = (dist1 + dist2)(img)
+
+
+class OptFlow:
+    """
+    Обвязка вокруг cv2.calcOpticalFlowFarneback.
+    Позволяет выполнять различные операции на базе оптического потока.
+    """
+    def __init__(self,
+                 pyr_scale=0.5,
+                 levels=10,
+                 winsize=40,
+                 poly_n=5,
+                 poly_sigma=1.1,
+                 iterations=10,
+                 flags=cv2.OPTFLOW_FARNEBACK_GAUSSIAN):
+        self.pyr_scale = pyr_scale
+        self.levels = levels
+        self.winsize = winsize
+        self.poly_n = poly_n
+        self.poly_sigma = poly_sigma
+        self.iterations = iterations
+        self.flags = flags
+
+    # Создаёт экземпляр класса ImDistort по оптическому потоку,
+    # оцененному по двум изображениям:
+    def __call__(self, img1, img2, init_flow=None):
+        # Переводим цветные изображения в оттенки серого, если надо:
+        if img1.ndim > 2 and img1.shape[2] == 3:
+            img1 = cv2.cvtColor(img1, cv2.COLOR_RGB2GRAY)
+        if img2.ndim > 2 and img2.shape[2] == 3:
+            img2 = cv2.cvtColor(img2, cv2.COLOR_RGB2GRAY)
+
+        # Копируем начальное состояние оптического потока перед
+        # использованием, чтобы не допустить изменений в оригинальной
+        # переменной:
+        if init_flow is not None:
+            init_flow = init_flow.copy()
+
+        # Вычисляем сам оптический поток:
+        flow = cv2.calcOpticalFlowFarneback(img1,
+                                            img2,
+                                            init_flow,
+                                            pyr_scale=self.pyr_scale,
+                                            levels=self.levels,
+                                            winsize=self.winsize,
+                                            poly_n=self.poly_n,
+                                            poly_sigma=self.poly_sigma,
+                                            iterations=self.iterations,
+                                            flags=self.flags)
+
+        # Создаём класс ImDistort с соответствующим искажением:
+        return ImDistort.from_opt_flow(flow)
+
+    def seq_flows(self, imgs, cum_sum=True, **mpmap_kwargs):
+        """
+        Вычисляем потоки между соседними кадрами видеопоследовательности.
+        """
+        # Рассчёт потока между каждой парой соседних кадров:
+        flows = mpmap(self.__call__, imgs[:-1], imgs[1:], **mpmap_kwargs)
+
+        # Если поток отстраивается от первого изображения:
+        if cum_sum:
+
+            # Инициируем нулями поток для первого кадра с самим собой:
+            flow = np.zeros_like(flows[0])
+            cum_flows = [flow]
+
+            # Накапливаем сдвиги для следующих кадров:
+            for dflow in flows:
+                flow = flow + dflow
+                cum_flows.append(flow)
+
+            # Заменяем исходные потоки, потокам с накоплением:
+            flows = cum_flows
+
+        return flows
+
+    def seq_apply_flow2img(self, img, cum_flows, **mpmap_kwargs):
+        """
+        Восстанавливает последовательность кадров, используя
+        лишь первый кадр и последовательность опт. потоков.
+        """
+        return mpmap(self.apply_flow2img, [img] * len(cum_flows), cum_flows, **mpmap_kwargs)
