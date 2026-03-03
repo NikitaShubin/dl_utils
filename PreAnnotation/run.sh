@@ -53,7 +53,14 @@ then
     # Если образ собрать не удалось - берём готовый с DockerHub:
     printf "%bОбраз не собран!\n" "$RED"
     printf "Берётся версия из DockerHub!\n%b" "$NC"
-    docker pull "$IMAGE_NAME"
+
+    # Если даже готовый с DockerHub получить не удалось:
+    if ! docker pull "$IMAGE_NAME:latest";
+    then
+        printf "%bВерсия из DockerHub недоступна!\n" "$RED"
+        printf "Будет использована локальная копия!\n%b" "$NC"
+    fi
+
 else
     # Если образ успешно собран, отправляем ВСЕ теги в одном фоновом процессе:
     nohup bash -c "
