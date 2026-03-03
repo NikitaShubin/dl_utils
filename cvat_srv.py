@@ -255,10 +255,10 @@ class Client:
             except Exception as e:
                 print(e)
                 print(f'Перезапуск бекапа "{path}"')
+                error = e
         else:
             print('Попытки исчерпаны!')
-            raise e
-
+            raise error
 
         # Возвращаем путь до бекапа:
         return path
