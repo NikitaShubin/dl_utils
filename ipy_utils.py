@@ -238,6 +238,60 @@ class IPYRadioButtons:
             display(self.radio_buttons)
 
 
+class Bool:
+    """Обёртка вокруг логической переменной для работы в IPYCheckbox."""
+
+    def __init__(self, val: bool = False):
+        self.val = val
+
+    def setter(self, val: bool):
+        self.val = val
+
+    def getter(self):
+        return self.val
+
+    def __bool__(self):
+        return self.getter()
+
+
+class IPYCheckbox:
+    """Выводит чекбокс и вызывает колбек setter в момент изменения значений.
+
+    Пример:
+        Ячейка 1:
+            ipcb = IPYCheckbox(description='Подгонять контуры')
+            fit_segments = ipcb.value
+            ipcb.show();
+
+        Ячейка 2:
+            print('Контуры подгоняются' if fit_segments else 'Контуры не подгоняются')
+    """
+
+    def __init__(
+        self,
+        value: bool = False,
+        description: str = ' ',
+        setter=None,
+    ) -> None:
+        # Создаём свой сеттер, если он не был задан:
+        if setter is None:
+            self.value = Bool(value)
+            setter = self.value.setter
+
+        self.setter = setter
+        self.check_box = ipywidgets.Checkbox(value, description=description)
+
+    def show(self):
+        if self.setter:
+
+            def setter(criteria):
+                return self.setter(criteria)
+
+            return ipywidgets.interact(setter, criteria=self.check_box)
+        else:
+            display(self.radio_buttons)
+
+
 # Очиcтка ячейки вывода:
 def cls():
     clear_output(wait=True)
