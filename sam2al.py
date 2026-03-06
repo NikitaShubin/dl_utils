@@ -20,7 +20,7 @@ from video_utils import VideoGenerator
 from cvat import (df_save, df_load, new_df, add_row2df, CVATPoints,
                   concat_dfs, ergonomic_draw_df_frame, subtask2preview,
                   hide_skipped_objects_in_df, subtask2xml, df_list2tuple,
-                  df_tuple2list)
+                  df_tuple2list, task_fuse_multipoly)
 from utils import unflatten_list, mkdirs, color_float_hsv_to_uint8_rgb, AnnotateIt
 from seg import fit_segments_in_df
 from ml_utils import model2home
@@ -781,6 +781,11 @@ class SAM2:
                 mpmap_kwargs={'desc': 'Подгонка контуров'},
                 fuse_by_groups=True
             )
+
+        else:
+            df = task_fuse_multipoly([(df, file, true_frames)])[0][0]
+        # Иначе просто удаляем повторяющиеся точки, разделяющие сегменты одного
+        # контура - процедура, включённая в fit_segments_in_df.
 
         # Скрываем объекты в местах пропусков (отрубаем хвосты):
         df = hide_skipped_objects_in_df(df, true_frames)

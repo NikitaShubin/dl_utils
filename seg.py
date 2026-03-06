@@ -19,7 +19,7 @@ from utils import (rmpath, mkdirs, mpmap, ImReadBuffer, img_dir2video,
 from cvat import (CVATPoints, sort_tasks_by_len, cvat_backup_task_dir2info,
                   smart_fuse_multipoly_in_df, split_df_by_visibility,
                   concat_dfs, get_column_ind, DisableSettingWithCopyWarning,
-                  df2masks, concat_dfs)
+                  df2masks)
 from cv_utils import (Mask, build_masks_JaccardDiceOverlap_matrixs,
                       build_masks_IoU_matrix)
 
@@ -1023,7 +1023,7 @@ def _fit_segments_in_frame_df(df, imsize, fuse_by_groups=False):
         points = CVATPoints.from_mask(mask.array, cv2.CHAIN_APPROX_TC89_KCOS)
         if points is None or len(points) < 3:
             points = CVATPoints.from_mask(mask.array)
-        # Более точно оконтуриваем сегмент, если в первый раз он был "съеден".
+            # Более точно оконтуриваем сегмент, если в первый раз он был "съеден".
 
         # points = points.reducepoly(0.7)
         if points is not None:
@@ -1123,7 +1123,7 @@ def fit_segments_in_df(df,
     # Сначала берём все пустые многоугольники:
     inds2drop = fitted_df['points'].isna()
 
-    # Добавляем к ним многоугольники, число пар координат в которых меньше 3:
+    # Добавляем к ним многоугольники, число вершин в которых меньше 3:
     inds2drop.loc[~inds2drop] |= \
         fitted_df.loc[~inds2drop, 'points'].apply(len) < 6
 
@@ -1147,7 +1147,7 @@ def fit_segments_in_df(df,
             invisible_dfs_polygon.append(pd.DataFrame(dfrow).T)
 
         # Возвращаем невидимые объекты, не участвовавшие в фильтрации:
-        fitted_df = concat_dfs(fitted_df, invisible_dfs_polygon)
+        fitted_df = concat_dfs([fitted_df, invisible_dfs_polygon])
 
     # Возвращаем объединённый датафрейм:
     return fitted_df

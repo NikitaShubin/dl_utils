@@ -3666,23 +3666,67 @@ def objs2df(
     return concat_dfs(dfs) if concat else dfs
 
 
-def concat_dfs(*args):
-    '''
-    Объединяет датафреймы/строки и их списки в один общий датафрейм.
-    '''
-    # Обрабатываем список аргументов (с рекурсией, если надо):
-    dfs = []
-    for df in args:
+def concat_dfs(dfs: tuple | list | set, smart: bool = False):
+    """Объединяет датафреймы/строки и их списки в один общий датафрейм.
+
+    smart - режим, делающий track_id разных датафреймов уникальными перед слиянием.
+    """
+    # Обрабатываем список аргументов:
+    dfs_ = []
+    for df in dfs:
         if isinstance(df, pd.core.frame.DataFrame):
-            dfs.append(df)
+            dfs_.append(df)
         elif isinstance(df, pd.core.series.Series):
-            dfs.append(pd.DataFrame(df).T)
+            dfs_.append(pd.DataFrame(df).T)
         elif isinstance(df, (tuple, list, set)):
-            dfs.append(concat_dfs(*df))
+            dfs_.append(concat_dfs(df, smart))
         elif df is None:
             pass
         else:
             raise ValueError(f'Передан неожиданный тип данных: {type(df)}')
+
+    # Делаем номера треков непересекающимися, если надо:
+    if smart:
+
+        dfs = []
+        used_tracks = set()
+        next_unused_track = 0
+        for df in dfs_:
+
+            # Множество треков в текущем датафрейме:
+            track_dis = set(df['track_id'].unique()) - {None}
+
+            # Множество пересекающихся треков в текущем и общем датафреймах:
+            intersection_track_dis = used_tracks & track_dis
+
+            # Если есть пересечения:
+            if intersection_track_dis:
+                df = df.copy()
+
+                # Пополняем множество используемых треков:
+                used_tracks |= track_dis
+
+            # Перебираем все треки, которые требуют замены:
+            for intersection_track_di in intersection_track_dis:
+
+                # Ищем первый неиспользованный индекс:
+                while next_unused_track in used_tracks:
+                    next_unused_track += 1
+                used_tracks.add(next_unused_track)
+                # Вносим новый трек во множество использованных на будущее.
+
+                # Выполняем саму замену:
+                mask = df['track_id'] == intersection_track_di  # Маска строк, подлежащих изменению
+                df.loc[mask, 'track_id'] = next_unused_track
+
+            # Дополняем множество используемых треков теми, что не потребовали замены:
+            used_tracks |= set(track_dis)
+
+            # Вносим результат в итоговый список:
+            dfs.append(df)
+
+    else:
+        dfs = dfs_
 
     # Возвращаем результат:
     if len(dfs) == 0:
