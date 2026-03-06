@@ -101,6 +101,7 @@ import glob
 import json
 import time
 import logging
+import string
 
 # from inspect import isclass
 from pathlib import Path
@@ -2656,6 +2657,61 @@ def split_dir_name_ext(file):
     dir, name_ext = os.path.split(file)
     name, ext = os.path.splitext(name_ext)
     return dir, name, ext
+
+
+def str2filename(original: str) -> str:
+    """Преобразует произвольную строку в допустимое имя файла.
+
+    Возвращает строку, начинающуюся с 'f_', за которой следует
+    percent-encoded представление исходной строки (UTF-8).
+    """
+
+    # Разрешённые символы (останутся без изменений):
+    allowed = set(string.ascii_letters + string.digits + '-_')
+
+    # Кодируем исходную строку в байты UTF-8:
+    bytes_data = original.encode('utf-8')
+    result_parts = []
+    for b in bytes_data:
+        ch = chr(b)
+        if ch in allowed:
+            result_parts.append(ch)
+        else:
+            result_parts.append(f'%{b:02X}')
+
+    return 'f_' + ''.join(result_parts)
+
+
+def filename2str(encoded: str) -> str:
+    """Обращает работу ф-ии str2filename."""
+
+    if not encoded.startswith('f_'):
+        raise ValueError("Некорректное закодированное имя: отсутствует префикс 'f_'")
+
+    data = encoded[2:]
+    bytes_list = []
+    i = 0
+    n = len(data)
+
+    while i < n:
+
+        if data[i] == '%':
+            if i + 2 >= n:
+                raise ValueError("Неполная процентная последовательность")
+            hex_str = data[i + 1: i + 3]
+            try:
+                byte = int(hex_str, 16)
+            except ValueError:
+                raise ValueError(f"Неверный шестнадцатеричный код: {hex_str}")
+            bytes_list.append(byte)
+            i += 3
+
+        else:
+            # Обычный символ (должен быть из разрешённого набора):
+            bytes_list.append(ord(data[i]))
+            i += 1
+
+    return bytes(bytes_list).decode('utf-8')
 
 
 ########################
