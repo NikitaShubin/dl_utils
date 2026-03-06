@@ -177,6 +177,10 @@ com/PublicPackages/_packaging/onnxruntime-cuda-12/pypi/simple/           \
     # ClearML:                                                           \
     clearml                                                              \
                                                                          \
+    # Ray Tune:                                                          \
+    ray[tune]                                                            \
+                                                                         \
+                                                                         \
     #                    Фундаментальные модели:                         \
                                                                          \
     # HQSAM (используется в samal.py вместо Segment Anything Model):     \
@@ -204,6 +208,7 @@ com/PublicPackages/_packaging/onnxruntime-cuda-12/pypi/simple/           \
                                                                          \
     # Работа с AI-агентами:                                              \
     open-interpreter pyautogen streamlit                                 \
+                                                                         \
                                                                          \
     #                            Прочее:                                 \
                                                                          \
