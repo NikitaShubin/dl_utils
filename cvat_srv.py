@@ -1231,14 +1231,17 @@ class ReadTasks:
 
 class _CVATBase:
     '''Базовый класс объектов редактирования данных в CVAT.'''
-    def __init__(self,
-                 cvat_srv_obj: CVATSRVBase | None = None,
-                 zipped_backup: str | None = None,
-                 unzipped_backup: str | None = None,
-                 *,
-                 parted: bool = True,
-                 verbose: bool = True,
-                 take_data_from: str = 'auto'):
+
+    def __init__(
+        self,
+        cvat_srv_obj: CVATSRVBase | None = None,
+        zipped_backup: str | None = None,
+        unzipped_backup: str | None = None,
+        *,
+        parted: bool = True,
+        verbose: bool = True,
+        take_data_from: str = 'auto'
+    ) -> None:
         ''' Инициализация базового класса.
 
         Входные параметры:
@@ -1498,12 +1501,16 @@ class _CVATBase:
                 # Качаем бекап частями или целиком:
                 desc = 'Загрузка бекапа' if self.verbose else ''
                 if self.parted:
-                    self.cvat_srv_obj.backup_all(self.zipped_backup,
-                                                 desc=desc,
-                                                 num_procs=1)
+                    self.cvat_srv_obj.backup_all(
+                        self.zipped_backup,
+                        desc=desc,
+                        num_procs=1
+                    )
                 else:
-                    with AnnotateIt(desc):
-                        self.cvat_srv_obj.backup(self.zipped_backup)
+                    self.cvat_srv_obj.backup(
+                        self.zipped_backup,
+                        desc=desc,
+                    )
 
             # Распаковываем бекап(ы):
             self._extract()
@@ -1614,10 +1621,6 @@ class _CVATBase:
         '''Удаляет все файлы и папки, подлежащие удалению.'''
         for path in self.paths2remove:
             rmpath(path)
-            '''
-            if self.verbose:
-                print(f'"{path}" удалён!')
-            '''
 
     def __del__(self):
         '''Перед закрытием объекта надо удалять все файлы/папки из списка.'''
@@ -2225,60 +2228,6 @@ class CVATTask(_CVATBase):
         # Добавляем к словарю доп. параметры и возвращаем:
         return info | kwargs
 
-    """
-
-    # Создаёт новый экземпляр класса из фото/видео/дирректории с данными:
-    @classmethod
-    def from_raw_data(cls,
-                      data_path: str | list[str] | tuple[str],
-                      include_as_is: bool = False,
-                      *init_args, **init_kwargs):
-        '''
-        Флаг include_as_is используется если нужно включить контекст
-        (см. https://docs.cvat.ai/docs/manual/advanced/contextual-images/).
-        В этом случае передавать надо либо папку, в которой уже всё
-        подготовлено, либо архив содержимого подобной папки (не включая саму
-        папку!). Можно использовать и список файлов, но тогда они должны все
-        лежать в одной папке, содержимое которой будет скопировано целиком.
-        Во всех остальных случаях в корне папки будут выискиваться файлы
-        подходящего типа, а архив игнорироваться (возвращаться ошибка).
-        '''
-        # Инициируем экземпляр класса, но пока без работы с файлами:
-        cvat_task = cls(data_path, *init_args, **init_kwargs,
-                        take_data_from='unzipped_backup')
-
-        # Получаем целевую папку с распакованным бекапом:
-        unzipped_backup = cvat_task.unzipped_backup
-
-        # Подпапка для данных в дирректории с распакованным бекапом:
-        task_data_dir = os.path.join(unzipped_backup, 'data')
-        mkdirs(task_data_dir)  # Создаём подпапку для данных
-
-        # Копируем данные в целевую папку и получаем список файлов в
-        # итоговом пути:
-        if isinstance(data_path, str):  # Если передан всего один файл
-            prepare_raw_data = cls.__prepare_single_raw_file
-        else:                           # Если файлов несколько
-            prepare_raw_data = cls.__prepare_multiple_raw_files
-        file_list = prepare_raw_data(data_path,
-                                     task_data_dir,
-                                     include_as_is)
-
-        # Иницируем пустую разметку:
-        data = cls._init_annotations(file_list)
-
-        # Пишем эту разметку в папку с бекапом:
-        cls._write_annotations2unzipped_backup(data,
-                                               task_data_dir,
-                                               unzipped_backup,
-                                               info)
-
-        # Выполняем работу с файлами, которую отложили в начале:
-        cvat_task.__prepare_resources()
-
-        return cvat_task
-    """
-
     # Создаёт список элементов типа CVATJob для неразмеченных данных:
     @classmethod
     def _init_annotations(cls, file_list):
@@ -2483,11 +2432,6 @@ class CVATTask(_CVATBase):
 
         # Возвращаем обновлённый представитель объекта в CVAT:
         return self.cvat_srv_obj
-
-    '''
-    def __del__(self):
-        self.rm_all_paths2remove()
-    '''
 
     def reorder_frames(self, new_order_inds: tuple | list | None = None):
         '''
