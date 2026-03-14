@@ -88,8 +88,10 @@ ENV LANG C.UTF-8
 
 # Устанавливаем необходимые python-библиотеки:
 #ARG PIPPARAMS="--root-user-action=ignore --no-cache-dir"
-ARG PIPPARAMS="--root-user-action=ignore"
 ARG PIP="python -m pip"
+ARG UV="python -m uv pip"
+ARG PIPPARAMS="--root-user-action=ignore --no-cache-dir"
+ARG UVPARAMS="--no-cache-dir"
 ARG PYTHONMODULES_BASE="                                                 \
     # Keras и прочее:                                                    \
     keras keras-tuner pydot tf_keras keras_hub                           \
@@ -174,11 +176,8 @@ com/PublicPackages/_packaging/onnxruntime-cuda-12/pypi/simple/           \
     # Ускорение Python-кода:                                             \
     numba                                                                \
                                                                          \
-    # ClearML:                                                           \
-    clearml                                                              \
-                                                                         \
-    # Ray Tune:                                                          \
-    ray[tune]                                                            \
+    # Остальные ML-утилиты:                                              \
+    clearml ray[tune]                                                    \
                                                                          \
                                                                          \
     #                    Фундаментальные модели:                         \
@@ -194,21 +193,13 @@ com/PublicPackages/_packaging/onnxruntime-cuda-12/pypi/simple/           \
     sam3                                                                 \
                                                                          \
     # Grounding DINO:                                                    \
-    groundingdino-py                                                     \
-                                                                         \
-    # Гигантская библиотека предобученных моделей:                       \
-    # git+https://github.com/huggingface/transformers.git                \
-    # Нужна более старая версия для работы Grounding DINO                \
+    groundingdino-py transformers==4.25.1                                \
                                                                          \
     # Китайский аналог huggingface без заморочек с правами:              \
     modelscope                                                           \
                                                                          \
     # Вейвлеты:                                                          \
     PyWavelets                                                           \
-                                                                         \
-    # Работа с AI-агентами:                                              \
-    open-interpreter pyautogen streamlit                                 \
-                                                                         \
                                                                          \
     #                            Прочее:                                 \
                                                                          \
@@ -221,15 +212,20 @@ ARG PYTHONMODULES_EXTRA="                                                \
     # Навороты в Jupyter:                                                \
     jupyter-ai[all]                                                      \
     # jupyter-ai для использования API всяких LLM-ок.                    \
+                                                                         \
+    # Работа с AI-агентами:                                              \
+    open-interpreter pyautogen streamlit                                 \
 "
     # Сначала обновляем сам pip:
 RUN ${PIP} install $PIPPARAMS --upgrade pip && \
     # Затем фиксируем текущую версию уже установленного Tensorflow:
     TFVER=$(${PIP} show tensorflow | grep Vers | awk '{print $2}') && \
-    # И устанавливаем основные пакеты:
+    # Устанавливаем UV:
+    eval "${PIP} install $PIPPARAMS tensorflow==${TFVER} uv --upgrade" && \
+    # И уже на его основе устанавливаем основные пакеты:
     eval "${PIP} install $PIPPARAMS tensorflow==${TFVER} $PYTHONMODULES_BASE --upgrade" && \
     # Потом устанавливаем все зависимости для ранее установленных пакетов:
-    eval "${PIP} install $PIPPARAMS $PYTHONMODULES_EXTRA" && \
+    #eval "${UV} install $UVPARAMS tensorflow==${TFVER} $PYTHONMODULES_EXTRA --upgrade" && \
     # Наконец, очищаем кэш pip для уменьшения размера образа:
     eval "${PIP} cache purge" && \
     # Приходится пересобирать Jupyter Lab, т.к. установка Node.js из NodeSource приводит к поломкам зависимостей:
