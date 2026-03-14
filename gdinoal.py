@@ -1,4 +1,3 @@
-from pathlib import Path
 from matplotlib import pyplot as plt
 from groundingdino.util.inference import load_model, predict, T, Image
 import groundingdino
