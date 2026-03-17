@@ -167,7 +167,7 @@ com/PublicPackages/_packaging/onnxruntime-cuda-12/pypi/simple/           \
     nbqa pylint wemake-python-styleguide ondivi mypy                     \
                                                                          \
     # Дополнительные модули для корректной работы mypy                   \
-    pandas-stubs types-tqdm                                              \
+    pandas-stubs types-tqdm types-PyYAML                                 \
                                                                          \
                                                                          \
     # Python-компилятор                                                  \
@@ -207,7 +207,7 @@ com/PublicPackages/_packaging/onnxruntime-cuda-12/pypi/simple/           \
 "
 ARG PYTHONMODULES_EXTRA="                                                \
     # Трекеры:                                                           \
-    boxmot regex>=2025.11.3                                              \
+    boxmot regex>=2025.11.3 loguru                                       \
                                                                          \
     # Навороты в Jupyter:                                                \
     jupyter-ai[all]                                                      \
