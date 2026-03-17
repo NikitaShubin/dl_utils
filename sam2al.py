@@ -475,9 +475,12 @@ class SAM2:
         if not isinstance(device, str):
             device = device.type
 
+        # Тип данных:
+        dtype = torch.bfloat16 if self.half else torch.float32
+
         # Объединяем 2 контекста в 1:
         with torch.inference_mode() as im, \
-                torch.autocast(device, dtype=torch.bfloat16) as ac, \
+                torch.autocast(device, dtype=dtype) as ac, \
                 warnings.catch_warnings() as cw:
             warnings.simplefilter("ignore")
             yield (im, ac, cw)
@@ -538,8 +541,10 @@ class SAM2:
                  model_path   = 'sam2.1_hiera_large.pt',
                  config       = 'auto'                 ,
                  device       = 'auto'                 ,
+                 half         = False                  ,
                  tmp_dir      = None                   ):
 
+        self.half = half                               # Режим половинчатой точности
         self.model_path = str(model2home(model_path))  # Доопределяем путь до модели
         self._download_model()                         # Качаем модель, если её нет
 
