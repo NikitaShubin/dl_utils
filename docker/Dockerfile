@@ -207,7 +207,7 @@ com/PublicPackages/_packaging/onnxruntime-cuda-12/pypi/simple/           \
 "
 ARG PYTHONMODULES_EXTRA="                                                \
     # Трекеры:                                                           \
-    boxmot regex>=2025.11.3 loguru                                       \
+    boxmot regex>=2025.11.3                                              \
                                                                          \
     # Навороты в Jupyter:                                                \
     jupyter-ai[all]                                                      \
@@ -224,8 +224,8 @@ RUN ${PIP} install $PIPPARAMS --upgrade pip && \
     eval "${PIP} install $PIPPARAMS tensorflow==${TFVER} uv --upgrade" && \
     # И уже на его основе устанавливаем основные пакеты:
     eval "${PIP} install $PIPPARAMS tensorflow==${TFVER} $PYTHONMODULES_BASE --upgrade" && \
-    # Потом устанавливаем все зависимости для ранее установленных пакетов:
-    #eval "${UV} install $UVPARAMS tensorflow==${TFVER} $PYTHONMODULES_EXTRA --upgrade" && \
+    # Потом доустанавливаем все дополнительные пакеты (которые конфликтуюют с основными):
+    eval "${PIP} install $PIPPARAMS tensorflow==${TFVER} $PYTHONMODULES_EXTRA --upgrade" && \
     # Наконец, очищаем кэш pip для уменьшения размера образа:
     eval "${PIP} cache purge" && \
     # Приходится пересобирать Jupyter Lab, т.к. установка Node.js из NodeSource приводит к поломкам зависимостей:
