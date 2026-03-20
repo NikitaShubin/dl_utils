@@ -90,8 +90,8 @@ ENV LANG C.UTF-8
 #ARG PIPPARAMS="--root-user-action=ignore --no-cache-dir"
 ARG PIP="python -m pip"
 ARG UV="python -m uv pip"
-ARG PIPPARAMS="--root-user-action=ignore --no-cache-dir"
-ARG UVPARAMS="--no-cache-dir"
+ARG PIPPARAMS="--upgrade --no-cache-dir --root-user-action=ignore"
+ARG UVPARAMS="--upgrade --no-cache-dir --system"
 ARG PYTHONMODULES_BASE="                                                 \
     # Keras и прочее:                                                    \
     keras keras-tuner pydot tf_keras keras_hub                           \
@@ -203,7 +203,7 @@ com/PublicPackages/_packaging/onnxruntime-cuda-12/pypi/simple/           \
                                                                          \
     #                            Прочее:                                 \
                                                                          \
-    pycuda                                                               \
+    streamlit pycuda                                                     \
 "
 ARG PYTHONMODULES_EXTRA="                                                \
     # Трекеры:                                                           \
@@ -214,26 +214,22 @@ ARG PYTHONMODULES_EXTRA="                                                \
     # jupyter-ai для использования API всяких LLM-ок.                    \
                                                                          \
     # Работа с AI-агентами:                                              \
-    open-interpreter pyautogen streamlit                                 \
+    # open-interpreter pyautogen                                         \
 "
-    # Сначала обновляем сам pip:
-RUN ${PIP} install $PIPPARAMS --upgrade pip && \
-    # Затем фиксируем текущую версию уже установленного Tensorflow:
-    TFVER=$(${PIP} show tensorflow | grep Vers | awk '{print $2}') && \
-    # Устанавливаем UV:
-    eval "${PIP} install $PIPPARAMS tensorflow==${TFVER} uv --upgrade" && \
+    # Сначала обновляем сам pip и добавляем к нему uv:
+RUN ${PIP} install $PIPPARAMS pip uv                                && \
+    # Затем фиксируем текущущие версии некоторых из уже установленных пакетов:
+    TFVER=$(${PIP} show tensorflow | grep Vers | awk '{print $2}')  && \
+    PIPVER=$(${PIP} show pip | grep Vers | awk '{print $2}')        && \
+    VERSIONS="tensorflow==$TFVER pip==$PIPVER"                      && \
     # И уже на его основе устанавливаем основные пакеты:
-    eval "${PIP} install $PIPPARAMS tensorflow==${TFVER} $PYTHONMODULES_BASE --upgrade" && \
+    eval "${PIP} install $PIPPARAMS $VERSIONS $PYTHONMODULES_BASE"  && \
     # Потом доустанавливаем все дополнительные пакеты (которые конфликтуюют с основными):
-    eval "${PIP} install $PIPPARAMS tensorflow==${TFVER} $PYTHONMODULES_EXTRA --upgrade" && \
+    eval "${PIP} install $PIPPARAMS $VERSIONS $PYTHONMODULES_EXTRA" && \
     # Наконец, очищаем кэш pip для уменьшения размера образа:
-    eval "${PIP} cache purge" && \
+    eval "${PIP} cache purge"                                       && \
     # Приходится пересобирать Jupyter Lab, т.к. установка Node.js из NodeSource приводит к поломкам зависимостей:
     jupyter lab build --minimize=False
-
-# Установка всех необходимых пакетов при фиксации версии уже установленного Tensorflow.
-#    ${PIP} install $PIPPARAMS tensorflow==${TFVER} $PYTHONMODULES --upgrade --no-deps && \
-#    ${PIP} install $PIPPARAMS $PYTHONMODULES && \
 
 # Отключаем у JupyterLab надоедливый вопрос об обновлении
 RUN jupyter labextension disable '@jupyterlab/apputils-extension:announcements'
