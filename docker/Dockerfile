@@ -192,9 +192,6 @@ com/PublicPackages/_packaging/onnxruntime-cuda-12/pypi/simple/           \
     # https://github.com/facebookresearch/sam3.git                       \
     sam3                                                                 \
                                                                          \
-    # Grounding DINO:                                                    \
-    groundingdino-py transformers==4.25.1                                \
-                                                                         \
     # Китайский аналог huggingface без заморочек с правами:              \
     modelscope                                                           \
                                                                          \
@@ -215,19 +212,26 @@ ARG PYTHONMODULES_EXTRA="                                                \
                                                                          \
     # Работа с AI-агентами:                                              \
     # open-interpreter pyautogen                                         \
+                                                                         \
+                                                                         \
+    #                    Фундаментальные модели:                         \
+                                                                         \
+    # Grounding DINO:                                                    \
+    groundingdino-py transformers==4.25.1                                \
+                                                                         \
 "
     # Сначала обновляем сам pip и добавляем к нему uv:
-RUN ${PIP} install $PIPPARAMS pip uv                                && \
+RUN ${PIP} install $PIPPARAMS pip uv                               && \
     # Затем фиксируем текущущие версии некоторых из уже установленных пакетов:
-    TFVER=$(${PIP} show tensorflow | grep Vers | awk '{print $2}')  && \
-    PIPVER=$(${PIP} show pip | grep Vers | awk '{print $2}')        && \
-    VERSIONS="tensorflow==$TFVER pip==$PIPVER"                      && \
+    TFVER=$(${PIP} show tensorflow | grep Vers | awk '{print $2}') && \
+    PIPVER=$(${PIP} show pip | grep Vers | awk '{print $2}')       && \
+    VERSIONS="tensorflow==$TFVER pip==$PIPVER"                     && \
     # И уже на его основе устанавливаем основные пакеты:
-    eval "${PIP} install $PIPPARAMS $VERSIONS $PYTHONMODULES_BASE"  && \
+    eval "${UV} install $UVPARAMS $VERSIONS $PYTHONMODULES_BASE"   && \
     # Потом доустанавливаем все дополнительные пакеты (которые конфликтуюют с основными):
-    eval "${PIP} install $PIPPARAMS $VERSIONS $PYTHONMODULES_EXTRA" && \
+    eval "${UV} install $UVPARAMS $VERSIONS $PYTHONMODULES_EXTRA"  && \
     # Наконец, очищаем кэш pip для уменьшения размера образа:
-    eval "${PIP} cache purge"                                       && \
+    eval "${PIP} cache purge"                                      && \
     # Приходится пересобирать Jupyter Lab, т.к. установка Node.js из NodeSource приводит к поломкам зависимостей:
     jupyter lab build --minimize=False
 
