@@ -89,9 +89,9 @@ ENV LANG C.UTF-8
 # Устанавливаем необходимые python-библиотеки:
 #ARG PIPPARAMS="--root-user-action=ignore --no-cache-dir"
 ARG PIP="python -m pip"
-ARG UV="python -m uv pip"
-ARG PIPPARAMS="--upgrade --no-cache-dir --root-user-action=ignore"
-ARG UVPARAMS="--upgrade --no-cache-dir --system"
+ARG UV="python -m uv"
+ARG PIPPARAMS="--no-cache-dir --root-user-action=ignore"
+ARG UVINSTALL="${UV} pip install --no-cache-dir --system"
 ARG PYTHONMODULES_BASE="                                                 \
     # Keras и прочее:                                                    \
     keras keras-tuner pydot tf_keras keras_hub                           \
@@ -130,21 +130,26 @@ ARG PYTHONMODULES_BASE="                                                 \
                                                                          \
                                                                          \
     # Для работы с CVAT:                                                 \
-    cvat_sdk==2.45                                                       \
+    cvat_sdk                                                             \
     #cvat-sdk[masks,pytorch]                                             \
+                                                                         \
                                                                          \
     # IDE (JupyterLab\Jupyverse и PyCharm):                              \
     jupyterlab voila xeus-python                                         \
+    jupyter-collaboration                                                \
+    # jupyterlab_autoscrollcelloutput                                    \
+    # pydevd-pycharm jupyverse[jupyterlab,auth]                          \
     jupyterlab_nvdashboard jupyter-resource-usage                        \
     jupyterlab-latex jupyterlab-git                                      \
     ipympl mpl_point_clicker mpl_interactions[jupyter]                   \
     Jupyter-Beeper                                                       \
-    # jupyter-collaboration jupyterlab_autoscrollcelloutput              \
-    # pydevd-pycharm jupyverse[jupyterlab,auth]                          \
+    jupyter-ai[all]==2.31.7                                              \
     # ipympl, mpl_point_clicker и mpl_interactions для интерактивного    \
     # matplotlib в ноутбуках. С их помощью можно, например, выполнять    \
     # интерактивную сегментацию с SAM через ноутбук.                     \
     # xeus-python для отладки.                                           \
+    # Jupyter-Beeper для озвучивания событий в Jupyter                   \
+    # jupyter-ai для использования всяких LLM-ок через API.              \
                                                                          \
     # Отключает бОльшую часть мусора в stdout, генерируемого TensorFlow: \
     silence-tensorflow tensorflow-model-optimization                     \
@@ -198,6 +203,7 @@ com/PublicPackages/_packaging/onnxruntime-cuda-12/pypi/simple/           \
     # Вейвлеты:                                                          \
     PyWavelets                                                           \
                                                                          \
+                                                                         \
     #                            Прочее:                                 \
                                                                          \
     streamlit pycuda                                                     \
@@ -205,10 +211,6 @@ com/PublicPackages/_packaging/onnxruntime-cuda-12/pypi/simple/           \
 ARG PYTHONMODULES_EXTRA="                                                \
     # Трекеры:                                                           \
     boxmot regex>=2025.11.3                                              \
-                                                                         \
-    # Навороты в Jupyter:                                                \
-    jupyter-ai[all]                                                      \
-    # jupyter-ai для использования API всяких LLM-ок.                    \
                                                                          \
     # Работа с AI-агентами:                                              \
     # open-interpreter pyautogen                                         \
@@ -218,7 +220,6 @@ ARG PYTHONMODULES_EXTRA="                                                \
                                                                          \
     # Grounding DINO:                                                    \
     groundingdino-py transformers==4.25.1                                \
-                                                                         \
 "
     # Сначала обновляем сам pip и добавляем к нему uv:
 RUN ${PIP} install $PIPPARAMS pip uv                               && \
@@ -227,11 +228,11 @@ RUN ${PIP} install $PIPPARAMS pip uv                               && \
     PIPVER=$(${PIP} show pip | grep Vers | awk '{print $2}')       && \
     VERSIONS="tensorflow==$TFVER pip==$PIPVER"                     && \
     # И уже на его основе устанавливаем основные пакеты:
-    eval "${UV} install $UVPARAMS $VERSIONS $PYTHONMODULES_BASE"   && \
+    eval "${UVINSTALL} $VERSIONS $PYTHONMODULES_BASE --upgrade"    && \
     # Потом доустанавливаем все дополнительные пакеты (которые конфликтуюют с основными):
-    eval "${UV} install $UVPARAMS $VERSIONS $PYTHONMODULES_EXTRA"  && \
-    # Наконец, очищаем кэш pip для уменьшения размера образа:
-    eval "${PIP} cache purge"                                      && \
+    eval "${UVINSTALL} $VERSIONS $PYTHONMODULES_EXTRA"             && \
+    # Наконец, очищаем кэш pip и uv для уменьшения размера образа:
+    eval "${PIP} cache purge; ${UV} cache clean"                   && \
     # Приходится пересобирать Jupyter Lab, т.к. установка Node.js из NodeSource приводит к поломкам зависимостей:
     jupyter lab build --minimize=False
 
@@ -373,7 +374,6 @@ CMD ["/bin/bash", "-c", " \
     JP=\"jupyter lab\"; \
     [[ -z \"$JUPYTER_PORT\" ]] || JP=\"$JP --port=$JUPYTER_PORT\"; \
     [[ -z \"$JUPYTER_PASS\" ]] || JP=\"$JP --ServerApp.password=$(echo \"$JUPYTER_PASS\" | python -c 'from jupyter_server.auth import passwd;print(passwd(input()))')\"; \
-    python */dl_utils/ollm_utils.py; \
     exec $JP \
 "]
 # Если в переменных окружения заданы пароль и порт, то они используются как параметры запуска.
