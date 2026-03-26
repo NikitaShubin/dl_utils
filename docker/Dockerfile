@@ -120,7 +120,7 @@ ARG PYTHONMODULES_BASE="                                                 \
     git+https://github.com/leondgarse/keras_cv_attention_models          \
                                                                          \
     # Torch:                                                             \
-    torchsummary torchmetrics                                            \
+    torch torchsummary torchmetrics                                      \
                                                                          \
     # Дополнительно для CV:                                              \
     kornia                                                               \
@@ -143,13 +143,11 @@ ARG PYTHONMODULES_BASE="                                                 \
     jupyterlab-latex jupyterlab-git                                      \
     ipympl mpl_point_clicker mpl_interactions[jupyter]                   \
     Jupyter-Beeper                                                       \
-    jupyter-ai[all]==2.31.7                                              \
     # ipympl, mpl_point_clicker и mpl_interactions для интерактивного    \
     # matplotlib в ноутбуках. С их помощью можно, например, выполнять    \
     # интерактивную сегментацию с SAM через ноутбук.                     \
     # xeus-python для отладки.                                           \
     # Jupyter-Beeper для озвучивания событий в Jupyter                   \
-    # jupyter-ai для использования всяких LLM-ок через API.              \
                                                                          \
     # Отключает бОльшую часть мусора в stdout, генерируемого TensorFlow: \
     silence-tensorflow tensorflow-model-optimization                     \
@@ -194,32 +192,33 @@ com/PublicPackages/_packaging/onnxruntime-cuda-12/pypi/simple/           \
     sam2 decord                                                          \
                                                                          \
     # Segment Anything Model 3:                                          \
-    # https://github.com/facebookresearch/sam3.git                       \
     sam3                                                                 \
                                                                          \
     # Китайский аналог huggingface без заморочек с правами:              \
     modelscope                                                           \
                                                                          \
-    # Вейвлеты:                                                          \
-    PyWavelets                                                           \
                                                                          \
                                                                          \
     #                            Прочее:                                 \
                                                                          \
-    streamlit pycuda                                                     \
+    streamlit pycuda PyWavelets                                          \
 "
 ARG PYTHONMODULES_EXTRA="                                                \
     # Трекеры:                                                           \
     boxmot regex>=2025.11.3                                              \
-                                                                         \
-    # Работа с AI-агентами:                                              \
-    # open-interpreter pyautogen                                         \
                                                                          \
                                                                          \
     #                    Фундаментальные модели:                         \
                                                                          \
     # Grounding DINO:                                                    \
     groundingdino-py transformers==4.25.1                                \
+                                                                         \
+                                                                         \
+    #               Работа с AI-агентами и LLM-ками:                     \
+                                                                         \
+    # open-interpreter pyautogen                                         \
+    'jupyter-ai[all]==3.0.0rc1'                                          \
+    # jupyter-ai для использования в Jupyter всяких LLM-ок через API.    \
 "
     # Сначала обновляем сам pip и добавляем к нему uv:
 RUN ${PIP} install $PIPPARAMS pip uv                               && \
@@ -230,7 +229,7 @@ RUN ${PIP} install $PIPPARAMS pip uv                               && \
     # И уже на его основе устанавливаем основные пакеты:
     eval "${UVINSTALL} $VERSIONS $PYTHONMODULES_BASE --upgrade"    && \
     # Потом доустанавливаем все дополнительные пакеты (которые конфликтуюют с основными):
-    eval "${UVINSTALL} $VERSIONS $PYTHONMODULES_EXTRA"             && \
+    eval "${UVINSTALL} $VERSIONS $PYTHONMODULES_EXTRA --upgrade"  && \
     # Наконец, очищаем кэш pip и uv для уменьшения размера образа:
     eval "${PIP} cache purge; ${UV} cache clean"                   && \
     # Приходится пересобирать Jupyter Lab, т.к. установка Node.js из NodeSource приводит к поломкам зависимостей:
@@ -283,7 +282,7 @@ RUN mkdir -p "${THEMEDIR}" && \
 # Убираем надоедливое 
 # "/sbin/ldconfig.real: Can't create temporary cache file /etc/ld.so.cache~: Permission denied"
 # при запуске:
-#RUN sudo chmod u+s /sbin/ldconfig.real
+# RUN sudo chmod u+s /sbin/ldconfig.real
 
 # Задаём текстовый редактор по умолчанию для mc:
 RUN echo SELECTED_EDITOR=\"/bin/nano\"> "${HOMEDIR}"/.selected_editor
@@ -374,6 +373,7 @@ CMD ["/bin/bash", "-c", " \
     JP=\"jupyter lab\"; \
     [[ -z \"$JUPYTER_PORT\" ]] || JP=\"$JP --port=$JUPYTER_PORT\"; \
     [[ -z \"$JUPYTER_PASS\" ]] || JP=\"$JP --ServerApp.password=$(echo \"$JUPYTER_PASS\" | python -c 'from jupyter_server.auth import passwd;print(passwd(input()))')\"; \
+    python */dl_utils/ollm_utils.py; \
     exec $JP \
 "]
 # Если в переменных окружения заданы пароль и порт, то они используются как параметры запуска.
