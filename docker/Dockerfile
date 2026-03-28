@@ -180,7 +180,7 @@ com/PublicPackages/_packaging/onnxruntime-cuda-12/pypi/simple/           \
     numba                                                                \
                                                                          \
     # Остальные ML-утилиты:                                              \
-    clearml ray[tune]                                                    \
+    clearml 'ray[data,train,tune,serve]' optuna                          \
                                                                          \
                                                                          \
     #                    Фундаментальные модели:                         \
