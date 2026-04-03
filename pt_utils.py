@@ -230,8 +230,12 @@ class SegDataset(Dataset):
         source_file, target_file = self.files[idx]
 
         # Читаем изображения:
-        image = cv2.imread(str(source_file), cv2.IMREAD_COLOR)[..., ::-1]
+        image = cv2.imread(str(source_file), cv2.IMREAD_COLOR)
         mask = cv2.imread(str(target_file), cv2.IMREAD_GRAYSCALE)
+        if image is None or mask is None:
+            msg = f'Файл "{source_file}" не содержит изображение!'
+            raise ValueError(msg)
+        image = image[..., ::-1]  # BGR -> RGB
 
         if self.transforms:
             transformed = self.transforms(image=image, mask=mask)

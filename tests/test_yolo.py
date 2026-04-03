@@ -37,7 +37,7 @@ def temp_image_file(tmp_path: Path) -> str:
     """Создает временный файл изображения для тестов."""
     img_path = tmp_path / 'test_image.jpg'
     # Создаем простое изображение
-    img_array = np.zeros((100, 100, 3), dtype=np.uint8)
+    img_array: np.ndarray = np.zeros((100, 100, 3), dtype=np.uint8)
     cv2.imwrite(str(img_path), img_array)
     return str(img_path)
 
@@ -159,7 +159,7 @@ class TestYOLOLabels:
     def test_draw_labels(self) -> None:
         """Тест отрисовки меток на изображении."""
         # Создаем тестовое изображение
-        image = np.zeros((600, 800, 3), dtype=np.uint8)
+        image: np.ndarray = np.zeros((600, 800, 3), dtype=np.uint8)
 
         # Создаем тестовый объект YOLOLabels с моками
         labels = YOLOLabels.__new__(YOLOLabels)
@@ -187,7 +187,7 @@ class TestYOLOLabels:
     def test_draw_labels_with_args(self) -> None:
         """Тест отрисовки меток с проверкой аргументов."""
         # Создаем тестовое изображение
-        image = np.zeros((600, 800, 3), dtype=np.uint8)
+        image: np.ndarray = np.zeros((600, 800, 3), dtype=np.uint8)
 
         # Создаем тестовый объект YOLOLabels с моками
         labels = YOLOLabels.__new__(YOLOLabels)
@@ -702,7 +702,7 @@ class TestTask2YOLO:
         # Настраиваем моки
         mock_buffer_instance = Mock()
         mock_buffer_instance.file = str(tmp_path / 'test.jpg')
-        test_image = np.zeros((2000, 3000, 3), dtype=np.uint8)
+        test_image: np.ndarray = np.zeros((2000, 3000, 3), dtype=np.uint8)
         mock_buffer_instance.return_value = test_image
         mock_buffer.return_value = mock_buffer_instance
 

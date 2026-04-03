@@ -34,7 +34,7 @@ class TestUnpadUlMasks(unittest.TestCase):
 
     def test_unpad_square_mask(self) -> None:
         """Тест удаления рамки у квадратной маски."""
-        masks = np.zeros((1, 100, 100), dtype=np.uint8)
+        masks: np.ndarray = np.zeros((1, 100, 100), dtype=np.uint8)
         masks[0, 10:90, 10:90] = 255
         orig_shape = (80, 80)
 
@@ -44,7 +44,7 @@ class TestUnpadUlMasks(unittest.TestCase):
 
     def test_unpad_rectangular_mask(self) -> None:
         """Тест удаления рамки у прямоугольной маски."""
-        masks = np.zeros((1, 120, 100), dtype=np.uint8)
+        masks: np.ndarray = np.zeros((1, 120, 100), dtype=np.uint8)
         masks[0, 10:110, 10:90] = 255
         orig_shape = (100, 80)
 
@@ -55,7 +55,7 @@ class TestUnpadUlMasks(unittest.TestCase):
 
     def test_unpad_multiple_masks(self) -> None:
         """Тест обработки нескольких масок."""
-        masks = np.zeros((3, 100, 100), dtype=np.uint8)
+        masks: np.ndarray = np.zeros((3, 100, 100), dtype=np.uint8)
         for i in range(3):
             masks[i, 10:90, 10:90] = (i + 1) * 50
         orig_shape = (80, 80)
@@ -65,7 +65,7 @@ class TestUnpadUlMasks(unittest.TestCase):
 
     def test_unpad_identical_sizes(self) -> None:
         """Тест, когда размеры маски и оригинала совпадают."""
-        masks = np.zeros((1, 100, 100), dtype=np.uint8)
+        masks: np.ndarray = np.zeros((1, 100, 100), dtype=np.uint8)
         masks[0, 20:80, 20:80] = 255
         orig_shape = (100, 100)
 
@@ -74,7 +74,7 @@ class TestUnpadUlMasks(unittest.TestCase):
 
     def test_unpad_empty_masks(self) -> None:
         """Тест с пустыми масками."""
-        masks = np.zeros((0, 100, 100), dtype=np.uint8)
+        masks: np.ndarray = np.zeros((0, 100, 100), dtype=np.uint8)
         orig_shape = (100, 100)
 
         result = _unpad_ul_masks(masks, orig_shape)
@@ -500,7 +500,7 @@ class TestUltralyticsModel(unittest.TestCase):
             mock_df = pd.DataFrame({'label': ['test']})
             model.result2df = MagicMock(return_value=mock_df)
 
-            test_img = np.zeros((100, 100, 3), dtype=np.uint8)
+            test_img: np.ndarray = np.zeros((100, 100, 3), dtype=np.uint8)
             df = model.img2df(test_img)
 
             model._img2result.assert_called_once_with(test_img)  # noqa: SLF001
@@ -523,7 +523,7 @@ class TestUltralyticsModel(unittest.TestCase):
             self.mock_yolo.track.return_value = [mock_result]
             model.result2df = MagicMock(return_value=pd.DataFrame({'label': ['test']}))
 
-            test_img = np.zeros((100, 100, 3), dtype=np.uint8)
+            test_img: np.ndarray = np.zeros((100, 100, 3), dtype=np.uint8)
             model._img2result(test_img)  # noqa: SLF001
 
             self.mock_yolo.track.assert_called_once()
@@ -547,7 +547,7 @@ class TestUltralyticsModel(unittest.TestCase):
             mock_result.plot.return_value = np.zeros((100, 100, 3), dtype=np.uint8)
             model._img2result = MagicMock(return_value=mock_result)  # noqa: SLF001
 
-            test_img = np.zeros((100, 100, 3), dtype=np.uint8)
+            test_img: np.ndarray = np.zeros((100, 100, 3), dtype=np.uint8)
             result = model.draw(test_img)
 
             model._img2result.assert_called_once_with(test_img)  # noqa: SLF001
@@ -567,7 +567,7 @@ class TestUltralyticsModel(unittest.TestCase):
             model = UltralyticsModel(str(tmp_path), mode='preannotation')
             model.img2df = MagicMock(return_value=pd.DataFrame({'label': ['test']}))
 
-            test_img = np.zeros((100, 100, 3), dtype=np.uint8)
+            test_img: np.ndarray = np.zeros((100, 100, 3), dtype=np.uint8)
             result = model(test_img)
 
             model.img2df.assert_called_once_with(test_img)
@@ -586,7 +586,7 @@ class TestUltralyticsModel(unittest.TestCase):
             model = UltralyticsModel(str(tmp_path), mode='preview')
             model.draw = MagicMock(return_value=np.zeros((100, 100, 3), dtype=np.uint8))
 
-            test_img = np.zeros((100, 100, 3), dtype=np.uint8)
+            test_img: np.ndarray = np.zeros((100, 100, 3), dtype=np.uint8)
             result = model(test_img)
 
             model.draw.assert_called_once_with(test_img)
@@ -603,7 +603,7 @@ class TestUltralyticsModel(unittest.TestCase):
             tmp_path = Path(tmp.name)
 
             model = UltralyticsModel(str(tmp_path), mode='invalid_mode')
-            test_img = np.zeros((100, 100, 3), dtype=np.uint8)
+            test_img: np.ndarray = np.zeros((100, 100, 3), dtype=np.uint8)
 
             with pytest.raises(
                 ValueError,
@@ -884,7 +884,7 @@ class TestUltralyticsModelIntegration(unittest.TestCase):
             mock_result2objs.return_value = []
 
             model = UltralyticsModel('yolov8n.pt', mode='preannotation')
-            test_img = np.zeros((100, 100, 3), dtype=np.uint8)
+            test_img: np.ndarray = np.zeros((100, 100, 3), dtype=np.uint8)
 
             df = model(test_img)
 
@@ -929,7 +929,7 @@ class TestUltralyticsModelIntegration(unittest.TestCase):
 
             model = UltralyticsModel(str(tmp_path))
 
-            test_img = np.zeros((100, 100, 3), dtype=np.uint8)
+            test_img: np.ndarray = np.zeros((100, 100, 3), dtype=np.uint8)
 
             assert model.frame_ind == 0
             model.img2df(test_img)
