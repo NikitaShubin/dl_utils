@@ -67,6 +67,11 @@ Fields = dict[str, dict[str, str]]  # Описание моделей
 Hosts = set[str] | list[str] | tuple[str, ...] | None  # Множество серверов
 
 
+# Поддерживаемые версии jupyter-ai:
+JAIV2 = 2  # V2
+JAIV3 = 3  # V3
+
+
 # Варианты селекторов для тегов (зависит от структуры страницы):
 possible_selectors = [
     'div.tags a',
@@ -238,6 +243,11 @@ def hosts2chat_embd_cmpl_models(
     return chat_models, embd_models, cmpl_models
 
 
+####################################################
+# Интеграция Ollama в JupyterLab через jupyter_ai: #
+####################################################
+
+
 def _ollama_prefix(models: dict[str, dict[str, str]]) -> dict[str, dict[str, str]]:
     """Добавляет "ollama:" к началу имени каждой модели."""
     return {'ollama:' + key: val for key, val in models.items()}
@@ -248,10 +258,12 @@ def _first_model(fields: Fields | list[str]) -> str | None:
     return next(iter(fields), None)
 
 
-def set_jupyter_ai_settings(
+def set_jupyter_ai_v2_settings(
     hosts: Hosts = None,
 ) -> str:
-    """Настраивает Jupyter AI на подключение к Ollama-серверам.
+    """Настраивает Jupyter AI v2.x на подключение к Ollama-серверам.
+
+    Использует формат конфигурации jupyter-ai>=2.0,<3.0.
 
     Аргументы:
         hosts: Адреса сервера Ollama. По-умолчанию используется значение переменной
@@ -305,6 +317,130 @@ def set_jupyter_ai_settings(
     # Сохраняем файл конфигурации:
     mkdirs(cfg_path.parent)  # Создаём папки, если надо
     return obj2json(cfg, cfg_path)
+
+
+def model_name_to_v3(model_name: str) -> str:
+    """Конвертирует имя модели в v3 формат: provider/model_id.
+
+    (ollama/model_name вместо ollama:model_name)
+    """
+    if '/' not in model_name:
+        return f'ollama/{model_name}'
+    return model_name
+
+
+def set_jupyter_ai_v3_settings(
+    hosts: Hosts = None,
+) -> str:
+    """Настраивает Jupyter AI v3.0+ на подключение к Ollama-серверам.
+
+    Использует формат конфигурации jupyter-ai>=3.0 (Traitlets-based).
+    Файл конфигурации: jupyter_jupyter_ai_config.json
+
+    Аргументы:
+        hosts: Адреса серверов Ollama. По-умолчанию используется значение переменной
+        окружения OLLAMA_HOST.
+
+    Возвращает путь до конфигурационного файла.
+    """
+    if not JUPYTER_AI_AVAILABLE:
+        return ''
+
+    # Определяем путь к конфигу v3:
+    cfg_path = Path.home() / '.jupyter' / 'jupyter_jupyter_ai_config.json'
+
+    # Определяем доступные модели:
+    chat_models, embd_models, cmpl_models = hosts2chat_embd_cmpl_models(hosts)
+
+    # Формируем model_parameters для передачи api_base (base_url):
+    model_parameters = {}
+    all_models = {**chat_models, **embd_models, **cmpl_models}
+
+    for model_name, model_cfg in all_models.items():
+        v3_id = model_name_to_v3(model_name)
+        params = {}
+        if 'base_url' in model_cfg:
+            params['api_base'] = model_cfg['base_url']
+            # Для LiteLLM/Ollama провайдера используем api_base.
+        if params:
+            model_parameters[v3_id] = params
+
+    # Загружаем существующий конфиг или создаём новый:
+    cfg = json2obj(cfg_path) if cfg_path.exists() else {}
+
+    # Убеждаемся, что есть секция AiExtension:
+    if 'AiExtension' not in cfg:
+        cfg['AiExtension'] = {}
+    ai_cfg = cfg['AiExtension']
+
+    for models, ai_cfg_key in zip(
+        [chat_models, embd_models, cmpl_models],
+        [
+            'initial_language_model',
+            'initial_embeddings_model',
+            'initial_completions_model',
+        ],
+        strict=False,
+    ):
+        # Определяем дефолтную модель:
+        default_model = _first_model(models)
+        if default_model:
+            default_model = model_name_to_v3(default_model)
+
+        # Устанавливаем модели по умолчанию (v3 naming):
+        if default_model:
+            ai_cfg[ai_cfg_key] = default_model
+
+    # Устанавливаем параметры моделей (base_url для Ollama)
+    if model_parameters:
+        ai_cfg['model_parameters'] = model_parameters
+
+    # Сохраняем файл конфигурации:
+    mkdirs(cfg_path.parent)
+    obj2json(cfg, cfg_path)
+
+    return str(cfg_path)
+
+
+def get_major_jupyter_ai_version() -> int | None:
+    """Определяет версию установленного jupyter-ai.
+
+    Returns:
+        2 для версий 2.x, 3 для версий 3.x+
+
+    """
+    if not JUPYTER_AI_AVAILABLE:
+        return None
+
+    return int(jupyter_ai.__version__.split('.')[0])
+
+
+def set_jupyter_ai_settings(
+    hosts: Hosts = None,
+) -> str:
+    """Настраивает Jupyter AI на подключение к Ollama-серверам (автоопределение версии).
+
+    Автоматически определяет версию jupyter-ai (v2 или v3) и использует
+    соответствующий формат конфигурации.
+
+    Аргументы:
+        hosts: Адреса серверов Ollama. По-умолчанию используется значение
+               переменной окружения OLLAMA_HOST.
+
+    Возвращает путь до конфигурационного файла.
+    """
+    version = get_major_jupyter_ai_version()
+
+    if version == JAIV3:
+        return set_jupyter_ai_v3_settings(hosts)
+    if version == JAIV2:
+        return set_jupyter_ai_v2_settings(hosts)
+    return ''
+
+
+###################################
+# Прямое взаимодействие с Ollama: #
+###################################
 
 
 def file2context(file: list[str | Path] | str | Path) -> str:
@@ -483,6 +619,8 @@ class Chat:
 
 if __name__ == '__main__':
     set_jupyter_ai_settings()
+
+    cfg_file = jupyter_ai.config_manager.DEFAULT_CONFIG_PATH
 
 
 __all__ = [

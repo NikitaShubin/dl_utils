@@ -13,6 +13,8 @@ import requests
 
 # Импортируем только если модуль доступен
 from ollm_utils import (
+    JAIV2,
+    JAIV3,
     Chat,
     Fields,
     Hosts,
@@ -20,10 +22,14 @@ from ollm_utils import (
     _ollama_prefix,
     env_var_host,
     file2context,
+    get_major_jupyter_ai_version,
     host2models_info,
     hosts2chat_embd_cmpl_models,
     model_name2type,
+    model_name_to_v3,
     set_jupyter_ai_settings,
+    set_jupyter_ai_v2_settings,
+    set_jupyter_ai_v3_settings,
     url2tags,
 )
 
@@ -335,31 +341,96 @@ class TestHosts2ChatEmbdCmplModels:
 
 
 # ============================================================================
-# Тесты для set_jupyter_ai_settings
+# Тесты для model_name_to_v3
 # ============================================================================
 
 
-class TestSetJupyterAiSettings:
-    """Тесты для функции set_jupyter_ai_settings."""
+class TestModelNameToV3:
+    """Тесты для функции model_name_to_v3."""
+
+    @pytest.mark.parametrize(
+        ('input_name', 'expected'),
+        [
+            ('llama2:7b', 'ollama/llama2:7b'),
+            ('codellama', 'ollama/codellama'),
+            ('ollama/llama2', 'ollama/llama2'),  # уже в v3 формате
+            ('nomic-embed-text:latest', 'ollama/nomic-embed-text:latest'),
+        ],
+    )
+    def test_model_name_to_v3(self, input_name: str, expected: str) -> None:
+        """Тест конвертации имени модели в v3 формат."""
+        assert model_name_to_v3(input_name) == expected
+
+
+# ============================================================================
+# Тесты для get_major_jupyter_ai_version
+# ============================================================================
+
+
+class TestGetMajorJupyterAiVersion:
+    """Тесты для функции get_major_jupyter_ai_version."""
+
+    def test_version_when_jupyter_ai_unavailable(self) -> None:
+        """Тест, когда jupyter_ai не установлен."""
+        with patch('ollm_utils.JUPYTER_AI_AVAILABLE', new=False):
+            assert get_major_jupyter_ai_version() is None
+
+    def test_version_v2(self) -> None:
+        """Тест для версии 2.x."""
+        mock_jupyter_ai = Mock()
+        mock_jupyter_ai.__version__ = '2.8.0'
+        with (
+            patch('ollm_utils.JUPYTER_AI_AVAILABLE', new=True),
+            patch('ollm_utils.jupyter_ai', mock_jupyter_ai),
+        ):
+            assert get_major_jupyter_ai_version() == JAIV2
+
+    def test_version_v3(self) -> None:
+        """Тест для версии 3.x."""
+        mock_jupyter_ai = Mock()
+        mock_jupyter_ai.__version__ = '3.0.1'
+        with (
+            patch('ollm_utils.JUPYTER_AI_AVAILABLE', new=True),
+            patch('ollm_utils.jupyter_ai', mock_jupyter_ai),
+        ):
+            assert get_major_jupyter_ai_version() == JAIV3
+
+    def test_version_future(self) -> None:
+        """Тест для будущей версии (например 4.x)."""
+        mock_jupyter_ai = Mock()
+        mock_jupyter_ai.__version__ = '4.0.0'
+        with (
+            patch('ollm_utils.JUPYTER_AI_AVAILABLE', new=True),
+            patch('ollm_utils.jupyter_ai', mock_jupyter_ai),
+        ):
+            # Функция возвращает int, например 4
+            assert get_major_jupyter_ai_version() == 4
+
+
+# ============================================================================
+# Тесты для set_jupyter_ai_v2_settings
+# ============================================================================
+
+
+class TestSetJupyterAiV2Settings:
+    """Тесты для функции set_jupyter_ai_v2_settings."""
 
     @pytest.fixture
     def temp_config_file(self) -> Iterator[str]:
-        """Создаёт временный конфигурационный файл."""
+        """Фикстура: создаёт временный файл конфигурации и удаляет его после теста."""
         with tempfile.NamedTemporaryFile(suffix='.json', delete=False) as f:
             temp_path = f.name
         yield temp_path
         Path(temp_path).unlink(missing_ok=True)
 
-    def test_set_jupyter_ai_settings_unavailable(self) -> None:
+    def test_v2_settings_unavailable(self) -> None:
         """Тест, когда jupyter_ai недоступен."""
-        # Мокаем модуль, чтобы его не было
         with patch('ollm_utils.JUPYTER_AI_AVAILABLE', new=False):
-            result = set_jupyter_ai_settings()
+            result = set_jupyter_ai_v2_settings()
             assert result == ''
 
-    def test_set_jupyter_ai_settings_success(self, temp_config_file: str) -> None:
-        """Тест успешной настройки Jupyter AI."""
-        # Моки возвращают модели БЕЗ префикса
+    def test_v2_settings_success(self, temp_config_file: str) -> None:
+        """Тест успешной настройки v2."""
         chat_models: Fields = {'llama2:7b': {'base_url': 'http://localhost:11434'}}
         embd_models: Fields = {
             'nomic-embed-text:latest': {'base_url': 'http://localhost:11434'},
@@ -382,33 +453,39 @@ class TestSetJupyterAiSettings:
             patch('ollm_utils.obj2json', return_value=temp_config_file),
             patch('ollm_utils.mkdirs') as mock_mkdirs,
         ):
-            result = set_jupyter_ai_settings(['http://localhost:11434'])
+            result = set_jupyter_ai_v2_settings(['http://localhost:11434'])
 
             assert result == temp_config_file
             mock_hosts2models.assert_called_once_with(['http://localhost:11434'])
             mock_mkdirs.assert_called_once()
 
-    def test_set_jupyter_ai_settings_existing_config(
-        self,
-        temp_config_file: str,
-    ) -> None:
-        """Тест с существующим конфигурационном файлом."""
-        existing_config = {
-            'model_provider_id': 'existing_model',
-            'embeddings_provider_id': 'existing_embeddings',
-            'completions_model_provider_id': 'existing_completions',
-            'send_with_shift_enter': False,
-            'fields': {'existing_model': {'base_url': 'http://old:11434'}},
-            'api_keys': {},
-            'completions_fields': {
-                'existing_completions': {'base_url': 'http://old:11434'},
-            },
-            'embeddings_fields': {
-                'existing_embeddings': {'base_url': 'http://old:11434'},
-            },
-        }
 
-        # Моки возвращают модели БЕЗ префикса
+# ============================================================================
+# Тесты для set_jupyter_ai_v3_settings
+# ============================================================================
+
+
+class TestSetJupyterAiV3Settings:
+    """Тесты для функции set_jupyter_ai_v3_settings."""
+
+    @pytest.fixture
+    def temp_home(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+        """Фикстура: подменяет HOME на временную директорию."""
+        fake_home = tmp_path / 'fake_home'
+        fake_home.mkdir()
+        monkeypatch.setenv('HOME', str(fake_home))
+        return fake_home
+
+    def test_v3_settings_unavailable(self, temp_home: Path) -> None:
+        """Тест, когда jupyter_ai недоступен."""
+        # Используем temp_home, чтобы избежать предупреждения ARG002
+        _ = temp_home
+        with patch('ollm_utils.JUPYTER_AI_AVAILABLE', new=False):
+            result = set_jupyter_ai_v3_settings()
+            assert result == ''
+
+    def test_v3_settings_success(self, temp_home: Path) -> None:
+        """Тест успешной настройки v3."""
         chat_models: Fields = {'llama2:7b': {'base_url': 'http://localhost:11434'}}
         embd_models: Fields = {
             'nomic-embed-text:latest': {'base_url': 'http://localhost:11434'},
@@ -417,56 +494,157 @@ class TestSetJupyterAiSettings:
             'codellama:latest': {'base_url': 'http://localhost:11434'},
         }
 
-        mock_jupyter_ai = Mock()
-        mock_jupyter_ai.config_manager.DEFAULT_CONFIG_PATH = temp_config_file
+        expected_cfg_path = temp_home / '.jupyter' / 'jupyter_jupyter_ai_config.json'
 
         with (
             patch('ollm_utils.JUPYTER_AI_AVAILABLE', new=True),
-            patch('ollm_utils.jupyter_ai', mock_jupyter_ai),
-            patch('ollm_utils.Path.is_file', return_value=True),
-            patch('ollm_utils.json2obj', return_value=existing_config),
             patch(
                 'ollm_utils.hosts2chat_embd_cmpl_models',
                 return_value=(chat_models, embd_models, cmpl_models),
             ),
-            patch('ollm_utils.obj2json', return_value=temp_config_file),
+            patch('ollm_utils.json2obj', return_value={}),
+            patch('ollm_utils.obj2json') as mock_obj2json,
             patch('ollm_utils.mkdirs') as mock_mkdirs,
+            patch('ollm_utils.Path.exists', return_value=False),
         ):
-            result = set_jupyter_ai_settings(['http://localhost:11434'])
+            result = set_jupyter_ai_v3_settings(['http://localhost:11434'])
 
-            assert result == temp_config_file
-            mock_mkdirs.assert_called_once()
+            assert result == str(expected_cfg_path)
+            mock_mkdirs.assert_called_once_with(expected_cfg_path.parent)
+            # Проверяем, что obj2json был вызван с корректной структурой
+            call_args = mock_obj2json.call_args
+            assert call_args is not None
+            cfg, path = call_args[0]
+            assert path == expected_cfg_path
+            # Проверяем содержимое конфига
+            ai_cfg = cfg['AiExtension']
+            assert ai_cfg['initial_language_model'] == 'ollama/llama2:7b'
+            assert (
+                ai_cfg['initial_embeddings_model'] == 'ollama/nomic-embed-text:latest'
+            )
+            assert ai_cfg['initial_completions_model'] == 'ollama/codellama:latest'
+            assert 'model_parameters' in ai_cfg
+            assert (
+                ai_cfg['model_parameters']['ollama/llama2:7b']['api_base']
+                == 'http://localhost:11434'
+            )
 
-    def test_set_jupyter_ai_settings_creates_config_if_not_exists(
-        self,
-        temp_config_file: str,
-    ) -> None:
-        """Тест создания конфигурации, если файл не существует."""
-        # Моки возвращают модели БЕЗ префикса
+    def test_v3_settings_existing_config(self) -> None:
+        """Тест v3 с существующим конфигурационным файлом."""
         chat_models: Fields = {'llama2:7b': {'base_url': 'http://localhost:11434'}}
         embd_models: Fields = {}
         cmpl_models: Fields = {}
 
-        mock_jupyter_ai = Mock()
-        mock_jupyter_ai.config_manager.DEFAULT_CONFIG_PATH = temp_config_file
+        existing_cfg = {
+            'AiExtension': {
+                'initial_language_model': 'old_model',
+                'some_other_key': 'value',
+            },
+        }
 
         with (
             patch('ollm_utils.JUPYTER_AI_AVAILABLE', new=True),
-            patch('ollm_utils.jupyter_ai', mock_jupyter_ai),
-            patch('ollm_utils.Path.is_file', return_value=False),
             patch(
                 'ollm_utils.hosts2chat_embd_cmpl_models',
                 return_value=(chat_models, embd_models, cmpl_models),
             ),
+            patch('ollm_utils.Path.exists', return_value=True),
+            patch('ollm_utils.json2obj', return_value=existing_cfg),
             patch('ollm_utils.obj2json') as mock_obj2json,
-            patch('ollm_utils.mkdirs') as mock_mkdirs,
+            patch('ollm_utils.mkdirs'),
         ):
-            mock_obj2json.return_value = temp_config_file
+            set_jupyter_ai_v3_settings(['http://localhost:11434'])
+            call_args = mock_obj2json.call_args
+            cfg, _ = call_args[0]
+            # Существующие ключи должны сохраниться
+            assert cfg['AiExtension']['some_other_key'] == 'value'
+            # Новые должны быть добавлены
+            assert cfg['AiExtension']['initial_language_model'] == 'ollama/llama2:7b'
 
+
+# ============================================================================
+# Тесты для set_jupyter_ai_settings (автоопределение версии)
+# ============================================================================
+
+
+class TestSetJupyterAiSettings:
+    """Тесты для функции set_jupyter_ai_settings."""
+
+    @pytest.fixture
+    def temp_config_file(self) -> Iterator[str]:
+        """Фикстура: создаёт временный файл конфигурации и удаляет его после теста."""
+        with tempfile.NamedTemporaryFile(suffix='.json', delete=False) as f:
+            temp_path = f.name
+        yield temp_path
+        Path(temp_path).unlink(missing_ok=True)
+
+    @pytest.fixture
+    def temp_home(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+        """Фикстура: подменяет HOME для тестов v3 ветки."""
+        fake_home = tmp_path / 'fake_home'
+        fake_home.mkdir()
+        monkeypatch.setenv('HOME', str(fake_home))
+        return fake_home
+
+    def test_settings_unavailable(self) -> None:
+        """Тест, когда jupyter_ai недоступен."""
+        with patch('ollm_utils.JUPYTER_AI_AVAILABLE', new=False):
+            result = set_jupyter_ai_settings()
+            assert result == ''
+
+    def test_settings_v2_branch(self, temp_config_file: str) -> None:
+        """Тест, когда определена версия 2."""
+        with (
+            patch('ollm_utils.JUPYTER_AI_AVAILABLE', new=True),
+            patch(
+                'ollm_utils.get_major_jupyter_ai_version',
+                return_value=JAIV2,
+            ) as mock_version,
+            patch(
+                'ollm_utils.set_jupyter_ai_v2_settings',
+                return_value=temp_config_file,
+            ) as mock_v2,
+        ):
             result = set_jupyter_ai_settings(['http://localhost:11434'])
-
             assert result == temp_config_file
-            mock_mkdirs.assert_called_once()
+            mock_version.assert_called_once()
+            mock_v2.assert_called_once_with(['http://localhost:11434'])
+
+    def test_settings_v3_branch(self, temp_home: Path) -> None:
+        """Тест, когда определена версия 3."""
+        expected_path = temp_home / '.jupyter' / 'jupyter_jupyter_ai_config.json'
+        with (
+            patch('ollm_utils.JUPYTER_AI_AVAILABLE', new=True),
+            patch(
+                'ollm_utils.get_major_jupyter_ai_version',
+                return_value=JAIV3,
+            ) as mock_version,
+            patch(
+                'ollm_utils.set_jupyter_ai_v3_settings',
+                return_value=str(expected_path),
+            ) as mock_v3,
+        ):
+            result = set_jupyter_ai_settings(['http://localhost:11434'])
+            assert result == str(expected_path)
+            mock_version.assert_called_once()
+            mock_v3.assert_called_once_with(['http://localhost:11434'])
+
+    def test_settings_unknown_version(self) -> None:
+        """Тест, когда версия не 2 и не 3 (например 4)."""
+        with (
+            patch('ollm_utils.JUPYTER_AI_AVAILABLE', new=True),
+            patch(
+                'ollm_utils.get_major_jupyter_ai_version',
+                return_value=4,
+            ) as mock_version,
+            patch('ollm_utils.set_jupyter_ai_v2_settings') as mock_v2,
+            patch('ollm_utils.set_jupyter_ai_v3_settings') as mock_v3,
+        ):
+            result = set_jupyter_ai_settings(['http://localhost:11434'])
+            assert result == ''  # не поддерживается
+            mock_version.assert_called_once()
+            mock_v2.assert_not_called()
+            mock_v3.assert_not_called()
 
 
 # ============================================================================
@@ -479,7 +657,6 @@ class TestFile2Context:
 
     def test_file2context_with_single_file(self, tmp_path: Path) -> None:
         """Тест с одним файлом."""
-        # Создаем временный файл
         test_file = tmp_path / 'test.txt'
         test_file.write_text('Содержимое файла', encoding='utf-8')
 
@@ -491,10 +668,8 @@ class TestFile2Context:
 
     def test_file2context_with_file_list(self, tmp_path: Path) -> None:
         """Тест со списком файлов."""
-        # Создаем временные файлы
         file1 = tmp_path / 'file1.txt'
         file1.write_text('Содержимое 1', encoding='utf-8')
-
         file2 = tmp_path / 'file2.txt'
         file2.write_text('Содержимое 2', encoding='utf-8')
 
@@ -509,7 +684,6 @@ class TestFile2Context:
 
     def test_file2context_with_string_path(self, tmp_path: Path) -> None:
         """Тест с путем в виде строки."""
-        # Создаем временный файл
         test_file = tmp_path / 'test.txt'
         test_file.write_text('Содержимое', encoding='utf-8')
 
@@ -534,7 +708,7 @@ class TestChat:
 
     @pytest.fixture
     def chat_instance(self) -> Chat:
-        """Создает экземпляр Chat для тестов."""
+        """Создаёт экземпляр Chat для тестов."""
         with patch.dict(
             'ollm_utils.os.environ',
             {'OLLAMA_HOST': 'http://localhost:11434'},
@@ -644,7 +818,6 @@ class TestChat:
 
     def test_chat_call_with_file(self, chat_instance: Chat, tmp_path: Path) -> None:
         """Тест вызова модели с файлом."""
-        # Создаем временный файл
         test_file = tmp_path / 'test.txt'
         test_file.write_text('Содержимое файла', encoding='utf-8')
 
@@ -656,7 +829,6 @@ class TestChat:
             result = chat_instance('Вопрос!', file=test_file)
 
             assert result == 'Ответ модели'
-            # Проверяем, что содержимое файла добавлено к сообщению
             assert len(chat_instance.messages) == 2
             assert chat_instance.messages[0]['role'] == 'user'
             assert 'Содержимое файла' in chat_instance.messages[0]['content']
@@ -668,10 +840,8 @@ class TestChat:
         tmp_path: Path,
     ) -> None:
         """Тест вызова модели со списком файлов."""
-        # Создаем временные файлы
         file1 = tmp_path / 'file1.txt'
         file1.write_text('Содержимое 1', encoding='utf-8')
-
         file2 = tmp_path / 'file2.txt'
         file2.write_text('Содержимое 2', encoding='utf-8')
 
@@ -691,10 +861,8 @@ class TestChat:
         """Тест вызова модели с temperature=0 (должен вызываться warmup)."""
         chat_instance.temperature = 0.0
 
-        # Создаем моки для двух запросов
         mock_response_warmup = Mock()
         mock_response_warmup.raise_for_status.return_value = None
-
         mock_response_chat = Mock()
         mock_response_chat.json.return_value = {'message': {'content': 'Ответ модели'}}
         mock_response_chat.raise_for_status.return_value = None
@@ -734,22 +902,17 @@ class TestChat:
 
         with patch('ollm_utils.requests.post', return_value=mock_response):
             chat_instance._warmup_model()  # noqa: SLF001
-
-            # Проверяем, что запрос был сделан с правильными параметрами
             mock_response.raise_for_status.assert_called_once()
 
     def test_chat_reset(self, chat_instance: Chat) -> None:
         """Тест метода reset."""
-        # Добавляем сообщения в историю
         chat_instance.messages = [
             {'role': 'user', 'content': 'Привет'},
             {'role': 'assistant', 'content': 'Привет!'},
         ]
-
         assert len(chat_instance.messages) == 2
 
         chat_instance.reset()
-
         assert len(chat_instance.messages) == 0
 
     def test_chat_call_error(self, chat_instance: Chat) -> None:
@@ -776,6 +939,11 @@ class TestConstants:
         """Тест константы env_var_host."""
         assert env_var_host == 'OLLAMA_HOST'
 
+    def test_jai_version_constants(self) -> None:
+        """Тест констант версий Jupyter AI."""
+        assert JAIV2 == 2
+        assert JAIV3 == 3
+
 
 # ============================================================================
 # Тесты для типов
@@ -790,7 +958,6 @@ class TestTypeAnnotations:
         sample_fields: Fields = {
             'llama2:7b': {'base_url': 'http://localhost:11434'},
         }
-
         assert isinstance(sample_fields, dict)
         assert 'llama2:7b' in sample_fields
         assert sample_fields['llama2:7b']['base_url'] == 'http://localhost:11434'
