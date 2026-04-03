@@ -3,11 +3,10 @@ import matplotlib.pyplot as plt
 from mpl_point_clicker import clicker
 from mpl_interactions import zoom_factory, panhandler
 from IPython import get_ipython
-from IPython.display import Video, clear_output, display
+from IPython.display import Video, clear_output, display, HTML
 import ipywidgets
 import os
 from urllib.parse import quote
-from IPython.display import HTML
 
 from cv_utils import Mask
 from cvat import CVATPoints
