@@ -494,7 +494,7 @@ class TestSetJupyterAiV3Settings:
             'codellama:latest': {'base_url': 'http://localhost:11434'},
         }
 
-        expected_cfg_path = temp_home / '.jupyter' / 'jupyter_jupyter_ai_config.json'
+        expected_cfg_path = temp_home / '.jupyter' / 'jupyter_ai_config.json'
 
         with (
             patch('ollm_utils.JUPYTER_AI_AVAILABLE', new=True),
@@ -523,9 +523,9 @@ class TestSetJupyterAiV3Settings:
                 ai_cfg['initial_embeddings_model'] == 'ollama/nomic-embed-text:latest'
             )
             assert ai_cfg['initial_completions_model'] == 'ollama/codellama:latest'
-            assert 'model_parameters' in ai_cfg
+            assert 'model_kwargs' in ai_cfg
             assert (
-                ai_cfg['model_parameters']['ollama/llama2:7b']['api_base']
+                ai_cfg['model_kwargs']['ollama/llama2:7b']['api_base']
                 == 'http://localhost:11434'
             )
 
@@ -612,7 +612,7 @@ class TestSetJupyterAiSettings:
 
     def test_settings_v3_branch(self, temp_home: Path) -> None:
         """Тест, когда определена версия 3."""
-        expected_path = temp_home / '.jupyter' / 'jupyter_jupyter_ai_config.json'
+        expected_path = temp_home / '.jupyter' / 'jupyter_ai_config.json'
         with (
             patch('ollm_utils.JUPYTER_AI_AVAILABLE', new=True),
             patch(

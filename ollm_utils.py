@@ -329,13 +329,21 @@ def model_name_to_v3(model_name: str) -> str:
     return model_name
 
 
+# Словарь перехода от типа модели к имени поля провайдера в конфигурационном файле:
+v3_model_type2provider_key = {
+    'language': 'language_model_provider',
+    'embeddings': 'embeddings_provider',
+    'completions': 'completions_provider',
+}
+
+
 def set_jupyter_ai_v3_settings(
     hosts: Hosts = None,
 ) -> str:
     """Настраивает Jupyter AI v3.0+ на подключение к Ollama-серверам.
 
     Использует формат конфигурации jupyter-ai>=3.0 (Traitlets-based).
-    Файл конфигурации: jupyter_jupyter_ai_config.json
+    Файл конфигурации: jupyter_ai_config.json
 
     Аргументы:
         hosts: Адреса серверов Ollama. По-умолчанию используется значение переменной
@@ -347,23 +355,19 @@ def set_jupyter_ai_v3_settings(
         return ''
 
     # Определяем путь к конфигу v3:
-    cfg_path = Path.home() / '.jupyter' / 'jupyter_jupyter_ai_config.json'
+    cfg_path = Path.home() / '.jupyter' / 'jupyter_ai_config.json'
 
     # Определяем доступные модели:
     chat_models, embd_models, cmpl_models = hosts2chat_embd_cmpl_models(hosts)
 
     # Формируем model_parameters для передачи api_base (base_url):
-    model_parameters = {}
+    model_kwargs = {}
     all_models = {**chat_models, **embd_models, **cmpl_models}
-
     for model_name, model_cfg in all_models.items():
         v3_id = model_name_to_v3(model_name)
-        params = {}
         if 'base_url' in model_cfg:
-            params['api_base'] = model_cfg['base_url']
+            model_kwargs[v3_id] = {'api_base': model_cfg['base_url']}
             # Для LiteLLM/Ollama провайдера используем api_base.
-        if params:
-            model_parameters[v3_id] = params
 
     # Загружаем существующий конфиг или создаём новый:
     cfg = json2obj(cfg_path) if cfg_path.exists() else {}
@@ -373,27 +377,26 @@ def set_jupyter_ai_v3_settings(
         cfg['AiExtension'] = {}
     ai_cfg = cfg['AiExtension']
 
-    for models, ai_cfg_key in zip(
+    for models, model_type in zip(
         [chat_models, embd_models, cmpl_models],
-        [
-            'initial_language_model',
-            'initial_embeddings_model',
-            'initial_completions_model',
-        ],
+        ['language', 'embeddings', 'completions'],
         strict=False,
     ):
+        # Обязательные поля провайдеров:
+        ai_cfg[v3_model_type2provider_key[model_type]] = 'ollama'
+
         # Определяем дефолтную модель:
-        default_model = _first_model(models)
-        if default_model:
-            default_model = model_name_to_v3(default_model)
+        default = _first_model(models) or _first_model(chat_models)
+        if default:
+            default = model_name_to_v3(default)
 
         # Устанавливаем модели по умолчанию (v3 naming):
-        if default_model:
-            ai_cfg[ai_cfg_key] = default_model
+        if default:
+            ai_cfg[f'initial_{model_type}_model'] = default
 
     # Устанавливаем параметры моделей (base_url для Ollama)
-    if model_parameters:
-        ai_cfg['model_parameters'] = model_parameters
+    if model_kwargs:
+        ai_cfg['model_kwargs'] = model_kwargs
 
     # Сохраняем файл конфигурации:
     mkdirs(cfg_path.parent)
@@ -619,8 +622,6 @@ class Chat:
 
 if __name__ == '__main__':
     set_jupyter_ai_settings()
-
-    cfg_file = jupyter_ai.config_manager.DEFAULT_CONFIG_PATH
 
 
 __all__ = [
