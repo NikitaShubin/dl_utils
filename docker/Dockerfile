@@ -198,6 +198,13 @@ com/PublicPackages/_packaging/onnxruntime-cuda-12/pypi/simple/           \
     modelscope                                                           \
                                                                          \
                                                                          \
+    #               Работа с AI-агентами и LLM-ками:                     \
+                                                                         \
+    # open-interpreter pyautogen                                         \
+    'jupyter-ai[all]==2.29.0'                                            \
+    # jupyter-ai для использования в Jupyter всяких LLM-ок через API.    \
+                                                                         \
+                                                                         \
                                                                          \
     #                            Прочее:                                 \
                                                                          \
@@ -211,14 +218,7 @@ ARG PYTHONMODULES_EXTRA="                                                \
     #                    Фундаментальные модели:                         \
                                                                          \
     # Grounding DINO:                                                    \
-    groundingdino-py transformers==4.25.1                                \
-                                                                         \
-                                                                         \
-    #               Работа с AI-агентами и LLM-ками:                     \
-                                                                         \
-    # open-interpreter pyautogen                                         \
-    'jupyter-ai[all]==2.29.0'                                            \
-    # jupyter-ai для использования в Jupyter всяких LLM-ок через API.    \
+    groundingdino-py transformers==4.30.0                                \
 "
     # Сначала обновляем сам pip и добавляем к нему uv:
 RUN ${PIP} install $PIPPARAMS pip uv                               && \
