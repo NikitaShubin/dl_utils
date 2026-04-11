@@ -1298,8 +1298,8 @@ class VideoGenerator:
                 self.frames_iter = iter(self.frame_ranges[self.files_ind])
 
         # Читаем и возвращаем следующий кадр:
-        file = self.files[self.files_ind]
-        return self.im_read_buffer(file, frame)
+        self.cur_file = self.files[self.files_ind]
+        return self.im_read_buffer(self.cur_file, frame)
 
     # Для чтения произвольного кадра
     def __getitem__(self, index):
@@ -1310,9 +1310,9 @@ class VideoGenerator:
 
         # Определяем номер файла, номер его кадра:
         frame_range_ind = int(index)
-        for file, frame_range, im_read_buffer in zip(self.files,
-                                                     self.frame_ranges,
-                                                     self.im_read_buffers):
+        for self.cur_file, frame_range, im_read_buffer in zip(
+            self.files, self.frame_ranges, self.im_read_buffers
+        ):
             if frame_range_ind < len(frame_range):
                 break
             frame_range_ind -= len(frame_range)
@@ -1320,7 +1320,7 @@ class VideoGenerator:
             raise IndexError(f'{index} >= {len(self)}')
 
         # Читаем сам кадр:
-        return im_read_buffer(file, frame_range_ind)
+        return im_read_buffer(self.cur_file, frame_range_ind)
 
     # Деструктор:
     def __del__(self):
