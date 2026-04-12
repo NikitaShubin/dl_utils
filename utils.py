@@ -107,7 +107,7 @@ import string
 from pathlib import Path
 from functools import reduce
 from shutil import rmtree, copyfile, move
-from tqdm import tqdm
+from tqdm.auto import tqdm
 from multiprocessing import pool, Pool
 from IPython.display import clear_output, HTML  # , Javascript, display
 from matplotlib import pyplot as plt

@@ -10,7 +10,7 @@ import os
 import cv2
 import numpy as np
 import pandas as pd
-from tqdm import tqdm
+from tqdm.auto import tqdm
 from numba import jit
 from collections import defaultdict
 

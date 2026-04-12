@@ -24,7 +24,7 @@ import numpy as np
 from matplotlib import pyplot as plt
 from IPython.display import Image
 from PIL.Image import fromarray
-from tqdm import tqdm
+from tqdm.auto import tqdm
 from collections import defaultdict
 
 from utils import apply_on_cartesian_product, isfloat, draw_mask_on_image

@@ -6,7 +6,7 @@ import onnxruntime
 import numpy as np
 
 from onnxruntime import quantization
-from tqdm import tqdm
+from tqdm.auto import tqdm
 
 from utils import rmpath
 from ml_utils import is_channel_first, chw2hwc, hwc2chw

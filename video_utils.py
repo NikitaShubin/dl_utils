@@ -4,7 +4,7 @@ import cv2
 import scipy
 import numpy as np
 from time import time
-from tqdm import tqdm
+from tqdm.auto import tqdm
 from skimage import feature
 
 from matplotlib import pyplot as plt

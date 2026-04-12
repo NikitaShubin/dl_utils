@@ -76,7 +76,7 @@ import numpy as np
 import pandas as pd
 
 import xml.etree.ElementTree as ET
-from tqdm import tqdm
+from tqdm.auto import tqdm
 from pathlib import Path
 from PIL import ImageColor, Image
 from matplotlib import pyplot as plt

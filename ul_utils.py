@@ -29,7 +29,7 @@ from typing import TypeAlias
 import numpy as np
 import pandas as pd
 import ultralytics
-from tqdm import tqdm
+from tqdm.auto import tqdm
 from ultralytics import YOLO, engine
 
 from cv_utils import BBox, Mask

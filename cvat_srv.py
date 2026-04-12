@@ -5,7 +5,7 @@ from PIL import Image
 from cvat_sdk import make_client, core, api_client
 from getpass import getpass
 from zipfile import ZipFile
-from tqdm import tqdm
+from tqdm.auto import tqdm
 from http.client import IncompleteRead
 
 from cvat import (

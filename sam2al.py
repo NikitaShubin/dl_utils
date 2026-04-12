@@ -7,7 +7,7 @@ import pandas as pd
 import cv2
 import torch
 import shutil
-from tqdm import tqdm
+from tqdm.auto import tqdm
 import sam2
 from sam2.build_sam import build_sam2_video_predictor
 import warnings

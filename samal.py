@@ -22,7 +22,7 @@ import cv2
 
 import pandas as pd
 import numpy as np
-from tqdm import tqdm
+from tqdm.auto import tqdm
 from segment_anything import SamAutomaticMaskGenerator, sam_model_registry
 from urllib.request import urlretrieve
 from pathlib import Path
