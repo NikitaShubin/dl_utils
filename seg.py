@@ -1346,7 +1346,7 @@ def draw_seg_prev(inp, out, num_classes, out_file=None, return_rzlt=True):
 
     # Оттенок берём из номера класса:
     rzlt[..., 0] = (out / num_classes * 180).astype(np.uint8)
-    rzlt[..., 1] = 255  # Насыщенностьвыкручиваем на максимум
+    rzlt[..., 1] = 255  # Насыщенность выкручиваем на максимум
 
     # Переводим результат в BGR:
     rzlt = cv2.cvtColor(rzlt, cv2.COLOR_HSV2BGR)
