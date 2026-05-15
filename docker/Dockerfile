@@ -201,6 +201,7 @@ com/PublicPackages/_packaging/onnxruntime-cuda-12/pypi/simple/           \
     #               Работа с AI-агентами и LLM-ками:                     \
                                                                          \
     # open-interpreter pyautogen                                         \
+    langchain langgraph langchain-ollama                                 \
     'jupyter-ai[all]==2.29.0'                                            \
     # jupyter-ai для использования в Jupyter всяких LLM-ок через API.    \
                                                                          \
