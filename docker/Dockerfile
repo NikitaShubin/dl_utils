@@ -81,7 +81,7 @@ RUN apt-get update                                            && \
     # Установка Node.js из NodeSource (вместо старых версий из репозитория):
     wget -qO- https://deb.nodesource.com/setup_lts.x | bash - && \
     apt-get install -y --no-install-recommends nodejs         && \
-    npm install -g markdownlint-cli dclint @openai/codex
+    npm install -g markdownlint-cli dclint @openai/codex openclaw@latest
 
 # См. http://bugs.python.org/issue19846
 ENV LANG C.UTF-8
