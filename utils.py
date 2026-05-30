@@ -90,6 +90,7 @@
 
 
 import os
+import re
 import cv2
 import yaml
 import random
@@ -2294,38 +2295,39 @@ class NpEncoder(json.JSONEncoder):
         return super(NpEncoder, self).default(obj)
 
 
-def obj2json(obj, file='./cfg.json', encoding='utf-8'):
-    '''
-    Пишет json- и jsonl-файлы.
-    '''
+def obj2json(obj, file='./cfg.json', encoding='utf-8', compact=False):
+    """Пишет json(l/c)-файлы."""
 
     # Определяем тип файла:
     ext = os.path.splitext(file)[-1].lower()
-    assert ext in {'.json', '.jsonl'}
+    assert ext in {'.json', '.jsonl', '.jsonc'}
+
+    kwargs = {} if compact else {'indent': 4, 'ensure_ascii': False}
 
     with open(file, 'w', encoding='utf-8') as f:
 
-        # Если обычный json:
-        if ext == '.json':
-            json.dump(obj, f, cls=NpEncoder)
+        # Если обычный json(c):
+        if ext in {'.json', '.jsonc'}:
+            json.dump(obj, f, cls=NpEncoder, **kwargs)
 
         # Если jsonl:
-        else:
+        elif ext == '.jsonl':
             assert isinstance(obj, (tuple, list, set))
             for line in obj:
-                f.write(json.dumps(line, cls=NpEncoder) + '\n')
+                f.write(json.dumps(line, cls=NpEncoder, **kwargs) + '\n')
+
+        else:
+            msg = f'Неподдерживаемый тип файла: {ext}!'
+            raise ValueError(msg)
 
     return file
 
 
 def json2obj(file='./cfg.json', encoding='utf-8'):
-    '''
-    Читае json- и jsonl-файлы.
-    '''
+    """Читает json(l/c)-файлы."""
 
     # Определяем тип файла:
     ext = os.path.splitext(file)[-1].lower()
-    assert ext in {'.json', '.jsonl'}
 
     with open(file, 'r', encoding=encoding) as f:
 
@@ -2334,10 +2336,23 @@ def json2obj(file='./cfg.json', encoding='utf-8'):
             obj = json.load(f)
 
         # Если jsonl:
-        else:
+        elif ext == '.jsonl':
             obj = []
             for line in f:
                 obj.append(json.loads(line.strip()))
+
+        # Если jsonl:
+        elif ext == '.jsonc':
+            jsonc_str = f.read()
+
+            # Удаляем комментарии в jsonc-строке:
+            jsonc_str = re.sub(r'/\*.*?\*/', '', jsonc_str, flags=re.DOTALL)
+
+            obj = json.loads(jsonc_str)
+
+        else:
+            msg = f'Неподдерживаемый тип файла: {ext}!'
+            raise ValueError(msg)
 
     return obj
 
