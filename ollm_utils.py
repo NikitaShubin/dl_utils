@@ -6,7 +6,7 @@
 *                                          *
 *   Модуль для взаимодействия с моделями   *
 *   Ollama, их классификации и настройки   *
-*       интеграции с Jupyter AI.           *
+*   интеграции с Jupyter AI/OpenCode.      *
 *                                          *
 *   Создан в первую очередь для работы с   *
 *   github.com/NikitaShubin/SelfHostedAI   *
@@ -20,6 +20,8 @@
 * • получение списка доступных моделей с   *
 *   Ollama-серверов;                       *
 * • автоматическая настройка Jupyter AI    *
+*   для работы с моделями Ollama;          *
+* • автоматическая настройка OpenCode      *
 *   для работы с моделями Ollama.          *
 *                                          *
 * Основные функции:                        *
@@ -27,18 +29,21 @@
 *   классификация доступных на сервере     *
 *   моделей;                               *
 * • set_jupyter_ai_settings() - настройка  *
-*   Jupyter AI.                            *
+*   Jupyter AI;                            *
+* • set_opencode_settings() - настройка    *
+*   OpenCode.                              *
 *                                          *
 * Основные классы:                         *
 * • Chat - объект, через который можно     *
 *   везти диалог с моделью.                *
 *                                          *
 * Вызов модуля как исполняемого файла      *
-* запускает set_jupyter_ai_settings без    *
-* параметров - доступный Ollama-сервер     *
-* читается из переменной окружения         *
-* OLLAMA_HOST и jupyter-ai автоматически   *
-* настраивается на использование её        *
+* запускает set_jupyter_ai_settings и      *
+* set_opencode_settings без параметров -   *
+* доступный Ollama-сервер читается из      *
+* переменной окружения OLLAMA_HOST и       *
+* jupyter-ai / opencode автоматически      *
+* настраиваются на использование её        *
 * моделей.                                 *
 *                                          *
 ********************************************
@@ -497,7 +502,7 @@ def set_opencode_settings(
     # Заполняем конфигурацию всеми моделями, что нашли:
     providers = cfg.get('provider', {})
     provider_ind = 0  # Инициируем номер провайдера
-    for url, models in url2models.items():
+    for url, model_names in url2models.items():
         # Ищем первый незанятый номер для провайдера:
         while (provider_name := f'ollama{provider_ind}') in providers:
             provider_ind += 1
@@ -507,7 +512,7 @@ def set_opencode_settings(
             'npm': '@ai-sdk/openai-compatible',
             'name': f'Ollama ({url})',
             'options': {'baseURL': f'{url}/v1'},
-            'models': {name: {'name': name} for name in models},
+            'models': {name: {'name': name} for name in model_names},
         }
     cfg['provider'] = providers
 
@@ -516,7 +521,7 @@ def set_opencode_settings(
         mkdirs(cfg_path.parent)
     obj2json(cfg, cfg_path)
 
-    return cfg_path
+    return str(cfg_path)
 
 
 ###################################

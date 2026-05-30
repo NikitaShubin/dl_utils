@@ -2,7 +2,7 @@
 
 Предоставляет функциональность для работы с Ollama-сервисом. Основное назначение —
 автоматическое определение типа моделей (чат, эмбеддинги, кодогенерация) и настройка
-Jupyter AI для работы с моделями Ollama.
+Jupyter AI или OpenCode для работы с моделями Ollama.
 
 ---
 
@@ -19,6 +19,7 @@ Jupyter AI для работы с моделями Ollama.
 | `url2tags()`                    | извлечение тегов со страницы модели на сайте Ollama                |
 | `host2models_info()`            | получение списка моделей с Ollama-сервера                          |
 | `file2context()`                | преобразование файлов в текстовое представление для контекста      |
+| `set_opencode_settings()`       | настройка OpenCode для работы с моделями Ollama                    |
 <!-- markdownlint-enable MD013 -->
 
 ### Классы
@@ -83,6 +84,35 @@ def set_jupyter_ai_settings(
 - Читает существующий конфигурационный файл или создаёт новый.
 - Заполняет конфигурацию моделями, полученными от `hosts2chat_embd_cmpl_models`.
 - Устанавливает настройку `send_with_shift_enter` в `True`.
+
+### Функция `set_opencode_settings`
+
+Настраивает OpenCode на подключение к Ollama-серверам. Создаёт или обновляет
+конфигурационный файл OpenCode (`~/.config/opencode/opencode.jsonc`).
+
+```python
+def set_opencode_settings(
+    hosts: Hosts = None
+) -> str
+```
+
+#### Параметры set_opencode_settings
+
+- `hosts` (Hosts) — адреса Ollama-серверов. Аналогично `hosts2chat_embd_cmpl_models`.
+
+#### Возвращаемое значение set_opencode_settings
+
+Возвращает путь до конфигурационного файла OpenCode.
+
+#### Особенности set_opencode_settings
+
+- Требует установленного `opencode` (проверяется через `shutil.which`).
+  Если не установлен, возвращает пустую строку.
+- Читает существующий конфигурационный файл или создаёт новый с `$schema`.
+- Вызывает `ValueError`, если на серверах не найдено ни одной модели.
+- Для каждого сервера создаёт отдельного провайдера (`ollama0`, `ollama1`, ...).
+- Использует пакет `@ai-sdk/openai-compatible` для подключения к Ollama через
+  OpenAI-совместимый API.
 
 ### Функция `file2context`
 
@@ -183,6 +213,13 @@ config_path = set_jupyter_ai_settings(['<host1>:<port1>', ... '<hostn>:<portn>']
 print(f"Конфигурация сохранена в: {config_path}")
 ```
 
+### Настройка OpenCode
+
+```python
+config_path = set_opencode_settings(['http://localhost:11434'])
+print(f"Конфигурация сохранена в: {config_path}")
+```
+
 ### Работа с файлами
 
 ```python
@@ -260,6 +297,6 @@ response3 = chat("Сделай то же самое на JavaScript", file="pyth
   python ollm_utils.py
   ```
 
-  выполняется функция `set_jupyter_ai_settings()` без параметров, что означает
-использование адреса сервера из переменной окружения `OLLAMA_HOST` для настройки
-Jupyter AI.
+  выполняются функции `set_jupyter_ai_settings()` и `set_opencode_settings()` без
+параметров, что означает использование адреса сервера из переменной окружения
+`OLLAMA_HOST` для настройки Jupyter AI и OpenCode.
