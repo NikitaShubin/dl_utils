@@ -8,6 +8,9 @@
 *   Ollama, их классификации и настройки   *
 *       интеграции с Jupyter AI.           *
 *                                          *
+*   Создан в первую очередь для работы с   *
+*   github.com/NikitaShubin/SelfHostedAI   *
+*                                          *
 * Основные возможности:                    *
 * • автоматическое определение типа модели *
 *   (чат,эмбеддинги, кодогенерация) по     *
@@ -44,11 +47,14 @@
 
 import os
 import re
+import shutil
+from collections import defaultdict
 from pathlib import Path
 
 import requests
 from bs4 import BeautifulSoup
 
+# Выясняем, установлен ли jupyter_ai:
 try:
     import jupyter_ai  # type: ignore[import-untyped]
 
@@ -58,6 +64,10 @@ except ImportError:
 
 from utils import json2obj, mkdirs, obj2json
 
+# Выясняем, установлен ли OpenCode:
+OPENCODE_AVAILABLE: bool = shutil.which('opencode') is not None
+
+
 # Имя переменной окружения, хранящей адрес Ollama-сервера:
 env_var_host: str = 'OLLAMA_HOST'
 
@@ -65,11 +75,6 @@ env_var_host: str = 'OLLAMA_HOST'
 # Типы:
 Fields = dict[str, dict[str, str]]  # Описание моделей
 Hosts = set[str] | list[str] | tuple[str, ...] | None  # Множество серверов
-
-
-# Поддерживаемые версии jupyter-ai:
-JAIV2 = 2  # V2
-JAIV3 = 3  # V3
 
 
 # Варианты селекторов для тегов (зависит от структуры страницы):
@@ -246,6 +251,11 @@ def hosts2chat_embd_cmpl_models(
 ####################################################
 # Интеграция Ollama в JupyterLab через jupyter_ai: #
 ####################################################
+
+
+# Поддерживаемые версии jupyter-ai:
+JAIV2 = 2  # V2
+JAIV3 = 3  # V3
 
 
 def _ollama_prefix(models: dict[str, dict[str, str]]) -> dict[str, dict[str, str]]:
@@ -441,6 +451,74 @@ def set_jupyter_ai_settings(
     return ''
 
 
+#################################
+# Интеграция Ollama в OpenCode: #
+#################################
+
+
+def set_opencode_settings(
+    hosts: Hosts = None,
+) -> str:
+    """Настраивает OpenCode на подключение к Ollama-серверам.
+
+        hosts: Адреса сервера Ollama. По-умолчанию используется значение переменной
+                    окружения OLLAMA_HOST.
+
+    Возвращает путь до конфигурационного файла.
+    """
+    # Пропускаем конфигурацию, если OpenCode не установлен:
+    if not OPENCODE_AVAILABLE:
+        return ''
+
+    # Инициируем содержимое конфигурационного файла:
+    cfg_path = Path.home() / '.config' / 'opencode' / 'opencode.jsonc'
+    if cfg_path.is_file():
+        cfg = json2obj(cfg_path)
+    else:
+        cfg = {'$schema': 'https://opencode.ai/config.json'}
+
+    # Определяем доступные модели:
+    chat_models, _, cmpl_models = hosts2chat_embd_cmpl_models(hosts)
+
+    # Составляем списки моделей для каждого сервера:
+    url2models = defaultdict(list)
+    models = cmpl_models | chat_models
+    # Модели берутся по порядку: сначала кодеры, потом модели общего назначения.
+    for model, prop in models.items():
+        url = prop['base_url'].lower()
+        url2models[url].append(model)
+
+    # Список провайдеров не должен быть пуст:
+    num_urls = len(url2models)
+    if num_urls == 0:
+        msg = f'На серверах "{hosts}" недоступно ни одной модели!'
+        raise ValueError(msg)
+
+    # Заполняем конфигурацию всеми моделями, что нашли:
+    providers = cfg.get('provider', {})
+    provider_ind = 0  # Инициируем номер провайдера
+    for url, models in url2models.items():
+        # Ищем первый незанятый номер для провайдера:
+        while (provider_name := f'ollama{provider_ind}') in providers:
+            provider_ind += 1
+
+        # Фиксируем провайдер со всеми его моделями:
+        providers[provider_name] = {
+            'npm': '@ai-sdk/openai-compatible',
+            'name': f'Ollama ({url})',
+            'options': {'baseURL': f'{url}/v1'},
+            'models': {name: {'name': name} for name in models},
+        }
+    cfg['provider'] = providers
+
+    # Обновляем файл:
+    if not cfg_path.parent.is_dir():
+        mkdirs(cfg_path.parent)
+    obj2json(cfg, cfg_path)
+
+    return cfg_path
+
+
 ###################################
 # Прямое взаимодействие с Ollama: #
 ###################################
@@ -622,6 +700,7 @@ class Chat:
 
 if __name__ == '__main__':
     set_jupyter_ai_settings()
+    set_opencode_settings()
 
 
 __all__ = [
@@ -632,4 +711,5 @@ __all__ = [
     'hosts2chat_embd_cmpl_models',
     'model_name2type',
     'set_jupyter_ai_settings',
+    'set_opencode_settings',
 ]
