@@ -230,10 +230,11 @@ RUN ${PIP} install $PIPPARAMS pip uv                               && \
     # И уже на его основе устанавливаем основные пакеты:
     eval "${UVINSTALL} $VERSIONS $PYTHONMODULES_BASE --upgrade"    && \
     # Потом доустанавливаем все дополнительные пакеты (которые конфликтуюют с основными):
-    eval "${UVINSTALL} $VERSIONS $PYTHONMODULES_EXTRA --upgrade"  && \
+    eval "${UVINSTALL} $VERSIONS $PYTHONMODULES_EXTRA --upgrade"   && \
     # Наконец, очищаем кэш pip и uv для уменьшения размера образа:
     eval "${PIP} cache purge; ${UV} cache clean"                   && \
     # Приходится пересобирать Jupyter Lab, т.к. установка Node.js из NodeSource приводит к поломкам зависимостей:
+    jupyter lab clean                                              &&\
     jupyter lab build --minimize=False
 
 # Отключаем у JupyterLab надоедливый вопрос об обновлении
@@ -378,4 +379,4 @@ CMD ["/bin/bash", "-c", " \
     exec $JP \
 "]
 # Если в переменных окружения заданы пароль и порт, то они используются как параметры запуска.
-# ollm_utils автоматически конфигурирует jupyter-ai.
+# ollm_utils автоматически конфигурирует jupyter-ai и OpenCode.
