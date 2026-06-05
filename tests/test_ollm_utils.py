@@ -30,6 +30,7 @@ from ollm_utils import (
     set_jupyter_ai_settings,
     set_jupyter_ai_v2_settings,
     set_jupyter_ai_v3_settings,
+    set_opencode_settings,
     url2tags,
 )
 
@@ -645,6 +646,151 @@ class TestSetJupyterAiSettings:
             mock_version.assert_called_once()
             mock_v2.assert_not_called()
             mock_v3.assert_not_called()
+
+
+# ============================================================================
+# Тесты для set_opencode_settings
+# ============================================================================
+
+
+class TestSetOpenCodeSettings:
+    """Тесты для функции set_opencode_settings."""
+
+    @pytest.fixture
+    def temp_home(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+        """Фикстура: подменяет HOME на временную директорию."""
+        fake_home = tmp_path / 'fake_home'
+        fake_home.mkdir()
+        monkeypatch.setenv('HOME', str(fake_home))
+        return fake_home
+
+    def test_unavailable(self, temp_home: Path) -> None:
+        """Тест, когда opencode не установлен."""
+        _ = temp_home
+        with patch('ollm_utils.OPENCODE_AVAILABLE', new=False):
+            result = set_opencode_settings()
+            assert result == ''
+
+    def test_no_models_raises_error(self, temp_home: Path) -> None:
+        """Тест, когда нет моделей на сервере."""
+        _ = temp_home
+        with (
+            patch('ollm_utils.OPENCODE_AVAILABLE', new=True),
+            patch('ollm_utils.hosts2chat_embd_cmpl_models', return_value=({}, {}, {})),
+            pytest.raises(ValueError, match='недоступно ни одной модели'),
+        ):
+            set_opencode_settings(['http://localhost:11434'])
+
+    def test_success(self, temp_home: Path) -> None:
+        """Тест успешной настройки OpenCode."""
+        chat_models: Fields = {'llama2:7b': {'base_url': 'http://localhost:11434'}}
+        cmpl_models: Fields = {
+            'codellama:latest': {'base_url': 'http://localhost:11434'},
+        }
+
+        expected_cfg_path = temp_home / '.config' / 'opencode' / 'opencode.jsonc'
+
+        with (
+            patch('ollm_utils.OPENCODE_AVAILABLE', new=True),
+            patch(
+                'ollm_utils.hosts2chat_embd_cmpl_models',
+                return_value=(chat_models, {}, cmpl_models),
+            ),
+            patch('ollm_utils.Path.is_file', return_value=False),
+            patch('ollm_utils.obj2json') as mock_obj2json,
+            patch('ollm_utils.mkdirs') as mock_mkdirs,
+        ):
+            result = set_opencode_settings(['http://localhost:11434'])
+
+            assert result == str(expected_cfg_path)
+            mock_mkdirs.assert_called_once_with(expected_cfg_path.parent)
+            call_args = mock_obj2json.call_args
+            assert call_args is not None
+            cfg, path = call_args[0]
+            assert path == expected_cfg_path
+            assert '$schema' in cfg
+            assert 'provider' in cfg
+            providers = cfg['provider']
+            assert 'ollama0' in providers
+            assert providers['ollama0']['name'] == 'Ollama (http://localhost:11434)'
+            assert (
+                providers['ollama0']['options']['baseURL']
+                == 'http://localhost:11434/v1'
+            )
+            assert 'llama2:7b' in providers['ollama0']['models']
+            assert 'codellama:latest' in providers['ollama0']['models']
+
+    def test_existing_config(self, temp_home: Path) -> None:
+        """Тест с существующим конфигурационным файлом."""
+        _ = temp_home
+        chat_models: Fields = {'llama2:7b': {'base_url': 'http://localhost:11434'}}
+
+        existing_cfg = {
+            'provider': {
+                'ollama0': {
+                    'npm': '@ai-sdk/openai-compatible',
+                    'name': 'Ollama (http://old-host:11434)',
+                    'options': {'baseURL': 'http://old-host:11434/v1'},
+                    'models': {'old-model': {'name': 'old-model'}},
+                },
+            },
+        }
+
+        with (
+            patch('ollm_utils.OPENCODE_AVAILABLE', new=True),
+            patch(
+                'ollm_utils.hosts2chat_embd_cmpl_models',
+                return_value=(chat_models, {}, {}),
+            ),
+            patch('ollm_utils.Path.is_file', return_value=True),
+            patch('ollm_utils.json2obj', return_value=existing_cfg),
+            patch('ollm_utils.obj2json') as mock_obj2json,
+            patch('ollm_utils.mkdirs'),
+        ):
+            set_opencode_settings(['http://localhost:11434'])
+
+            call_args = mock_obj2json.call_args
+            assert call_args is not None
+            cfg, _ = call_args[0]
+            providers = cfg['provider']
+            # Старый провайдер должен сохраниться
+            assert 'ollama0' in providers
+            assert providers['ollama0']['name'] == 'Ollama (http://old-host:11434)'
+            # Новый провайдер должен добавиться со следующим индексом
+            assert 'ollama1' in providers
+            assert providers['ollama1']['name'] == 'Ollama (http://localhost:11434)'
+
+    def test_multiple_hosts(self, temp_home: Path) -> None:
+        """Тест с несколькими хостами."""
+        _ = temp_home
+        chat_models: Fields = {
+            'llama2:7b': {'base_url': 'http://host1:11434'},
+            'mistral:7b': {'base_url': 'http://host2:11434'},
+        }
+
+        with (
+            patch('ollm_utils.OPENCODE_AVAILABLE', new=True),
+            patch(
+                'ollm_utils.hosts2chat_embd_cmpl_models',
+                return_value=(chat_models, {}, {}),
+            ),
+            patch('ollm_utils.Path.is_file', return_value=False),
+            patch('ollm_utils.obj2json') as mock_obj2json,
+            patch('ollm_utils.mkdirs'),
+        ):
+            set_opencode_settings(['http://host1:11434', 'http://host2:11434'])
+
+            call_args = mock_obj2json.call_args
+            assert call_args is not None
+            cfg, _ = call_args[0]
+            providers = cfg['provider']
+            assert 'ollama0' in providers
+            assert 'ollama1' in providers
+            # Проверяем, что модели распределены по разным провайдерам
+            assert (
+                providers['ollama0']['options']['baseURL']
+                != providers['ollama1']['options']['baseURL']
+            )
 
 
 # ============================================================================
