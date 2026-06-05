@@ -78,7 +78,7 @@ env_var_host: str = 'OLLAMA_HOST'
 
 
 # Типы:
-Fields = dict[str, dict[str, str]]  # Описание моделей
+Fields = dict[str, dict[str, str | float]]  # Описание моделей
 Hosts = set[str] | list[str] | tuple[str, ...] | None  # Множество серверов
 
 
@@ -224,9 +224,9 @@ def hosts2chat_embd_cmpl_models(
     if hosts is None:
         hosts = [os.environ[env_var_host]] if env_var_host in os.environ else []
 
-    chat_models: dict[str, dict[str, str]] = {}
-    embd_models: dict[str, dict[str, str]] = {}
-    cmpl_models: dict[str, dict[str, str]] = {}
+    chat_models: Fields = {}
+    embd_models: Fields = {}
+    cmpl_models: Fields = {}
 
     # Перебираем все сервера:
     for host in hosts:
@@ -263,7 +263,7 @@ JAIV2 = 2  # V2
 JAIV3 = 3  # V3
 
 
-def _ollama_prefix(models: dict[str, dict[str, str]]) -> dict[str, dict[str, str]]:
+def _ollama_prefix(models: Fields) -> Fields:
     """Добавляет "ollama:" к началу имени каждой модели."""
     return {'ollama:' + key: val for key, val in models.items()}
 
@@ -319,6 +319,11 @@ def set_jupyter_ai_v2_settings(
     fields = {**chat_models, **embd_models}
     embeddings_fields = {**embd_models, **chat_models}
     completions_fields = cmpl_models
+
+    # Делаем все модели максимально предсказуемыми:
+    for models_dict in (fields, embeddings_fields, completions_fields):
+        for model_cfg in models_dict.values():
+            model_cfg['temperature'] = 0.0
 
     # Меняем параметры конфигурации:
     cfg['fields'] = fields  # Диалоговые модели
@@ -381,8 +386,10 @@ def set_jupyter_ai_v3_settings(
     for model_name, model_cfg in all_models.items():
         v3_id = model_name_to_v3(model_name)
         if 'base_url' in model_cfg:
-            model_kwargs[v3_id] = {'api_base': model_cfg['base_url']}
-            # Для LiteLLM/Ollama провайдера используем api_base.
+            model_kwargs[v3_id] = {
+                'api_base': model_cfg['base_url'],
+                'temperature': 0.0,
+            }  # Для LiteLLM/Ollama провайдера используем api_base.
 
     # Загружаем существующий конфиг или создаём новый:
     cfg = json2obj(cfg_path) if cfg_path.exists() else {}
@@ -490,7 +497,7 @@ def set_opencode_settings(
     models = cmpl_models | chat_models
     # Модели берутся по порядку: сначала кодеры, потом модели общего назначения.
     for model, prop in models.items():
-        url = prop['base_url'].lower()
+        url = str(prop['base_url']).lower()
         url2models[url].append(model)
 
     # Список провайдеров не должен быть пуст:
@@ -512,7 +519,13 @@ def set_opencode_settings(
             'npm': '@ai-sdk/openai-compatible',
             'name': f'Ollama ({url})',
             'options': {'baseURL': f'{url}/v1'},
-            'models': {name: {'name': name} for name in model_names},
+            'models': {
+                name: {
+                    'name': name,
+                    'options': {'extraBody': {'temperature': 0.0}},
+                }
+                for name in model_names
+            },
         }
     cfg['provider'] = providers
 

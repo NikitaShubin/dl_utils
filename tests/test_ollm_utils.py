@@ -451,7 +451,10 @@ class TestSetJupyterAiV2Settings:
                 return_value=(chat_models, embd_models, cmpl_models),
             ) as mock_hosts2models,
             patch('ollm_utils.json2obj', return_value={}),
-            patch('ollm_utils.obj2json', return_value=temp_config_file),
+            patch(
+                'ollm_utils.obj2json',
+                return_value=temp_config_file,
+            ) as mock_obj2json,
             patch('ollm_utils.mkdirs') as mock_mkdirs,
         ):
             result = set_jupyter_ai_v2_settings(['http://localhost:11434'])
@@ -459,6 +462,13 @@ class TestSetJupyterAiV2Settings:
             assert result == temp_config_file
             mock_hosts2models.assert_called_once_with(['http://localhost:11434'])
             mock_mkdirs.assert_called_once()
+
+            call_args = mock_obj2json.call_args
+            assert call_args is not None
+            cfg, _ = call_args[0]
+            for section in ('fields', 'embeddings_fields', 'completions_fields'):
+                for model_cfg in cfg[section].values():
+                    assert model_cfg['temperature'] == 0.0
 
 
 # ============================================================================
@@ -528,6 +538,14 @@ class TestSetJupyterAiV3Settings:
             assert (
                 ai_cfg['model_kwargs']['ollama/llama2:7b']['api_base']
                 == 'http://localhost:11434'
+            )
+            assert ai_cfg['model_kwargs']['ollama/llama2:7b']['temperature'] == 0.0
+            assert (
+                ai_cfg['model_kwargs']['ollama/nomic-embed-text:latest']['temperature']
+                == 0.0
+            )
+            assert (
+                ai_cfg['model_kwargs']['ollama/codellama:latest']['temperature'] == 0.0
             )
 
     def test_v3_settings_existing_config(self) -> None:
@@ -719,6 +737,8 @@ class TestSetOpenCodeSettings:
             )
             assert 'llama2:7b' in providers['ollama0']['models']
             assert 'codellama:latest' in providers['ollama0']['models']
+            for model_cfg in providers['ollama0']['models'].values():
+                assert model_cfg['options']['extraBody']['temperature'] == 0.0
 
     def test_existing_config(self, temp_home: Path) -> None:
         """Тест с существующим конфигурационным файлом."""
@@ -759,6 +779,8 @@ class TestSetOpenCodeSettings:
             # Новый провайдер должен добавиться со следующим индексом
             assert 'ollama1' in providers
             assert providers['ollama1']['name'] == 'Ollama (http://localhost:11434)'
+            for model_cfg in providers['ollama1']['models'].values():
+                assert model_cfg['options']['extraBody']['temperature'] == 0.0
 
     def test_multiple_hosts(self, temp_home: Path) -> None:
         """Тест с несколькими хостами."""
@@ -791,6 +813,9 @@ class TestSetOpenCodeSettings:
                 providers['ollama0']['options']['baseURL']
                 != providers['ollama1']['options']['baseURL']
             )
+            for name in ('ollama0', 'ollama1'):
+                for model_cfg in providers[name]['models'].values():
+                    assert model_cfg['options']['extraBody']['temperature'] == 0.0
 
 
 # ============================================================================

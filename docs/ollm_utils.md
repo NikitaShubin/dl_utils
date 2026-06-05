@@ -84,6 +84,10 @@ def set_jupyter_ai_settings(
 - Читает существующий конфигурационный файл или создаёт новый.
 - Заполняет конфигурацию моделями, полученными от `hosts2chat_embd_cmpl_models`.
 - Устанавливает настройку `send_with_shift_enter` в `True`.
+- Все модели конфигурируются с `temperature=0.0` для детерминированной генерации.
+  В Jupyter AI v2 параметр проставляется каждой модели в `fields` /
+  `embeddings_fields` / `completions_fields`; в Jupyter AI v3 — через
+  `model_kwargs[model_id]['temperature']`.
 
 ### Функция `set_opencode_settings`
 
@@ -113,6 +117,8 @@ def set_opencode_settings(
 - Для каждого сервера создаёт отдельного провайдера (`ollama0`, `ollama1`, ...).
 - Использует пакет `@ai-sdk/openai-compatible` для подключения к Ollama через
   OpenAI-совместимый API.
+- Для каждой модели задаётся `options.extraBody.temperature = 0.0`, что обеспечивает
+  детерминированную генерацию в OpenCode.
 
 ### Функция `file2context`
 
