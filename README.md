@@ -150,8 +150,12 @@ graph RL;
   фрагменты по времени
 - **[`repo2context.sh`](repo2context.sh "Перейти к файлу")**: Создание из заданной
   папки с текстовыми фафлами контекста для LLM-запросов
-- **[`check-non-py.sh`](check-non-py.sh "Перейти к файлу")**: Проверка линтерами всех
-  не-python-файлов в заданной дирректории
+- **[`check-py.sh`](check-py.sh "Перейти к файлу")**: Проверка качества Python-кода
+  (ruff format, ruff check, mypy, pytest). Покрывает только файлы из белого
+  списка — строгие требования ruff и mypy внедряются постепенно
+- **[`check-infra.sh`](check-infra.sh "Перейти к файлу")**: Проверка инфраструктурных
+  файлов: docker-compose (dclint), Dockerfile (hadolint), shell-скрипты
+  (shellcheck), Markdown (markdownlint)
 
 ---
 
