@@ -489,6 +489,16 @@ def set_opencode_settings(
     else:
         cfg = {'$schema': 'https://opencode.ai/config.json'}
 
+    # Боремся с утечкой данных:
+    cfg['agent'] = cfg.get('agent', {})
+    cfg['agent']['title'] = {'disable': True}
+    # С отправкой промптов на облачные серверы для генерации заголовков.
+    cfg['share'] = 'disabled'
+    # С sharing сессий на внешние серверы.
+    cfg['telemetry'] = cfg.get('telemetry', {})
+    cfg['telemetry']['enabled'] = False
+    # С телеметрией.
+
     # Определяем доступные модели:
     chat_models, _, cmpl_models = hosts2chat_embd_cmpl_models(hosts)
 
