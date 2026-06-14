@@ -58,37 +58,22 @@ GIT_ROOT="$(git -C "$TARGET_DIR" rev-parse --show-toplevel)"
 echo -e "${BLUE}📦 Корень Git-репозитория: $GIT_ROOT${NC}"
 echo
 
-# Функция для получения списка файлов из Git-индекса
+# Функция для получения списка файлов по расширению (из git-индекса и untracked):
 get_git_files_by_extension() {
-    local extension="$1"
-    # Ищем все файлы с указанным расширением, исключая скрытые файлы (начинающиеся с .)
-    git -C "$GIT_ROOT" ls-files | while IFS= read -r file; do
-        # Проверяем, что файл имеет нужное расширение и не является скрытым
-        if [[ "$file" =~ \.${extension}$ ]] && [[ ! "$(basename "$file")" =~ ^\. ]]; then
-            echo "$file"
-        fi
-    done
+    local ext="$1"
+    git -C "$GIT_ROOT" ls-files -c -o --exclude-standard -- "*.$ext" 2>/dev/null || true
 }
 
 # Функция для рекурсивного поиска файлов Dockerfile
 get_dockerfiles() {
-    # Рекурсивно ищем все Dockerfile и .Dockerfile файлы
-    git -C "$GIT_ROOT" ls-files | grep -E '(/|^)Dockerfile$' || true
-    git -C "$GIT_ROOT" ls-files | grep -E '\.Dockerfile$' || true
+    git -C "$GIT_ROOT" ls-files -c -o --exclude-standard -- "Dockerfile" "*.Dockerfile" 2>/dev/null || true
 }
 
 # Функция для поиска docker-compose файлов
 get_docker_compose_files() {
-    # Ищем файлы с именами docker-compose*.yml, docker-compose*.yaml, compose*.yml, compose*.yaml
-    git -C "$GIT_ROOT" ls-files | while IFS= read -r file; do
-        # Получаем имя файла отдельно, чтобы избежать предупреждения SC2155
-        local filename
-        filename=$(basename "$file")
-        # Проверяем, что имя файла соответствует шаблону docker-compose
-        if [[ "$filename" =~ ^(docker-)?compose[^/]*\.(yml|yaml)$ ]] && [[ ! "$filename" =~ ^\. ]]; then
-            echo "$file"
-        fi
-    done
+    git -C "$GIT_ROOT" ls-files -c -o --exclude-standard -- \
+        "docker-compose*.yml" "docker-compose*.yaml" \
+        "compose*.yml" "compose*.yaml" 2>/dev/null || true
 }
 
 # Функция для выполнения проверки

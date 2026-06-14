@@ -95,7 +95,7 @@ check_indexed_files() {
             if [[ -n "$file" && -f "$GIT_ROOT/$file" ]]; then
                 all_files+=("$file")
             fi
-        done < <(git -C "$GIT_ROOT" ls-files "$pattern" 2>/dev/null || true)
+        done < <(git -C "$GIT_ROOT" ls-files -c -o --exclude-standard -- "$pattern" 2>/dev/null || true)
     done
 
     # Убираем дубликаты
@@ -137,29 +137,29 @@ ruff clean
 # Основные файлы для проверки (только индексированные):
 print_separator "Проверка индексированных Python файлов" "$BLUE"
 
-# Проверка каждого файла отдельно
+# Проверка каждого файла отдельно:
 for file in "${root_files[@]}"; do
-    # Проверяем, индексирован ли файл
-    if git -C "$GIT_ROOT" ls-files --error-unmatch "$file" >/dev/null 2>&1; then
-        if [[ -f "$GIT_ROOT/$file" ]]; then
-            # Ruff format:
-            print_separator "Ruff format: $file" "$CYAN"
-            print_step "Форматирование файла $file..."
-            (cd "$GIT_ROOT" && ruff format "$file") && print_success "Форматирование $file завершено"
+    # Проверка по git-индексу закомментирована — проверяем все файлы:
+    # if git -C "$GIT_ROOT" ls-files --error-unmatch "$file" >/dev/null 2>&1; then
+    if git -C "$GIT_ROOT" ls-files -c -o --exclude-standard -- "$file" | grep -q .; then
+        # Ruff format:
+        print_separator "Ruff format: $file" "$CYAN"
+        print_step "Форматирование файла $file..."
+        (cd "$GIT_ROOT" && ruff format "$file") && print_success "Форматирование $file завершено"
 
-            # Ruff check:
-            print_separator "Ruff check: $file" "$CYAN"
-            print_step "Проверка файла $file..."
-            (cd "$GIT_ROOT" && ruff check "${RUFF_CHECK_ARGS[@]}" "$file") && print_success "Проверка $file завершена"
+        # Ruff check:
+        print_separator "Ruff check: $file" "$CYAN"
+        print_step "Проверка файла $file..."
+        (cd "$GIT_ROOT" && ruff check "${RUFF_CHECK_ARGS[@]}" "$file") && print_success "Проверка $file завершена"
 
-            # Mypy проверка:
-            print_separator "Mypy: $file" "$PURPLE"
-            print_step "Проверка типов в файле $file..."
-            (cd "$GIT_ROOT" && mypy "${MYPY_ARGS[@]}" "$file") && print_success "Проверка типов $file завершена"
-        fi
-    else
-        print_warning "Файл $file не индексирован или не найден, пропускаем"
+        # Mypy проверка:
+        print_separator "Mypy: $file" "$PURPLE"
+        print_step "Проверка типов в файле $file..."
+        (cd "$GIT_ROOT" && mypy "${MYPY_ARGS[@]}" "$file") && print_success "Проверка типов $file завершена"
     fi
+    # else
+    #     print_warning "Файл $file не индексирован или не найден, пропускаем"
+    # fi
 done
 
 # Запуск тестов:
@@ -175,7 +175,7 @@ if [[ -d "$GIT_ROOT/tests" ]]; then
         if [[ -n "$file" && -f "$GIT_ROOT/$file" ]]; then
             test_files+=("$file")
         fi
-    done < <(git -C "$GIT_ROOT" ls-files "tests/*.py" 2>/dev/null || true)
+    done < <(git -C "$GIT_ROOT" ls-files -c -o --exclude-standard -- "tests/*.py" 2>/dev/null || true)
 
     if [ ${#test_files[@]} -gt 0 ]; then
         # Форматируем пути для отображения (убираем префикс tests/)
