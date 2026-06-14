@@ -512,32 +512,30 @@ def set_opencode_settings(
 
     # Список провайдеров не должен быть пуст:
     num_urls = len(url2models)
-    if num_urls == 0:
-        msg = f'На серверах "{hosts}" недоступно ни одной модели!'
-        raise ValueError(msg)
 
     # Заполняем конфигурацию всеми моделями, что нашли:
-    providers = cfg.get('provider', {})
-    provider_ind = 0  # Инициируем номер провайдера
-    for url, model_names in url2models.items():
-        # Ищем первый незанятый номер для провайдера:
-        while (provider_name := f'ollama{provider_ind}') in providers:
-            provider_ind += 1
+    if num_urls > 0:
+        providers = cfg.get('provider', {})
+        provider_ind = 0  # Инициируем номер провайдера
+        for url, model_names in url2models.items():
+            # Ищем первый незанятый номер для провайдера:
+            while (provider_name := f'ollama{provider_ind}') in providers:
+                provider_ind += 1
 
-        # Фиксируем провайдер со всеми его моделями:
-        providers[provider_name] = {
-            'npm': '@ai-sdk/openai-compatible',
-            'name': f'Ollama ({url})',
-            'options': {'baseURL': f'{url}/v1'},
-            'models': {
-                name: {
-                    'name': name,
-                    'options': {'extraBody': {'temperature': 0.0}},
-                }
-                for name in model_names
-            },
-        }
-    cfg['provider'] = providers
+            # Фиксируем провайдер со всеми его моделями:
+            providers[provider_name] = {
+                'npm': '@ai-sdk/openai-compatible',
+                'name': f'Ollama ({url})',
+                'options': {'baseURL': f'{url}/v1'},
+                'models': {
+                    name: {
+                        'name': name,
+                        'options': {'extraBody': {'temperature': 0.0}},
+                    }
+                    for name in model_names
+                },
+            }
+        cfg['provider'] = providers
 
     # Обновляем файл:
     if not cfg_path.parent.is_dir():

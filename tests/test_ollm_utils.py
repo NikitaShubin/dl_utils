@@ -665,6 +665,23 @@ class TestSetJupyterAiSettings:
             mock_v2.assert_not_called()
             mock_v3.assert_not_called()
 
+    def test_settings_version_none(self) -> None:
+        """Тест, когда get_major_jupyter_ai_version возвращает None."""
+        with (
+            patch('ollm_utils.JUPYTER_AI_AVAILABLE', new=True),
+            patch(
+                'ollm_utils.get_major_jupyter_ai_version',
+                return_value=None,
+            ) as mock_version,
+            patch('ollm_utils.set_jupyter_ai_v2_settings') as mock_v2,
+            patch('ollm_utils.set_jupyter_ai_v3_settings') as mock_v3,
+        ):
+            result = set_jupyter_ai_settings(['http://localhost:11434'])
+            assert result == ''
+            mock_version.assert_called_once()
+            mock_v2.assert_not_called()
+            mock_v3.assert_not_called()
+
 
 # ============================================================================
 # Тесты для set_opencode_settings
@@ -689,15 +706,25 @@ class TestSetOpenCodeSettings:
             result = set_opencode_settings()
             assert result == ''
 
-    def test_no_models_raises_error(self, temp_home: Path) -> None:
-        """Тест, когда нет моделей на сервере."""
-        _ = temp_home
+    def test_no_models_returns_path(self, temp_home: Path) -> None:
+        """Тест, когда нет моделей на сервере — конфиг создаётся без провайдеров."""
+        expected_cfg_path = temp_home / '.config' / 'opencode' / 'opencode.jsonc'
         with (
             patch('ollm_utils.OPENCODE_AVAILABLE', new=True),
             patch('ollm_utils.hosts2chat_embd_cmpl_models', return_value=({}, {}, {})),
-            pytest.raises(ValueError, match='недоступно ни одной модели'),
+            patch('ollm_utils.Path.is_file', return_value=False),
+            patch('ollm_utils.obj2json') as mock_obj2json,
+            patch('ollm_utils.mkdirs'),
         ):
-            set_opencode_settings(['http://localhost:11434'])
+            result = set_opencode_settings(['http://localhost:11434'])
+            assert result == str(expected_cfg_path)
+            call_args = mock_obj2json.call_args
+            assert call_args is not None
+            cfg, _ = call_args[0]
+            # Конфиг создан с защитой от утечки, но без провайдеров:
+            assert cfg.get('agent') == {'title': {'disable': True}}
+            assert cfg.get('share') == 'disabled'
+            assert 'provider' not in cfg
 
     def test_success(self, temp_home: Path) -> None:
         """Тест успешной настройки OpenCode."""
@@ -739,6 +766,9 @@ class TestSetOpenCodeSettings:
             assert 'codellama:latest' in providers['ollama0']['models']
             for model_cfg in providers['ollama0']['models'].values():
                 assert model_cfg['options']['extraBody']['temperature'] == 0.0
+            # Проверяем борьбу с утечкой данных:
+            assert cfg.get('agent') == {'title': {'disable': True}}
+            assert cfg.get('share') == 'disabled'
 
     def test_existing_config(self, temp_home: Path) -> None:
         """Тест с существующим конфигурационным файлом."""
@@ -781,6 +811,9 @@ class TestSetOpenCodeSettings:
             assert providers['ollama1']['name'] == 'Ollama (http://localhost:11434)'
             for model_cfg in providers['ollama1']['models'].values():
                 assert model_cfg['options']['extraBody']['temperature'] == 0.0
+            # Проверяем, что борьба с утечкой добавилась в существующий конфиг:
+            assert cfg.get('agent') == {'title': {'disable': True}}
+            assert cfg.get('share') == 'disabled'
 
     def test_multiple_hosts(self, temp_home: Path) -> None:
         """Тест с несколькими хостами."""
@@ -816,6 +849,47 @@ class TestSetOpenCodeSettings:
             for name in ('ollama0', 'ollama1'):
                 for model_cfg in providers[name]['models'].values():
                     assert model_cfg['options']['extraBody']['temperature'] == 0.0
+
+    def test_existing_config_with_leak_protection(self, temp_home: Path) -> None:
+        """Тест с существующим конфигом, в котором уже есть защита от утечки."""
+        _ = temp_home
+        chat_models: Fields = {'llama2:7b': {'base_url': 'http://localhost:11434'}}
+
+        existing_cfg = {
+            'agent': {'title': {'disable': True}},
+            'share': 'disabled',
+            'provider': {
+                'ollama0': {
+                    'npm': '@ai-sdk/openai-compatible',
+                    'name': 'Ollama (http://old-host:11434)',
+                    'options': {'baseURL': 'http://old-host:11434/v1'},
+                    'models': {'old-model': {'name': 'old-model'}},
+                },
+            },
+        }
+
+        with (
+            patch('ollm_utils.OPENCODE_AVAILABLE', new=True),
+            patch(
+                'ollm_utils.hosts2chat_embd_cmpl_models',
+                return_value=(chat_models, {}, {}),
+            ),
+            patch('ollm_utils.Path.is_file', return_value=True),
+            patch('ollm_utils.json2obj', return_value=existing_cfg),
+            patch('ollm_utils.obj2json') as mock_obj2json,
+            patch('ollm_utils.mkdirs'),
+        ):
+            set_opencode_settings(['http://localhost:11434'])
+
+            call_args = mock_obj2json.call_args
+            assert call_args is not None
+            cfg, _ = call_args[0]
+            # Поля защиты от утечки должны сохраниться без изменений:
+            assert cfg.get('agent') == {'title': {'disable': True}}
+            assert cfg.get('share') == 'disabled'
+            # Провайдеры тоже должны быть в порядке:
+            assert 'ollama0' in cfg['provider']
+            assert 'ollama1' in cfg['provider']
 
 
 # ============================================================================
