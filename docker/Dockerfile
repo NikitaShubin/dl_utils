@@ -50,7 +50,7 @@ ARG APPLICATIONS="                                    \
                                                       \
     # Дополнительные консольные утилиты:              \
     bsdmainutils pv net-tools psmisc iputils-ping     \
-    tree file coreutils                               \
+    tree file coreutils                                         \
                                                       \
     # Для PyCUDA:                                     \
     nvidia-cuda-toolkit                               \
@@ -60,7 +60,7 @@ ARG APPLICATIONS="                                    \
 # nethogs      - мониторинг загрузки сети
 # iotop        - мониторинг использования накопителей
 # nvtop        - мониторинг использования видюх от Nvidia
-# yt-dlp       - для загрузки видео/медиа-файлов с Youtube и не только
+# yt-dlp       - загрузка видео/медиа-файлов с Youtube и не только
 # psmisc       - для работы команды killall
 # net-tools    - для работы команды ifconfig
 # bsdmainutils - для работы команды col
@@ -260,9 +260,7 @@ RUN python ./tmp/py/sam2al.py                       && \
     gosu "${USERNAME}" python ./tmp/py/gdinoal.py   && \
     # Остальные модели можно качать под обычным пользователем.
     rm -rf ./tmp/py/
-    # В конце удаляем временные файлы.
-
-# Переключаемся на пользователя:
+    # В конце удаляем временные файлы.# Переключаемся на пользователя:
 USER "${USERNAME}"
 
 # Выключаем поддержку voila, т.к. внтури JupyterLab она всё равно не работает:
@@ -373,13 +371,11 @@ RUN git config --global --add safe.directory "$WORKSPACE"                     &&
     git config --global user.email shubin.kit@ya.ru                           && \
     git config --global user.name "Никита Шубин"
 
-# Запуск Юпитер-сервера:
-CMD ["/bin/bash", "-c", " \
-    JP=\"jupyter lab\"; \
-    [[ -z \"$JUPYTER_PORT\" ]] || JP=\"$JP --port=$JUPYTER_PORT\"; \
-    [[ -z \"$JUPYTER_PASS\" ]] || JP=\"$JP --ServerApp.password=$(echo \"$JUPYTER_PASS\" | python -c 'from jupyter_server.auth import passwd;print(passwd(input()))')\"; \
-    python */dl_utils/ollm_utils.py; \
-    exec $JP \
-"]
-# Если в переменных окружения заданы пароль и порт, то они используются как параметры запуска.
+# Скрипт запуска, управляющий сервисами внутри контейнера:
+COPY --chown=root:root docker/cmd.sh /usr/local/bin/cmd.sh
+
+# Запуск скрипта, запускающего JupyterLab и OpenCode:
+CMD ["bash", "/usr/local/bin/cmd.sh"]
+# Если заданы переменные окружения JUPYTER_PORT, JUPYTER_PASS, OPENCODE_PORT, OPENCODE_PASS —
+# они используются как параметры запуска соответствующих сервисов.
 # ollm_utils автоматически конфигурирует jupyter-ai и OpenCode.
