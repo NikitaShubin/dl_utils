@@ -1,6 +1,19 @@
 #!/bin/bash
 set -e
 
+# Динамическая подстройка UID/GID внутри контейнера под хостового пользователя:
+if [ -n "$LOCAL_UID" ] && [ "$LOCAL_UID" != "0" ] && [ -z "${_USER_INIT_DONE:-}" ]; then
+    export _USER_INIT_DONE=1
+    set +e
+    sed -i "s/^user:[^:]*:[^:]*:[^:]*:/user:x:$LOCAL_UID:$LOCAL_GID:/" /etc/passwd
+    sed -i "s/^user:[^:]*:[^:]*:/user:x:$LOCAL_GID:/" /etc/group
+    # Меняем владельца только тех файлов, куда нужна запись:
+    chown "$LOCAL_UID:$LOCAL_GID" /home/user
+    chown -R "$LOCAL_UID:$LOCAL_GID" /home/user/.jupyter /home/user/.config /home/user/.cache /home/user/.local /home/user/.npm /home/user/.gitconfig /home/user/.selected_editor /home/user/.bashrc /home/user/.profile 2>/dev/null || true
+    set -e
+    exec gosu user bash "$0" "$@"
+fi
+
 log() { echo "[cmd.sh $(date '+%H:%M:%S')] $*"; }
 
 # Пути к лог-файлам:

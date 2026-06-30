@@ -12,4 +12,4 @@ else
     shift
 fi
 
-docker exec -it "$DOCKER_NAME" bash
+docker exec -it -u "$(id -u):$(id -g)" "$DOCKER_NAME" bash

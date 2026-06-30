@@ -84,10 +84,11 @@ RUNPARAMS=(
     -d
     # -it
 
-    # Права внешнего пользователя:
-    # -u $(id -u):$(id -g)
-    # -e HOME=/home/user
-    # Без явного указания на домашнюю папку контейнер не заработает у пользователей с id != 1000!
+    # Права внешнего пользователя (работает для любого UID/GID):
+    -u 0:0
+    -e LOCAL_UID=$(id -u)
+    -e LOCAL_GID=$(id -g)
+    -e HOME=/home/user
 
     # Проброс SSH агента:
     # -v "$SSH_AUTH_SOCK:/tmp/ssh_agent.sock" \
