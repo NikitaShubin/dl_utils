@@ -5,7 +5,9 @@ set -e
 if [ -n "$LOCAL_UID" ] && [ "$LOCAL_UID" != "0" ] && [ -z "${_USER_INIT_DONE:-}" ]; then
     export _USER_INIT_DONE=1
     set +e
+    # shellcheck disable=SC2153
     sed -i "s/^user:[^:]*:[^:]*:[^:]*:/user:x:$LOCAL_UID:$LOCAL_GID:/" /etc/passwd
+    # shellcheck disable=SC2153
     sed -i "s/^user:[^:]*:[^:]*:/user:x:$LOCAL_GID:/" /etc/group
     # Меняем владельца только тех файлов, куда нужна запись:
     chown "$LOCAL_UID:$LOCAL_GID" /home/user
