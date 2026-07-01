@@ -314,6 +314,11 @@ RUN echo "c.ContentsManager.allow_hidden = True"  >> "${JPCONF}" && \
     echo "    '-synctex=1',"                      >> "${JPCONF}" && \
     echo "    '{filename}.tex'"                   >> "${JPCONF}" && \
     echo "]"                                      >> "${JPCONF}"
+
+# Отключаем автосохранение в JupyterLab:
+ARG DOCMANAGER_DIR="${HOMEDIR}/.jupyter/lab/user-settings/@jupyterlab/docmanager-extension"
+RUN mkdir -p "${DOCMANAGER_DIR}" && \
+    echo '{ "autosave": false, "autosaveInterval": 0 }' > "${DOCMANAGER_DIR}/plugin.jupyterlab-settings"
 # Отображение скрытых файлов в файловом менеджере.
 # Двойной запуск компиляции LaTeX для проработки всяких ссылок.
 # Прочие конфигурации LaTeX.

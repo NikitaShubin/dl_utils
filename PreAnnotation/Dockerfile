@@ -149,6 +149,11 @@ RUN jupyter lab --generate-config && \
 
 
 # Запуск Юпитер-сервера:
+# Отключаем автосохранение в JupyterLab:
+ARG DOCMANAGER_DIR="${HOMEDIR}/.jupyter/lab/user-settings/@jupyterlab/docmanager-extension"
+RUN mkdir -p "${DOCMANAGER_DIR}" && \
+    echo '{ "autosave": false, "autosaveInterval": 0 }' > "${DOCMANAGER_DIR}/plugin.jupyterlab-settings"
+
 CMD ["/bin/bash", "-c", " \
     JP=\"jupyter-lab\"; \
     [[ -z \"$JUPYTER_PORT\" ]] || JP=\"$JP --port=$JUPYTER_PORT\"; \
