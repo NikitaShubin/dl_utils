@@ -33,7 +33,7 @@ trap cleanup SIGTERM SIGINT SIGQUIT
 
 check_port() {
     local port=$1 name=$2
-    if python -c "import socket; s=socket.socket(); s.bind(('0.0.0.0', $port)); s.close()" 2>/dev/null; then
+    if python -c "import socket; s=socket.socket(); s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1); s.bind(('0.0.0.0', $port)); s.close()" 2>/dev/null; then
         return 0
     fi
     log "ОШИБКА: $name: порт $port занят!" >&2
