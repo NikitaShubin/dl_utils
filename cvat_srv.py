@@ -1433,14 +1433,13 @@ class _CVATBase:
 
         # Если вносится весь архив целиком:
         else:
-            with AnnotateIt(desc):
-                Zipper.compress(
-                    unzipped=os.path.join(self.unzipped_backup, '*'),
-                    zipped=self.zipped_backup,
-                    remove_source=False,
-                    rewrite_target=True,
-                    desc=desc
-                )
+            Zipper.compress(
+                unzipped=os.path.join(self.unzipped_backup, '*'),
+                zipped=self.zipped_backup,
+                remove_source=False,
+                rewrite_target=True,
+                desc=desc
+            )
 
     def _extract(self):
         '''Выполнчет распаковку бекапа(ов).'''
@@ -1468,14 +1467,13 @@ class _CVATBase:
 
         # Если вносится весь архив целиком:
         else:
-            with AnnotateIt(desc):
-                Zipper.extract(
-                    unzipped=os.path.join(self.unzipped_backup, '*'),
-                    zipped=self.zipped_backup,
-                    remove_source=True,
-                    rewrite_target=False,
-                    desc=desc
-                )
+            Zipper.extract(
+                unzipped=os.path.join(self.unzipped_backup, '*'),
+                zipped=self.zipped_backup,
+                remove_source=True,
+                rewrite_target=False,
+                desc=desc
+            )
 
     def __prepare_resources(self):
         '''Приводит все файлы к рабочему состоянию.'''
