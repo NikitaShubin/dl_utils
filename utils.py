@@ -2313,8 +2313,9 @@ def obj2json(obj, file='./cfg.json', encoding='utf-8', compact=False):
         # Если jsonl:
         elif ext == '.jsonl':
             assert isinstance(obj, (tuple, list, set))
+            _kwargs = kwargs | {'indent': None}  # у JSONL всегда 1 объект - 1 строка!
             for line in obj:
-                f.write(json.dumps(line, cls=NpEncoder, **kwargs) + '\n')
+                f.write(json.dumps(line, cls=NpEncoder, **_kwargs) + '\n')
 
         else:
             msg = f'Неподдерживаемый тип файла: {ext}!'
