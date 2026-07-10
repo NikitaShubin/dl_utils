@@ -716,7 +716,7 @@ def df_save(df, file='df.tsv'):
     Сохраняет датафрейм в файл в нужном формате.
     '''
     df = df_tuple2list(df)
-    return df.to_csv(file, sep='\t', index=False)
+    return df.to_csv(file, sep='\t', index=False, na_rep='None')
 
 
 def df_load(file='df.tsv'):
@@ -724,7 +724,16 @@ def df_load(file='df.tsv'):
     Загружает датафрейм из файла, сохранённого через df_save.
     '''
     df = pd.read_csv(file, sep='\t')
-    df['points'] = df['points'].apply(eval)
+
+    # Обрабатываем списки и словари:
+    columns = ['points', 'attributes', 'mutable_attributes', 'attribs', 'elements']
+    df[columns] = df[columns].map(eval)
+
+    # Обрабатываем остальные типы:
+    columns = ['frame', 'true_frame', 'occluded', 'outside', 'z_order', 'rotation']
+    for column in columns:
+        df[column] = df[column].map(df_columns_type[column])
+
     return df
 
 
@@ -2583,6 +2592,10 @@ class CVATLabel:
                 label[key] = val
 
         return label
+
+    def __str__(self):
+        '''Конвертация в строку.'''
+        return self.name
 
 
 class CVATLabels:
