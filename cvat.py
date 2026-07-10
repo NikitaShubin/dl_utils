@@ -82,6 +82,7 @@ from PIL import ImageColor, Image
 from matplotlib import pyplot as plt
 from scipy.optimize import linear_sum_assignment
 from collections import defaultdict, Counter
+from ast import literal_eval
 
 from utils import (mpmap, ImReadBuffer, reorder_lists, mkdirs, CircleInd,
                    apply_on_cartesian_product, DelayedInit, get_n_colors,
@@ -727,7 +728,12 @@ def df_load(file='df.tsv'):
 
     # Обрабатываем списки и словари:
     columns = ['points', 'attributes', 'mutable_attributes', 'attribs', 'elements']
-    df[columns] = df[columns].map(eval)
+    df[columns] = df[columns].map(literal_eval)
+
+    # Восстановление track_id из строкового 'None' или NaN:
+    df['track_id'] = df['track_id'].replace({np.nan: None, 'None': None})
+    mask = df['track_id'].notna()
+    df.loc[mask, 'track_id'] = df.loc[mask, 'track_id'].astype(int)
 
     # Обрабатываем остальные типы:
     columns = ['frame', 'true_frame', 'occluded', 'outside', 'z_order', 'rotation']
