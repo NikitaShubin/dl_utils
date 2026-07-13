@@ -12,7 +12,7 @@ from cvat import (
     add_row2df, concat_dfs, ergonomic_draw_df_frame, cvat_backups2raw_tasks,
     cvat_backup_task_dir2task, get_related_files, df2annotations, new_df,
     interpolate_df, split_df_by_visibility, hide_skipped_objects_in_df,
-    CVATLabels, dir2unlabeled_tasks
+    CVATLabels, dir2unlabeled_tasks, check_df
 )
 from utils import (
     mkdirs, rmpath, mpmap, get_n_colors, unzip_dir, AnnotateIt, cv2_exts, cv2_vid_exts,
@@ -2270,8 +2270,9 @@ class CVATTask(_CVATBase):
         cls._write_index(jobs, task_data_dir)  # index.json
 
         # Пишем файлы описания задачи и разметки:
-        cls._write_info(info, unzipped_backup)  # task.json
-        cls._write_annotanions(jobs, task_dir)  # annotations.json
+        labels = info['labels'].names()
+        cls._write_info(info, unzipped_backup)          # task.json
+        cls._write_annotanions(jobs, task_dir, labels)  # annotations.json
 
     # Пишет файл manifest.jsonl:
     @staticmethod
@@ -2347,10 +2348,17 @@ class CVATTask(_CVATBase):
 
     # Пишет файл разметки annotations.json:
     @staticmethod
-    def _write_annotanions(jobs, task_dir):
+    def _write_annotanions(jobs, task_dir, labels):
 
         # Строим список разметок для каждой задачи:
         annotations = [job._build_annotations() for job in jobs]
+
+        # Проверка корректности разметок в каждой подзадаче:
+        for job in jobs:
+            df_errors = check_df(job.df, job.file, job.true_frames, labels)
+            if df_errors:
+                msg = f'Проблемы в разметке: "{df_errors}"'
+                raise ValueError(msg)
 
         # Определяем путь до нужного файла:
         annotations_file = os.path.join(task_dir, 'annotations.json')

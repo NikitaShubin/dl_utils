@@ -133,6 +133,8 @@ df_default_vals = {'track_id': None,
 FileType = str | Path | list[str | Path] | tuple[str | Path, ]
 TrueFrames = dict[int, int]
 Subtask = list[pd.DataFrame, FileType, TrueFrames] | tuple[pd.DataFrame, FileType, TrueFrames]
+Labels = list[str] | tuple[str, ] | set[str]
+Imsize = list[int, int] | tuple[int, int]
 
 
 def get_column_ind(df, column):
@@ -223,6 +225,89 @@ class DisableSettingWithCopyWarning:
 
     def __exit__(self, type, value, traceback):
         pd.options.mode.chained_assignment = self.chained_assignment
+
+
+def check_df(
+    df: pd.DataFrame,
+    file: None | FileType = None,
+    true_frames: None | dict[int, int] = None,
+    labels: None | Labels = None,
+):
+    '''Выводит список некорректных записей в датафрейме.'''
+    # Приводим метки к формату мнножества строк:
+    if labels:
+        labels = set([str(label) for label in labels])
+    else:
+        labels = set()
+
+    # Если словаря кадров нет - составляем свой:
+    if not true_frames:
+        true_frames_ = {}
+
+    # Инициируем словарь списков проблем:
+    problems = defaultdict(set)
+
+    # Ищем противоречия внутри отдельной строки по отдельности:
+    for _, (_, dfrow) in enumerate(df.iterrows()):
+
+        # Корректность метки:
+        label = dfrow['label']
+        if len(labels) and label not in labels:
+            problems['Неподдерживаемые метки'].add(label)
+
+        # Корректность номеров кадров:
+        frame = dfrow['frame']
+        true_frame = dfrow['true_frame']
+        if true_frames:
+            if frame in true_frames:
+                if true_frames[frame] != true_frame:
+                    problems['"true_frame" не соответствует "frame"'].add(
+                        (frame, true_frame)
+                    )
+            else:
+                problems['Несуществующий "frame"'].add(frame)
+        else:
+            if frame in true_frames_:
+                existed_true_frame = true_frames_[frame]
+                if existed_true_frame != true_frame:
+                    problems['На один "frame" встречается несколько "true_frame"'].add(
+                        (frame, (existed_true_frame, true_frame))
+                    )
+            else:
+                true_frames_[frame] = true_frame
+
+    # Разделяем датафрейм на теги, формы и треки:
+    tags_df, shapes_df, *track_dfs = split_df_to_tags_shapes_and_tracks(df)
+
+    # Проверяем треки:
+    for track_df in track_dfs:
+
+        # Определяем номер трека:
+        track_id = get_single_val_in_df(track_df, 'track_id')
+
+        # Сортируем по номерам кадров:
+        track_df = track_df.sort_values(by='true_frame')
+
+        isappeared = False  # Флаг появления объекта
+        prev_frame = None   # Предыдущий кадр
+
+        for _, (_, dfrow) in enumerate(track_df.iterrows()):
+
+            frame = dfrow['frame']
+
+            # Поиск повторений объекта в одном кадре:
+            if prev_frame == frame:
+                problems['Трек продублирован на одном кадре'] |= {
+                    (track_id, frame)
+                }
+            else:
+                prev_frame = frame
+
+    return problems
+'''
+Требуется добавить:
+1) проверку на выход за границы изображения.
+'''
 
 
 def tag2df(tag):
@@ -642,23 +727,6 @@ def tuple2list(value):
         return list(value)
     return value
 # Используется в df_tuple2list.
-
-
-"""
-def df_list2tuple(df):
-    '''
-    Переводит все ячейки датафрейма со списками в ячейки с кортежами.
-    Используется для хеширования данных.
-    '''
-    return df.apply(list2tuple)
-
-def df_tuple2list(df):
-    '''
-    Переводит все ячейки датафрейма со кортежами в ячейки с списками.
-    Используется для восстановления данных после хеширования.
-    '''
-    return df.apply(tuple2list)
-"""
 
 
 def apply_func2df_columns(df, func, columns=None):
