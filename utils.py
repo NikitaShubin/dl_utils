@@ -1180,8 +1180,6 @@ def rmpath(paths, desc=None):
         with AnnotateIt(desc):
             # Если это папка:
             if os.path.isdir(path):
-                for file in get_file_list(path):
-                    os.remove(file)
                 rmtree(path)
 
             # Если это Файл:
