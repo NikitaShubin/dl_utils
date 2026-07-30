@@ -50,7 +50,7 @@ ARG APPLICATIONS="                                    \
                                                       \
     # Дополнительные консольные утилиты:              \
     bsdmainutils pv net-tools psmisc iputils-ping     \
-    tree file coreutils                                         \
+    tree file coreutils                               \
                                                       \
     # Для PyCUDA:                                     \
     nvidia-cuda-toolkit                               \
@@ -133,7 +133,7 @@ ARG PYTHONMODULES_BASE="                                                 \
                                                                          \
                                                                          \
     # Для работы с CVAT:                                                 \
-    cvat_sdk                                                             \
+    cvat_sdk datumaro                                                    \
     #cvat-sdk[masks,pytorch]                                             \
                                                                          \
                                                                          \
