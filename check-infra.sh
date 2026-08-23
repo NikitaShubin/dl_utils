@@ -64,16 +64,17 @@ get_git_files_by_extension() {
     git -C "$GIT_ROOT" ls-files -c -o --exclude-standard -- "*.$ext" 2>/dev/null || true
 }
 
-# Функция для рекурсивного поиска файлов Dockerfile
+# Функция для рекурсивного поиска файлов Dockerfile:
 get_dockerfiles() {
-    git -C "$GIT_ROOT" ls-files -c -o --exclude-standard -- "Dockerfile" "*.Dockerfile" 2>/dev/null || true
+    git -C "$GIT_ROOT" ls-files -c -o --exclude-standard -- \
+        ":(glob)**/Dockerfile" ":(glob)**/*.Dockerfile" 2>/dev/null || true
 }
 
-# Функция для поиска docker-compose файлов
+# Функция для поиска docker-compose файлов:
 get_docker_compose_files() {
     git -C "$GIT_ROOT" ls-files -c -o --exclude-standard -- \
-        "docker-compose*.yml" "docker-compose*.yaml" \
-        "compose*.yml" "compose*.yaml" 2>/dev/null || true
+        ":(glob)**/docker-compose*.yml" ":(glob)**/docker-compose*.yaml" \
+        ":(glob)**/compose*.yml" ":(glob)**/compose*.yaml" 2>/dev/null || true
 }
 
 # Функция для выполнения проверки
@@ -83,8 +84,11 @@ run_check() {
     local config_file="$3"
     local get_files_func="$4"  # Функция для получения файлов
 
+    # Счётчик ошибок на входе в категорию — для сводки по категории:
+    local failed_before=$TOTAL_FAILED
+
     print_separator "Проверка $description"
-    
+
     if [[ -n "$config_file" ]]; then
         echo -e "${BLUE}📁 Конфигурационный файл: $config_file${NC}"
         echo
@@ -105,7 +109,7 @@ run_check() {
         mapfile -t all_files < <(printf "%s\n" "${all_files[@]}" | sort -u)
     fi
 
-    # Проверяем каждый файл
+    # Проверяем каждый файл, не останавливаясь на первой ошибке:
     for file in "${all_files[@]}"; do
         found_files=$((found_files + 1))
         echo -e "${CYAN}▸ ${MAGENTA}$file${NC}"
@@ -120,15 +124,28 @@ run_check() {
         file_name="$(basename "$file_path")"
 
         # Запускаем линтер из директории файла
-        (cd "$file_dir" && eval "$lint_cmd \"$file_name\"")
+        if (cd "$file_dir" && eval "$lint_cmd \"$file_name\""); then
+            :
+        else
+            print_error "Ошибка проверки: $file"
+            TOTAL_FAILED=$((TOTAL_FAILED + 1))
+        fi
     done
 
     if [ $found_files -eq 0 ]; then
         echo -e "${GRAY}ℹ️  Файлы не найдены${NC}"
     else
-        print_success "Проверка завершена ($found_files файлов)"
+        local category_failed=$((TOTAL_FAILED - failed_before))
+        if [ $category_failed -eq 0 ]; then
+            print_success "Проверка завершена ($found_files файлов)"
+        else
+            print_error "Проверка завершена с ошибками ($category_failed из $found_files файлов)"
+        fi
     fi
 }
+
+# Общий счётчик проблемных файлов по всем категориям проверок:
+TOTAL_FAILED=0
 
 # Проверка docker-compose файлов:
 cfg="$SCRIPT_DIR/.dclintrc"
@@ -146,5 +163,10 @@ run_check "🐚 shell-скрипты" "shellcheck --source-path=\"$cfg\"" "$cfg"
 cfg="$SCRIPT_DIR/.markdownlint.yaml"
 run_check "📖 Markdown файлы" "markdownlint --config \"$cfg\"" "$cfg" "get_git_files_by_extension md"
 
+# Финальный вердикт: скрипт успешен только при отсутствии ошибок:
 print_separator "ВСЕ ПРОВЕРКИ ЗАВЕРШЕНЫ"
+if [ "$TOTAL_FAILED" -gt 0 ]; then
+    print_error "Всего проблемных файлов: $TOTAL_FAILED"
+    exit 1
+fi
 print_success "Все проверки прошли успешно!"

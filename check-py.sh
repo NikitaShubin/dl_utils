@@ -18,6 +18,21 @@ NC='\033[0m' # No Color
 # Параметры для mypy:
 MYPY_ARGS=("--no-incremental" "--show-error-codes" "--warn-unused-ignores" "--follow-imports=skip")
 
+# Список проваленных этапов; наполняется по ходу проверок:
+FAILED_STAGES=()
+
+# Фиксация проваленного этапа с продолжением остальных проверок:
+mark_failure() {
+    FAILED_STAGES+=("$1")
+    print_error "Этап провален: $1"
+}
+
+# Подавление единственного допустимого варнинга ruff — о конфликте правила
+# COM812 (trailing comma) с форматтером; остальные предупреждения проходят:
+suppress_com812_warning() {
+    grep -v 'may cause conflicts when used with the formatter' >&2
+}
+
 # Функция для получения ширины терминала:
 get_terminal_width() {
     tput cols 2>/dev/null || echo 80
@@ -145,17 +160,29 @@ for file in "${root_files[@]}"; do
         # Ruff format:
         print_separator "Ruff format: $file" "$CYAN"
         print_step "Форматирование файла $file..."
-        (cd "$GIT_ROOT" && ruff format "$file") && print_success "Форматирование $file завершено"
+        if (cd "$GIT_ROOT" && ruff format "$file" 2> >(suppress_com812_warning)); then
+            print_success "Форматирование $file завершено"
+        else
+            mark_failure "ruff format: $file"
+        fi
 
         # Ruff check:
         print_separator "Ruff check: $file" "$CYAN"
         print_step "Проверка файла $file..."
-        (cd "$GIT_ROOT" && ruff check "${RUFF_CHECK_ARGS[@]}" "$file") && print_success "Проверка $file завершена"
+        if (cd "$GIT_ROOT" && ruff check "${RUFF_CHECK_ARGS[@]}" "$file" 2> >(suppress_com812_warning)); then
+            print_success "Проверка $file завершена"
+        else
+            mark_failure "ruff check: $file"
+        fi
 
         # Mypy проверка:
         print_separator "Mypy: $file" "$PURPLE"
         print_step "Проверка типов в файле $file..."
-        (cd "$GIT_ROOT" && mypy "${MYPY_ARGS[@]}" "$file") && print_success "Проверка типов $file завершена"
+        if (cd "$GIT_ROOT" && mypy "${MYPY_ARGS[@]}" "$file"); then
+            print_success "Проверка типов $file завершена"
+        else
+            mark_failure "mypy: $file"
+        fi
     fi
     # else
     #     print_warning "Файл $file не индексирован или не найден, пропускаем"
@@ -165,7 +192,11 @@ done
 # Запуск тестов:
 print_separator "Запуск тестов" "$YELLOW"
 print_step "Запуск pytest с детализированным выводом..."
-(cd "$GIT_ROOT" && pytest -v) && print_success "Все тесты прошли успешно"
+if (cd "$GIT_ROOT" && pytest -v); then
+    print_success "Все тесты прошли успешно"
+else
+    mark_failure "pytest"
+fi
 
 # Проверка папки tests (только индексированные файлы):
 if [[ -d "$GIT_ROOT/tests" ]]; then
@@ -187,17 +218,29 @@ if [[ -d "$GIT_ROOT/tests" ]]; then
         # Ruff format для tests:
         print_separator "Ruff format: tests" "$MAGENTA"
         print_step "Форматирование тестовых файлов: ${display_files[*]}..."
-        (cd "$GIT_ROOT" && ruff format tests) && print_success "Форматирование тестов завершено"
+        if (cd "$GIT_ROOT" && ruff format tests 2> >(suppress_com812_warning)); then
+            print_success "Форматирование тестов завершено"
+        else
+            mark_failure "ruff format: tests"
+        fi
 
         # Ruff check для tests:
         print_separator "Ruff check: tests" "$MAGENTA"
         print_step "Проверка тестов..."
-        (cd "$GIT_ROOT" && ruff check "${RUFF_CHECK_ARGS[@]}" tests) && print_success "Проверка тестов завершена"
+        if (cd "$GIT_ROOT" && ruff check "${RUFF_CHECK_ARGS[@]}" tests 2> >(suppress_com812_warning)); then
+            print_success "Проверка тестов завершена"
+        else
+            mark_failure "ruff check: tests"
+        fi
 
         # Mypy проверка для tests:
         print_separator "Mypy: tests" "$PURPLE"
         print_step "Проверка типов в тестах..."
-        (cd "$GIT_ROOT" && mypy "${MYPY_ARGS[@]}" tests) && print_success "Проверка типов тестов завершена"
+        if (cd "$GIT_ROOT" && mypy "${MYPY_ARGS[@]}" tests); then
+            print_success "Проверка типов тестов завершена"
+        else
+            mark_failure "mypy: tests"
+        fi
     else
         print_warning "В папке tests не найдено индексированных .py файлов"
     fi
@@ -205,6 +248,15 @@ else
     print_warning "Папка tests не найдена, пропускаем"
 fi
 
-# Финальное сообщение:
+# Финальный вердикт: скрипт успешен только при отсутствии проваленных этапов:
+print_separator "ИТОГ" "$BLUE"
+if [ ${#FAILED_STAGES[@]} -gt 0 ]; then
+    print_error "Проваленных этапов: ${#FAILED_STAGES[@]}"
+    for stage in "${FAILED_STAGES[@]}"; do
+        print_error "  - $stage"
+    done
+    exit 1
+fi
+
 print_separator "ВСЕ ПРОВЕРКИ ПРОЙДЕНЫ УСПЕШНО!" "$GREEN"
 echo -e "${GREEN}🎉🎉🎉 Поздравляем! Все проверки завершены успешно! 🎉🎉🎉${NC}"
