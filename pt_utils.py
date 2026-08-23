@@ -88,7 +88,7 @@ class AutoDevice:
 
 def get_redused_shape(
     tensor: torch.Tensor,
-    dim: None | int | list | tuple,
+    dim: int | list | tuple | None,
     keepdim: bool = False,  # noqa: FBT001, FBT002
 ) -> torch.Size:
     """Получает форму выходного тензора после операции reduction."""
@@ -115,7 +115,7 @@ def get_redused_shape(
 
 def has_var_sufficient_elements(
     tensor: torch.Tensor,
-    dim: None | int | list | tuple,
+    dim: int | list | tuple | None,
     correction: int,
 ) -> bool:
     """Проверяет, достаточно ли элементов для вычисления дисперсии.
@@ -140,7 +140,7 @@ def has_var_sufficient_elements(
 
 def safe_var(
     tensor: torch.Tensor,
-    dim: None | int | list | tuple = None,
+    dim: int | list | tuple | None = None,
     keepdim: bool = False,  # noqa: FBT001, FBT002
     correction: int = 1,
     default_value: float = 0.0,

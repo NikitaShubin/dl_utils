@@ -383,7 +383,7 @@ class UltralyticsModel:
             for tracker in predictor.trackers:
                 tracker.reset()
 
-    def __call__(self, img: np.ndarray) -> pd.DataFrame | None | np.ndarray:
+    def __call__(self, img: np.ndarray) -> pd.DataFrame | np.ndarray | None:
         """Обрабатывает изображение в соответствии с установленным режимом.
 
         Args:
