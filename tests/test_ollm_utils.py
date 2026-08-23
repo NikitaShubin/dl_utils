@@ -382,7 +382,7 @@ class TestGetMajorJupyterAiVersion:
         mock_jupyter_ai.__version__ = '2.8.0'
         with (
             patch('ollm_utils.JUPYTER_AI_AVAILABLE', new=True),
-            patch('ollm_utils.jupyter_ai', mock_jupyter_ai),
+            patch('ollm_utils.jupyter_ai', mock_jupyter_ai, create=True),
         ):
             assert get_major_jupyter_ai_version() == JAIV2
 
@@ -392,7 +392,7 @@ class TestGetMajorJupyterAiVersion:
         mock_jupyter_ai.__version__ = '3.0.1'
         with (
             patch('ollm_utils.JUPYTER_AI_AVAILABLE', new=True),
-            patch('ollm_utils.jupyter_ai', mock_jupyter_ai),
+            patch('ollm_utils.jupyter_ai', mock_jupyter_ai, create=True),
         ):
             assert get_major_jupyter_ai_version() == JAIV3
 
@@ -402,7 +402,7 @@ class TestGetMajorJupyterAiVersion:
         mock_jupyter_ai.__version__ = '4.0.0'
         with (
             patch('ollm_utils.JUPYTER_AI_AVAILABLE', new=True),
-            patch('ollm_utils.jupyter_ai', mock_jupyter_ai),
+            patch('ollm_utils.jupyter_ai', mock_jupyter_ai, create=True),
         ):
             # Функция возвращает int, например 4
             assert get_major_jupyter_ai_version() == 4
@@ -445,7 +445,7 @@ class TestSetJupyterAiV2Settings:
 
         with (
             patch('ollm_utils.JUPYTER_AI_AVAILABLE', new=True),
-            patch('ollm_utils.jupyter_ai', mock_jupyter_ai),
+            patch('ollm_utils.jupyter_ai', mock_jupyter_ai, create=True),
             patch(
                 'ollm_utils.hosts2chat_embd_cmpl_models',
                 return_value=(chat_models, embd_models, cmpl_models),
