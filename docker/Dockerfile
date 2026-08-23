@@ -50,7 +50,7 @@ ARG APPLICATIONS="                                    \
                                                       \
     # Дополнительные консольные утилиты:              \
     bsdmainutils pv net-tools psmisc iputils-ping     \
-    tree file coreutils                               \
+    tree file coreutils tmux                          \
                                                       \
     # Для PyCUDA:                                     \
     nvidia-cuda-toolkit                               \
@@ -112,7 +112,7 @@ ARG PYTHONMODULES_BASE="                                                 \
     open3d                                                               \
                                                                          \
     # YOLO и трекинг в ней + Roboflow:                                   \
-    ultralytics lapx supervision                                         \
+    ultralytics lapx supervision onnxslim                                \
     git+https://github.com/ultralytics/CLIP.git                          \
     # CLIP нужен для работы SAM3 в ultralytics                           \
                                                                          \
@@ -262,6 +262,12 @@ RUN python ./tmp/py/sam2al.py                       && \
     rm -rf ./tmp/py/
     # В конце удаляем временные файлы.# Переключаемся на пользователя:
 USER "${USERNAME}"
+
+# Звуковой плагин OpenCode (BEL-звонок в терминал при ожидании пользователя):
+RUN mkdir -p "${HOMEDIR}"/.config/opencode/plugins && \
+    chown "${USERNAME}:${USERNAME}" "${HOMEDIR}"/.config/opencode/plugins
+COPY --chown="${USERNAME}:${USERNAME}" \
+    docker/opencode_bell.ts "${HOMEDIR}"/.config/opencode/plugins/bell.ts
 
 # Выключаем поддержку voila, т.к. внтури JupyterLab она всё равно не работает:
 #RUN jupyter server extension disable voila
