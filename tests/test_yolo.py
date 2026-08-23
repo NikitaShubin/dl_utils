@@ -557,107 +557,40 @@ class TestTask2YOLO:
             },
         )
 
-    @patch('yolo.ImReadBuffer')
-    @patch('yolo.YOLOLabels')
-    @patch('cv2.imwrite')
-    @patch('shutil.copyfile')
-    @patch('yolo.draw_contrast_text')
-    def test_task2yolo_basic(  # noqa: PLR0913
-        self,
-        mock_draw_text: Mock,
-        mock_copyfile: Mock,
-        mock_imwrite: Mock,
-        mock_yolo_labels: Mock,
-        mock_buffer: Mock,
-        tmp_path: Path,
-    ) -> None:
+    def test_task2yolo_basic(self, tmp_path: Path) -> None:
         """Базовый тест преобразования задачи в YOLO формат."""
-        df = self._test_task2yolo_basic_setup()
-        task = [(df, str(tmp_path / 'test.jpg'), {0: 0})]
+        with (
+            patch('yolo.ImReadBuffer') as mock_buffer,
+            patch('yolo.YOLOLabels') as mock_yolo_labels,
+            patch('cv2.imwrite') as mock_imwrite,
+            patch('shutil.copyfile') as mock_copyfile,
+            patch('yolo.draw_contrast_text') as mock_draw_text,
+        ):
+            df = self._test_task2yolo_basic_setup()
+            task = [(df, str(tmp_path / 'test.jpg'), {0: 0})]
 
-        # Создаем директории
-        images_dir = tmp_path / 'images'
-        labels_dir = tmp_path / 'labels'
-        preview_dir = tmp_path / 'preview'
+            # Создаем директории
+            images_dir = tmp_path / 'images'
+            labels_dir = tmp_path / 'labels'
+            preview_dir = tmp_path / 'preview'
 
-        images_dir.mkdir()
-        labels_dir.mkdir()
-        preview_dir.mkdir()
+            images_dir.mkdir()
+            labels_dir.mkdir()
+            preview_dir.mkdir()
 
-        # Настраиваем моки
-        mock_buffer_instance = Mock()
-        mock_buffer_instance.file = str(tmp_path / 'test.jpg')
-        mock_buffer_instance.return_value = np.zeros((600, 800, 3), dtype=np.uint8)
-        mock_buffer.return_value = mock_buffer_instance
+            # Настраиваем моки
+            mock_buffer_instance = Mock()
+            mock_buffer_instance.file = str(tmp_path / 'test.jpg')
+            mock_buffer_instance.return_value = np.zeros((600, 800, 3), dtype=np.uint8)
+            mock_buffer.return_value = mock_buffer_instance
 
-        mock_yolo_instance = Mock()
-        mock_yolo_instance.save.return_value = True
-        mock_yolo_labels.return_value = mock_yolo_instance
+            mock_yolo_instance = Mock()
+            mock_yolo_instance.save.return_value = True
+            mock_yolo_labels.return_value = mock_yolo_instance
 
-        mock_imwrite.return_value = True
-        mock_copyfile.side_effect = None
-        mock_draw_text.return_value = np.zeros((600, 800, 3), dtype=np.uint8)
-
-        # Мокаем labels_convertor
-        mock_convertor = Mock()
-        mock_convertor.side_effect = lambda _: 0
-
-        task2yolo(
-            sample_ind=0,
-            mode='box',
-            task=task,
-            labels_convertor=mock_convertor,
-            images_dir=str(images_dir),
-            lablels_dir=str(labels_dir),
-            preview_dir=str(preview_dir),
-        )
-
-        # Проверяем вызовы
-        mock_buffer.assert_called()
-        mock_yolo_labels.assert_called()
-
-    @patch('yolo.ImReadBuffer')
-    @patch('yolo.YOLOLabels')
-    @patch('cv2.imwrite')
-    @patch('cv2.resize')
-    def test_task2yolo_with_scale(  # noqa: PLR0913
-        self,
-        mock_resize: Mock,
-        mock_imwrite: Mock,
-        mock_yolo_labels: Mock,
-        mock_buffer: Mock,
-        tmp_path: Path,
-    ) -> None:
-        """Тест преобразования с масштабированием."""
-        df = self._test_task2yolo_basic_setup()
-        task = [(df, str(tmp_path / 'test.jpg'), {0: 0})]
-
-        # Создаем директории
-        images_dir = tmp_path / 'images'
-        labels_dir = tmp_path / 'labels'
-
-        images_dir.mkdir()
-        labels_dir.mkdir()
-
-        # Настраиваем моки
-        mock_buffer_instance = Mock()
-        mock_buffer_instance.file = str(tmp_path / 'test.jpg')
-        mock_buffer_instance.return_value = np.zeros((600, 800, 3), dtype=np.uint8)
-        mock_buffer.return_value = mock_buffer_instance
-
-        mock_yolo_instance = Mock()
-        mock_yolo_instance.save.return_value = True
-        mock_yolo_labels.return_value = mock_yolo_instance
-
-        mock_imwrite.return_value = True
-        mock_resize.return_value = np.zeros((300, 400, 3), dtype=np.uint8)
-
-        # Мокаем CVATPoints для масштабирования
-        with patch('yolo.CVATPoints') as mock_cvat:
-            mock_cvat_instance = Mock()
-            mock_cvat_instance.__mul__ = lambda self, _: self
-            mock_cvat_instance.flatten.return_value = [50, 100, 150, 200]
-            mock_cvat.return_value = mock_cvat_instance
+            mock_imwrite.return_value = True
+            mock_copyfile.side_effect = None
+            mock_draw_text.return_value = np.zeros((600, 800, 3), dtype=np.uint8)
 
             # Мокаем labels_convertor
             mock_convertor = Mock()
@@ -670,73 +603,124 @@ class TestTask2YOLO:
                 labels_convertor=mock_convertor,
                 images_dir=str(images_dir),
                 lablels_dir=str(labels_dir),
-                scale=0.5,
+                preview_dir=str(preview_dir),
             )
 
-        # Проверяем вызовы
-        mock_resize.assert_called()
+            # Проверяем вызовы
+            mock_buffer.assert_called()
+            mock_yolo_labels.assert_called()
 
-    @patch('yolo.ImReadBuffer')
-    @patch('yolo.split_image_and_labels2tiles')
-    @patch('yolo.YOLOLabels')
-    @patch('cv2.imwrite')
-    def test_task2yolo_with_tiling(  # noqa: PLR0913
-        self,
-        mock_imwrite: Mock,
-        mock_yolo_labels: Mock,
-        mock_split: Mock,
-        mock_buffer: Mock,
-        tmp_path: Path,
-    ) -> None:
+    def test_task2yolo_with_scale(self, tmp_path: Path) -> None:
+        """Тест преобразования с масштабированием."""
+        with (
+            patch('yolo.ImReadBuffer') as mock_buffer,
+            patch('yolo.YOLOLabels') as mock_yolo_labels,
+            patch('cv2.imwrite') as mock_imwrite,
+            patch('cv2.resize') as mock_resize,
+        ):
+            df = self._test_task2yolo_basic_setup()
+            task = [(df, str(tmp_path / 'test.jpg'), {0: 0})]
+
+            # Создаем директории
+            images_dir = tmp_path / 'images'
+            labels_dir = tmp_path / 'labels'
+
+            images_dir.mkdir()
+            labels_dir.mkdir()
+
+            # Настраиваем моки
+            mock_buffer_instance = Mock()
+            mock_buffer_instance.file = str(tmp_path / 'test.jpg')
+            mock_buffer_instance.return_value = np.zeros((600, 800, 3), dtype=np.uint8)
+            mock_buffer.return_value = mock_buffer_instance
+
+            mock_yolo_instance = Mock()
+            mock_yolo_instance.save.return_value = True
+            mock_yolo_labels.return_value = mock_yolo_instance
+
+            mock_imwrite.return_value = True
+            mock_resize.return_value = np.zeros((300, 400, 3), dtype=np.uint8)
+
+            # Мокаем CVATPoints для масштабирования
+            with patch('yolo.CVATPoints') as mock_cvat:
+                mock_cvat_instance = Mock()
+                mock_cvat_instance.__mul__ = lambda self, _: self
+                mock_cvat_instance.flatten.return_value = [50, 100, 150, 200]
+                mock_cvat.return_value = mock_cvat_instance
+
+                # Мокаем labels_convertor
+                mock_convertor = Mock()
+                mock_convertor.side_effect = lambda _: 0
+
+                task2yolo(
+                    sample_ind=0,
+                    mode='box',
+                    task=task,
+                    labels_convertor=mock_convertor,
+                    images_dir=str(images_dir),
+                    lablels_dir=str(labels_dir),
+                    scale=0.5,
+                )
+
+            # Проверяем вызовы
+            mock_resize.assert_called()
+
+    def test_task2yolo_with_tiling(self, tmp_path: Path) -> None:
         """Тест преобразования с разбиением на тайлы."""
-        df = self._test_task2yolo_basic_setup()
-        task = [(df, str(tmp_path / 'test.jpg'), {0: 0})]
+        with (
+            patch('yolo.ImReadBuffer') as mock_buffer,
+            patch('yolo.split_image_and_labels2tiles') as mock_split,
+            patch('yolo.YOLOLabels') as mock_yolo_labels,
+            patch('cv2.imwrite') as mock_imwrite,
+        ):
+            df = self._test_task2yolo_basic_setup()
+            task = [(df, str(tmp_path / 'test.jpg'), {0: 0})]
 
-        # Создаем директории
-        images_dir = tmp_path / 'images'
-        labels_dir = tmp_path / 'labels'
+            # Создаем директории
+            images_dir = tmp_path / 'images'
+            labels_dir = tmp_path / 'labels'
 
-        images_dir.mkdir()
-        labels_dir.mkdir()
+            images_dir.mkdir()
+            labels_dir.mkdir()
 
-        # Настраиваем моки
-        mock_buffer_instance = Mock()
-        mock_buffer_instance.file = str(tmp_path / 'test.jpg')
-        test_image: np.ndarray = np.zeros((2000, 3000, 3), dtype=np.uint8)
-        mock_buffer_instance.return_value = test_image
-        mock_buffer.return_value = mock_buffer_instance
+            # Настраиваем моки
+            mock_buffer_instance = Mock()
+            mock_buffer_instance.file = str(tmp_path / 'test.jpg')
+            test_image: np.ndarray = np.zeros((2000, 3000, 3), dtype=np.uint8)
+            mock_buffer_instance.return_value = test_image
+            mock_buffer.return_value = mock_buffer_instance
 
-        mock_yolo_instance = Mock()
-        mock_yolo_instance.save.return_value = True
-        mock_yolo_labels.return_value = mock_yolo_instance
+            mock_yolo_instance = Mock()
+            mock_yolo_instance.save.return_value = True
+            mock_yolo_labels.return_value = mock_yolo_instance
 
-        mock_imwrite.return_value = True
+            mock_imwrite.return_value = True
 
-        # Настраиваем разбиение на тайлы
-        mock_split.return_value = [
-            (df, test_image[:1000, :1500]),
-            (df, test_image[:1000, 1500:]),
-            (df, test_image[1000:, :1500]),
-            (df, test_image[1000:, 1500:]),
-        ]
+            # Настраиваем разбиение на тайлы
+            mock_split.return_value = [
+                (df, test_image[:1000, :1500]),
+                (df, test_image[:1000, 1500:]),
+                (df, test_image[1000:, :1500]),
+                (df, test_image[1000:, 1500:]),
+            ]
 
-        # Мокаем labels_convertor
-        mock_convertor = Mock()
-        mock_convertor.side_effect = lambda _: 0
+            # Мокаем labels_convertor
+            mock_convertor = Mock()
+            mock_convertor.side_effect = lambda _: 0
 
-        task2yolo(
-            sample_ind=0,
-            mode='seg',
-            task=task,
-            labels_convertor=mock_convertor,
-            images_dir=str(images_dir),
-            lablels_dir=str(labels_dir),
-            max_imsize=(1080, 1920),
-        )
+            task2yolo(
+                sample_ind=0,
+                mode='seg',
+                task=task,
+                labels_convertor=mock_convertor,
+                images_dir=str(images_dir),
+                lablels_dir=str(labels_dir),
+                max_imsize=(1080, 1920),
+            )
 
-        # Проверяем вызовы
-        mock_split.assert_called()
-        assert mock_yolo_labels.call_count == 4  # По одному для каждого тайла
+            # Проверяем вызовы
+            mock_split.assert_called()
+            assert mock_yolo_labels.call_count == 4  # По одному для каждого тайла
 
 
 class TestTasks2YOLO:
@@ -760,105 +744,93 @@ class TestTasks2YOLO:
             [(df, str(tmp_path / 'test2.jpg'), {0: 0})],
         ]
 
-    @patch('yolo.flat_tasks')
-    @patch('yolo.sort_tasks')
-    @patch('yolo.mpmap')
-    def test_tasks2yolo_basic(  # noqa: PLR0913
-        self,
-        mock_mpmap: Mock,
-        mock_sort: Mock,
-        mock_flat: Mock,
-        tmp_path: Path,
-    ) -> None:
+    def test_tasks2yolo_basic(self, tmp_path: Path) -> None:
         """Базовый тест преобразования задач в YOLO формат."""
-        tasks = self._test_tasks2yolo_basic_setup(tmp_path)
+        with (
+            patch('yolo.flat_tasks') as mock_flat,
+            patch('yolo.sort_tasks') as mock_sort,
+            patch('yolo.mpmap') as mock_mpmap,
+        ):
+            tasks = self._test_tasks2yolo_basic_setup(tmp_path)
 
-        # Настраиваем моки
-        mock_flat.return_value = tasks
-        mock_sort.return_value = tasks
-        mock_mpmap.return_value = [None, None]
+            # Настраиваем моки
+            mock_flat.return_value = tasks
+            mock_sort.return_value = tasks
+            mock_mpmap.return_value = [None, None]
 
-        with patch('yolo.mkdirs'):
-            tasks2yolo(
-                mode='box',
-                tasks=tasks,
-                labels_convertor=Mock(),
-                images_dir=str(tmp_path / 'images'),
-                lablels_dir=str(tmp_path / 'labels'),
-            )
+            with patch('yolo.mkdirs'):
+                tasks2yolo(
+                    mode='box',
+                    tasks=tasks,
+                    labels_convertor=Mock(),
+                    images_dir=str(tmp_path / 'images'),
+                    lablels_dir=str(tmp_path / 'labels'),
+                )
 
-        # Проверяем вызовы
-        mock_flat.assert_called_once_with(tasks)
-        mock_sort.assert_called_once()
-        mock_mpmap.assert_called()
+            # Проверяем вызовы
+            mock_flat.assert_called_once_with(tasks)
+            mock_sort.assert_called_once()
+            mock_mpmap.assert_called()
 
-    @patch('yolo.flat_tasks')
-    @patch('yolo.sort_tasks')
-    @patch('yolo.mpmap')
-    def test_tasks2yolo_with_scale(  # noqa: PLR0913
-        self,
-        mock_mpmap: Mock,
-        mock_sort: Mock,
-        mock_flat: Mock,
-        tmp_path: Path,
-    ) -> None:
+    def test_tasks2yolo_with_scale(self, tmp_path: Path) -> None:
         """Тест преобразования задач с масштабированием."""
-        tasks = self._test_tasks2yolo_basic_setup(tmp_path)
+        with (
+            patch('yolo.flat_tasks') as mock_flat,
+            patch('yolo.sort_tasks') as mock_sort,
+            patch('yolo.mpmap') as mock_mpmap,
+        ):
+            tasks = self._test_tasks2yolo_basic_setup(tmp_path)
 
-        # Настраиваем моки
-        mock_flat.return_value = tasks
-        mock_sort.return_value = tasks
-        mock_mpmap.return_value = [None, None]
+            # Настраиваем моки
+            mock_flat.return_value = tasks
+            mock_sort.return_value = tasks
+            mock_mpmap.return_value = [None, None]
 
-        with patch('yolo.mkdirs'):
-            tasks2yolo(
-                mode='box',
-                tasks=tasks,
-                labels_convertor=Mock(),
-                images_dir=str(tmp_path / 'images'),
-                lablels_dir=str(tmp_path / 'labels'),
-                scale=0.5,
-            )
+            with patch('yolo.mkdirs'):
+                tasks2yolo(
+                    mode='box',
+                    tasks=tasks,
+                    labels_convertor=Mock(),
+                    images_dir=str(tmp_path / 'images'),
+                    lablels_dir=str(tmp_path / 'labels'),
+                    scale=0.5,
+                )
 
-        # Проверяем вызовы
-        mock_flat.assert_called_once_with(tasks)
-        mock_sort.assert_called_once()
-        mock_mpmap.assert_called()
+            # Проверяем вызовы
+            mock_flat.assert_called_once_with(tasks)
+            mock_sort.assert_called_once()
+            mock_mpmap.assert_called()
 
-    @patch('yolo.flat_tasks')
-    @patch('yolo.sort_tasks')
-    @patch('yolo.mpmap')
-    def test_tasks2yolo_with_preview(  # noqa: PLR0913
-        self,
-        mock_mpmap: Mock,
-        mock_sort: Mock,
-        mock_flat: Mock,
-        tmp_path: Path,
-    ) -> None:
+    def test_tasks2yolo_with_preview(self, tmp_path: Path) -> None:
         """Тест преобразования задач с превью."""
-        tasks = self._test_tasks2yolo_basic_setup(tmp_path)
+        with (
+            patch('yolo.flat_tasks') as mock_flat,
+            patch('yolo.sort_tasks') as mock_sort,
+            patch('yolo.mpmap') as mock_mpmap,
+        ):
+            tasks = self._test_tasks2yolo_basic_setup(tmp_path)
 
-        # Настраиваем моки
-        mock_flat.return_value = tasks
-        mock_sort.return_value = tasks
-        mock_mpmap.return_value = [None, None]
+            # Настраиваем моки
+            mock_flat.return_value = tasks
+            mock_sort.return_value = tasks
+            mock_mpmap.return_value = [None, None]
 
-        preview_dir = tmp_path / 'preview'
+            preview_dir = tmp_path / 'preview'
 
-        with patch('yolo.mkdirs'):
-            tasks2yolo(
-                mode='box',
-                tasks=tasks,
-                labels_convertor=Mock(),
-                images_dir=str(tmp_path / 'images'),
-                lablels_dir=str(tmp_path / 'labels'),
-                preview_dir=str(preview_dir),
-            )
+            with patch('yolo.mkdirs'):
+                tasks2yolo(
+                    mode='box',
+                    tasks=tasks,
+                    labels_convertor=Mock(),
+                    images_dir=str(tmp_path / 'images'),
+                    lablels_dir=str(tmp_path / 'labels'),
+                    preview_dir=str(preview_dir),
+                )
 
-        # Проверяем вызовы
-        mock_flat.assert_called_once_with(tasks)
-        mock_sort.assert_called_once()
-        mock_mpmap.assert_called()
+            # Проверяем вызовы
+            mock_flat.assert_called_once_with(tasks)
+            mock_sort.assert_called_once()
+            mock_mpmap.assert_called()
 
 
 class TestExtensionSets:
