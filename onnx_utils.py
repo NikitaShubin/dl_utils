@@ -1,10 +1,53 @@
+#!/usr/bin/env python3
+"""onnx_utils.py.
+
+********************************************
+*         Работа с ONNX-моделями.          *
+*                                          *
+*   Конвертация keras-моделей в ONNX       *
+*   (float32), упрощение до float16,       *
+*   квантизация до uint8/int8, извлечение  *
+*   весов и инференс ONNX в CV-конвейерах. *
+*                                          *
+* Зависимости:                             *
+* • onnx, onnxmltools, onnxruntime;        *
+* • tf2onnx - опционально: нужен только    *
+*   для keras2onnx(); без него модуль      *
+*   импортируется, но вызов keras2onnx()   *
+*   бросает ImportError.                   *
+*                                          *
+* Основные функции:                        *
+* • get_weights() - список весов из        *
+*   onnx-модели;                           *
+* • keras2onnx() - keras -> ONNX в четырёх *
+*   вариантах: f32/f16/dyn/stc.            *
+*                                          *
+* Основные классы:                         *
+* • DataReader - подготовка батчей для     *
+*   калибровки при статической             *
+*   квантизации;                           *
+* • ONNXModel - обёртка модели в функтор   *
+*   для инференса.                         *
+*                                          *
+********************************************
+.
+"""
+
 import onnx
-import tf2onnx
 import onnxmltools
 import onnxruntime
 
+# Выясняем, установлен ли tf2onnx; нужен только для keras2onnx():
+try:
+    import tf2onnx  # type: ignore[import-untyped]
+
+    TF2ONNX_AVAILABLE = True
+except ImportError:
+    TF2ONNX_AVAILABLE = False
+
 import numpy as np
 
+from onnxconverter_common.float16 import convert_float_to_float16
 from onnxruntime import quantization
 from tqdm.auto import tqdm
 
@@ -86,6 +129,12 @@ def keras2onnx(model,
     генератор данных, используемый, например, при обучении
     модели. Он нужен для калибровки сети перед дискретизацией.
     '''
+    # Без tf2onnx конвертация невозможна:
+    if not TF2ONNX_AVAILABLE:
+        msg = ('Для keras2onnx() требуется пакет tf2onnx. '
+               'Установите его: pip install tf2onnx')
+        raise ImportError(msg)
+
     # Keras -> ONNX Float32:
     onnx32, _ = tf2onnx.convert.from_keras(model, *args, **kwargs)
 
@@ -95,8 +144,7 @@ def keras2onnx(model,
 
     # Конвертируем и сохраняем ONNX Float16, если надо:
     if f16:
-        onnx16 = \
-        onnxmltools.utils.float16_converter.convert_float_to_float16(onnx32)
+        onnx16 = convert_float_to_float16(onnx32)
 
         onnxmltools.utils.save_model(onnx16, f16)
     else:
