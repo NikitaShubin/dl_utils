@@ -6,6 +6,7 @@ FROM tensorflow/tensorflow:latest-gpu
 
 
 ARG WORKSPACE='/workspace'       # Рабочая папка
+# hadolint ignore=DL3064
 ARG USERNAME='user'              # Имя пользователя
 ARG HOMEDIR="/home/${USERNAME}"  # Домашняя папка пользователя
 ARG SHELL_PATH='/bin/bash'       # Путь к интерпретатору оболочки
@@ -154,12 +155,12 @@ ARG PYTHONMODULES_BASE="                                                 \
                                                                          \
     # Отключает бОльшую часть мусора в stdout, генерируемого TensorFlow: \
     silence-tensorflow tensorflow-model-optimization                     \
-    # tensorflow-tensorboard==1.5.1 tensorboard==1.15.0                  \
+    tensorboard                                                          \
     # tensorflow_hub tensorflow_datasets jupyter-tensorboard             \
                                                                          \
     # Всё для ONNX (используется в onnx_utils.py):                       \
     onnx onnxmltools onnxconverter-common                                \
-    # git+https://github.com/onnx/tensorflow-onnx                        \
+    tf2onnx                                                              \
                                                                          \
     onnxruntime-gpu --extra-index-url  https://aiinfra.pkgs.visualstudio.\
 com/PublicPackages/_packaging/onnxruntime-cuda-12/pypi/simple/           \
@@ -174,6 +175,7 @@ com/PublicPackages/_packaging/onnxruntime-cuda-12/pypi/simple/           \
                                                                          \
     # Дополнительные модули для корректной работы mypy                   \
     pandas-stubs types-tqdm types-PyYAML                                 \
+    scipy-stubs scikit-learn-stubs types-tensorflow                      \
                                                                          \
                                                                          \
     # Python-компилятор                                                  \

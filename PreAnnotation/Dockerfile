@@ -2,6 +2,7 @@
 FROM pytorch/pytorch:2.5.1-cuda12.1-cudnn9-runtime
 
 ARG WORKSPACE='/workspace'       # Рабочая папка
+# hadolint ignore=DL3064
 ARG USERNAME='user'              # Имя пользователя
 ARG HOMEDIR="/home/${USERNAME}"  # Домашняя папка пользователя
 ARG SHELL_PATH='/bin/bash'       # Путь к интерпретатору оболочки
