@@ -28,7 +28,7 @@ cd ~/my_project && /path/to/dl_utils/check.sh
 | :-------------------------: | :-----------------------------------: |
 | с явными путями             | только указанные цели                 |
 | без путей из чужой папки    | содержимое текущей папки              |
-| из корня dl_utils без путей | белый список py + текущая папка infra |
+| из корня dl_utils без путей | белый список py и ipynb + infra       |
 
 Пути могут быть файлами или папками (несколько — через пробел).
 
@@ -51,7 +51,8 @@ cd ~/my_project && /path/to/dl_utils/check.sh
 
 ## Конвейер
 
-1. запуск `check-py.sh` — ruff format → ruff check → mypy → pytest;
+1. запуск `check-py.sh` — ruff format → ruff check → mypy (включая
+   `.ipynb` через `nbqa`) → pytest;
 2. запуск `check-infra.sh` — dclint → hadolint → shellcheck → markdownlint;
 3. общий вердикт: код выхода 0 только при успешном завершении обоих скриптов.
 
@@ -82,5 +83,5 @@ cd ~/my_project && /path/to/dl_utils/check.sh
 cd ../other_project && ./dl_utils/check.sh  # то же изнутри проекта
 ./check.sh -f src              # проверка с автофиксами
 ./check.sh -g .                # только закоммиченное (для CI)
-./check.sh                     # белый список py + текущая папка infra
+./check.sh                     # белый список py/ipynb + текущая папка infra
 ```

@@ -19,7 +19,7 @@ usage() {
     cat <<EOF
 Использование: $(basename "$0") [-f|--fix] [-g|--git-only] [путь...]
 
-Позиционные аргументы - проверяемые файлы или папки (.py).
+Позиционные аргументы - проверяемые файлы или папки (.py, .ipynb).
 Без путей: запуск из корня dl_utils проверяет белый список,
 из любой другой папки - её содержимое.
 
@@ -116,8 +116,9 @@ is_test_file() {
     esac
 }
 
-# Тройка линтеров для одного файла; поведение ruff зависит от флага --fix;
-# путь передаётся относительно текущего каталога (корня цели):
+# Тройка линтеров для одного файла (.py или .ipynb); поведение ruff зависит от
+# флага --fix; для .ipynb mypy вызывается через nbqa; путь передаётся
+# относительно текущего каталога (корня цели):
 check_one_file() {
     local display=$1
     local file=$2
@@ -150,9 +151,14 @@ check_one_file() {
         mark_failure "ruff check: $display"
     fi
 
-    # Mypy:
+    # Mypy: для .ipynb используется обёртка nbqa, т.к. mypy не понимает
+    # формат notebook нативно:
     print_separator "Mypy: $display" "$PURPLE"
-    if mypy --config-file "$RUFF_CONFIG" "$file"; then
+    local -a mypy_cmd=(mypy --config-file "$RUFF_CONFIG")
+    if [[ $file == *.ipynb ]]; then
+        mypy_cmd=(nbqa mypy)
+    fi
+    if "${mypy_cmd[@]}" "$file"; then
         print_success "Типы в порядке"
     else
         mark_failure "mypy: $display"
@@ -189,7 +195,7 @@ run_stage() {
     print_success "Этап завершён ($total файлов)"
 }
 
-# Сбор py-файлов целей в структуры "корень -> относительные пути":
+# Сбор py и ipynb файлов целей в структуры "корень -> относительные пути":
 # только закоммиченные при --git-only, иначе всё найденное на диске
 # за вычетом служебных каталогов:
 collect_targets() {
@@ -221,7 +227,7 @@ collect_targets() {
             if [[ -f $abs ]]; then
                 spec=("$prefix")
             else
-                spec=("${prefix%/}/*.py")
+                spec=("${prefix%/}/*.py" "${prefix%/}/*.ipynb")
             fi
             while IFS= read -r p; do
                 [ -n "$p" ] || continue
@@ -258,7 +264,8 @@ collect_targets() {
                 fi
             done < <(
                 find "$abs" \( "${PRUNE_DIRS[@]}" \) -prune \
-                    -o -type f -name '*.py' -print 2>/dev/null || true
+                    -o -type f \( -name '*.py' -o -name '*.ipynb' \) -print \
+                    2>/dev/null || true
             )
         fi
     done
@@ -280,7 +287,8 @@ echo -e "${GREEN}🚀 Запуск проверок качества кода и
 # Версии инструментов в шапке: дрейф версий сразу виден при странных прогонах:
 RUFF_V="$(ruff --version 2>/dev/null || true)"
 MYPY_V="$(mypy --version 2>/dev/null || true)"
-print_step "Инструменты: ${RUFF_V:-нет ruff}, ${MYPY_V:-нет mypy}"
+NBQA_V="$(nbqa --version 2>/dev/null || true)"
+print_step "Инструменты: ${RUFF_V:-нет ruff}, ${MYPY_V:-нет mypy}, ${NBQA_V:-нет nbqa}"
 if [ "$FIX" -eq 1 ]; then
     print_step "Режим правки (-f): автофиксы разрешены"
 else
