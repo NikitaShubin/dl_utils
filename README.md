@@ -150,18 +150,18 @@ graph RL;
   фрагменты по времени
 - **[`repo2context.sh`](repo2context.sh "Перейти к файлу")**: Создание из заданной
   папки с текстовыми фафлами контекста для LLM-запросов
-- **[`check-py.sh`](check-py.sh "Перейти к файлу")**: Проверка качества Python-кода
-  (ruff format, ruff check, mypy, pytest). Покрывает только файлы из белого
-  списка — строгие требования ruff и mypy внедряются постепенно
-- **[`check-infra.sh`](check-infra.sh "Перейти к файлу")**: Проверка инфраструктурных
-  файлов: docker-compose (dclint), Dockerfile (hadolint), shell-скрипты
-  (shellcheck), Markdown (markdownlint)
+- **[check-py.sh](./docs/check-py.md "Перейти к документации")**: Проверка качества Python-кода
+  любого проекта (ruff format, ruff check, mypy, pytest); правила берутся
+  из dl_utils
+- **[check-infra.sh](./docs/check-infra.md "Перейти к документации")**: Линтинг инфраструктурных
+  файлов любого проекта: docker-compose (dclint), Dockerfile (hadolint),
+  shell-скрипты (shellcheck), Markdown (markdownlint)
 
 ---
 
 ## 🐋 Docker окружение
 
-Проект включает [Dockerfile](docker/Dockerfile "Перейти к файлу") со всеми
+Проект включает [`Dockerfile`](docker/Dockerfile "Перейти к файлу") со всеми
 зависимостями.
 
 **Скрипты управления контейнером:**
@@ -217,6 +217,6 @@ graph RL;
   Запуск / остановака / перезапуск докера
 
 ---
-👨‍💻Автор: **[Никита](https://disk.yandex.ru/i/2HfPHtSlAJJuyQ
-"см. резюме") [Шубин](https://disk.yandex.ru/i/BxSVPalOlTq4GA "my Curriculum vitae")**  
+👨‍💻Автор: **[Никита](https://github.com/NikitaShubin/CurriculumVitae/releases/download/latest/cv_rus.pdf
+"см. резюме") [Шубин](https://github.com/NikitaShubin/CurriculumVitae/releases/download/latest/cv_eng.pdf "my Curriculum vitae")**  
 Лицензия: [MIT](./LICENSE)
