@@ -242,6 +242,13 @@ RUN ${PIP} install $PIPPARAMS pip uv                               && \
     jupyter lab clean                                              &&\
     jupyter lab build --minimize=False
 
+# Нейтрализация конфликта двойных LLVM/MLIR (triton против tensorflow):
+# флаг DF_SYMBOLIC в .dynamic заставляет каждую библиотеку разрешать
+# собственные ссылки в себя самой, порядок импортов перестаёт быть значимым:
+COPY docker/set_symbolic_flag.py /tmp/py/
+RUN python3 /tmp/py/set_symbolic_flag.py                   && \
+    python3 -c 'import tensorflow; import triton._C.libtriton'
+
 # Отключаем у JupyterLab надоедливый вопрос об обновлении
 RUN jupyter labextension disable '@jupyterlab/apputils-extension:announcements'
 
