@@ -9,7 +9,49 @@ BLUE='\033[1;34m'
 CYAN='\033[0;36m'
 MAGENTA='\033[0;35m'
 GRAY='\033[0;90m'
+YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
+
+# Абсолютный путь к директории скрипта: конфиги линтеров всегда берутся отсюда,
+# чтобы проверка работала одинаково из любой точки файловой системы:
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+
+usage() {
+    cat <<EOF
+Использование: $(basename "$0") [-f|--fix] [-g|--git-only] [путь...]
+
+Позиционные аргументы - проверяемые файлы или папки
+(Dockerfile, docker-compose, shell, markdown).
+Без путей проверяется текущая директория.
+
+-f, --fix       разрешить автофиксы (умеют dclint и markdownlint);
+                по умолчанию режим отчёта - файлы не изменяются
+-g, --git-only  проверять только файлы, закоммиченные в git (удобно для CI)
+EOF
+}
+
+# Разбор аргументов: пути - в цели, флаги - на месте:
+FIX=0
+GIT_ONLY=0
+TARGETS=()
+for arg in "$@"; do
+    case $arg in
+        -f | --fix) FIX=1 ;;
+        -g | --git-only) GIT_ONLY=1 ;;
+        -h | --help) usage; exit 0 ;;
+        -*)
+            echo "Неизвестный флаг: $arg" >&2
+            usage >&2
+            exit 2
+            ;;
+        *) TARGETS+=("$arg") ;;
+    esac
+done
+
+# Без путей целью становится текущая директория:
+if [ ${#TARGETS[@]} -eq 0 ]; then
+    TARGETS+=("$PWD")
+fi
 
 print_separator() {
     echo
@@ -21,110 +63,155 @@ print_separator() {
 
 print_success() { echo -e "${GREEN}✅ $1${NC}"; }
 print_error() { echo -e "${RED}❌ $1${NC}"; }
+print_warning() { echo -e "${YELLOW}⚠️  $1${NC}"; }
 
-# Получаем абсолютный путь к директории скрипта:
-SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+# Каталоги, исключаемые из поиска файлов на диске:
+PRUNE_DIRS=(-name .git -o -name __pycache__ -o -name .venv -o -name venv \
+    -o -name node_modules -o -name dist -o -name build \
+    -o -name .mypy_cache -o -name .pytest_cache -o -name .ruff_cache)
 
-# Определяем целевую директорию: либо аргумент, либо директория скрипта
-TARGET_DIR="${1:-$SCRIPT_DIR}"
+# Нормализация целей в абсолютные пути:
+ABS_TARGETS=()
+for t in "${TARGETS[@]}"; do
+    if [[ ! -e $t ]]; then
+        print_error "Путь не существует: $t"
+        exit 1
+    fi
+    if [[ -d $t ]]; then
+        ABS_TARGETS+=("$(cd "$t" && pwd)")
+    else
+        ABS_TARGETS+=("$(cd "$(dirname "$t")" && pwd)/$(basename "$t")")
+    fi
+done
 
-# Преобразуем относительный путь в абсолютный, если это не абсолютный путь
-if [[ ! "$TARGET_DIR" = /* ]]; then
-    TARGET_DIR="$(cd "$TARGET_DIR" && pwd)"
+# Валидация репозиториев: при --git-only цель обязана быть в гите,
+# иначе просто предупреждение и проверка всего с диска:
+declare -A REPO_WARNED=()
+for t in "${ABS_TARGETS[@]}"; do
+    d="$t"
+    if [[ -f $t ]]; then d="$(dirname "$t")"; fi
+    if ! git -C "$d" rev-parse --git-dir >/dev/null 2>&1; then
+        if [ "$GIT_ONLY" -eq 1 ]; then
+            print_error "--git-only требует git-репозитория, а цель вне его: $d"
+            exit 1
+        fi
+        if [ -z "${REPO_WARNED[$d]:-}" ]; then
+            print_warning "Вне git-репозитория - берутся все файлы с диска: $d"
+            REPO_WARNED[$d]=1
+        fi
+    fi
+done
+
+echo -e "${BLUE}🎯 Целевые пути: ${ABS_TARGETS[*]}${NC}"
+if [ "$FIX" -eq 1 ]; then
+    echo -e "${BLUE}🔧 Режим правки (-f): автофиксы разрешены${NC}"
+else
+    echo -e "${BLUE}👁 Режим отчёта: файлы не изменяются (автофиксы - ключ -f)${NC}"
 fi
-
-# Убираем возможный завершающий слэш для корректной работы git -C
-TARGET_DIR="${TARGET_DIR%/}"
-
-echo -e "${BLUE}🎯 Целевая директория: $TARGET_DIR${NC}"
 echo
 
-# Проверяем, существует ли целевая директория
-if [[ ! -d "$TARGET_DIR" ]]; then
-    print_error "Целевая директория не существует: $TARGET_DIR"
-    exit 1
-fi
-
-# Проверяем Git-репозиторий относительно целевой директории
-if ! git -C "$TARGET_DIR" rev-parse --git-dir > /dev/null 2>&1; then
-    print_error "Целевая директория должна находиться внутри Git-репозитория"
-    echo "Запуск из: $TARGET_DIR"
-    exit 1
-fi
-
-# Получаем корень Git-репозитория (относительно целевой директории):
-GIT_ROOT="$(git -C "$TARGET_DIR" rev-parse --show-toplevel)"
-
-echo -e "${BLUE}📦 Корень Git-репозитория: $GIT_ROOT${NC}"
-echo
-
-# Функция для получения списка файлов по расширению (из git-индекса и untracked):
-get_git_files_by_extension() {
-    local ext="$1"
-    git -C "$GIT_ROOT" ls-files -c -o --exclude-standard -- "*.$ext" 2>/dev/null || true
+# Кандидаты категории по цели: маски передаются аргументами; при --git-only
+# это листинг git относительно корня репозитория, иначе поиск по диску:
+emit_candidates() {
+    local t=$1
+    shift
+    local root rel p s
+    if [ "$GIT_ONLY" -eq 1 ]; then
+        root="$(git -C "$t" rev-parse --show-toplevel 2>/dev/null)" || return 0
+        rel="$(realpath --relative-to="$root" "$t")"
+        if [ "$rel" = '.' ]; then rel=''; fi
+        local -a spec=()
+        for s in "$@"; do
+            spec+=("${rel:+$rel/}$s")
+        done
+        while IFS= read -r p; do
+            if [ -n "$p" ]; then printf '%s\n' "$root/$p"; fi
+        done < <(git -C "$root" ls-files -c -- "${spec[@]}" 2>/dev/null || true)
+        return 0
+    fi
+    local -a conds=()
+    local first=1
+    for s in "$@"; do
+        if [ "$first" -eq 1 ]; then
+            conds=(-name "$s")
+            first=0
+        else
+            conds+=(-o -name "$s")
+        fi
+    done
+    find "$t" \( "${PRUNE_DIRS[@]}" \) -prune \
+        -o -type f \( "${conds[@]}" \) -print 2>/dev/null || true
+    return 0
 }
 
-# Функция для рекурсивного поиска файлов Dockerfile:
-get_dockerfiles() {
-    git -C "$GIT_ROOT" ls-files -c -o --exclude-standard -- \
-        ":(glob)**/Dockerfile" ":(glob)**/*.Dockerfile" 2>/dev/null || true
+# Фильтры релевантности по типу файла:
+is_dockerfile() {
+    local b
+    b="$(basename "$1")"
+    [[ $b == Dockerfile || $b == *.Dockerfile ]]
+}
+is_compose() {
+    local b
+    b="$(basename "$1")"
+    [[ $b == docker-compose*.yml || $b == docker-compose*.yaml || $b == compose*.yml || $b == compose*.yaml ]]
+}
+is_sh() {
+    [[ $(basename "$1") == *.sh ]]
+}
+is_md() {
+    [[ $(basename "$1") == *.md ]]
 }
 
-# Функция для поиска docker-compose файлов:
-get_docker_compose_files() {
-    git -C "$GIT_ROOT" ls-files -c -o --exclude-standard -- \
-        ":(glob)**/docker-compose*.yml" ":(glob)**/docker-compose*.yaml" \
-        ":(glob)**/compose*.yml" ":(glob)**/compose*.yaml" 2>/dev/null || true
+# Заполнение списка файлов категории целями через фильтр релевантности:
+gather() {
+    local out=$1 matcher=$2
+    shift 2
+    # Именная ссылка на массив по имени из аргумента; shellcheck не отслеживает
+    # семантику nameref и считает присваивание строкой:
+    # shellcheck disable=SC2178
+    local -n files=$out
+    files=()
+    local t p
+    for t in "${ABS_TARGETS[@]}"; do
+        if [[ -f $t ]]; then
+            if "$matcher" "$t"; then files+=("$t"); fi
+        else
+            while IFS= read -r p; do
+                if [ -n "$p" ] && "$matcher" "$p"; then files+=("$p"); fi
+            done < <(emit_candidates "$t" "$@")
+        fi
+    done
+    if [ ${#files[@]} -gt 0 ]; then
+        mapfile -t files < <(printf '%s\n' "${files[@]}" | LC_ALL=C sort -u)
+    fi
+    return 0
 }
 
-# Функция для выполнения проверки
+# Прогон одной категории: каждый файл проверяется из своей директории,
+# неудача не останавливает остальные; счётчик проблемных файлов общий:
 run_check() {
-    local description="$1"
-    local lint_cmd="$2"
-    local config_file="$3"
-    local get_files_func="$4"  # Функция для получения файлов
-
-    # Счётчик ошибок на входе в категорию — для сводки по категории:
+    local desc=$1 arr=$2 cfg=$3
+    shift 3
+    local -a cmd=("$@")
+    # Именная ссылка на массив по имени из аргумента; shellcheck не отслеживает
+    # семантику nameref и считает присваивание строкой:
+    # shellcheck disable=SC2178
+    local -n files=$arr
     local failed_before=$TOTAL_FAILED
 
-    print_separator "Проверка $description"
+    print_separator "Проверка $desc"
 
-    if [[ -n "$config_file" ]]; then
-        echo -e "${BLUE}📁 Конфигурационный файл: $config_file${NC}"
+    if [ -n "$cfg" ]; then
+        echo -e "${BLUE}📁 Конфигурационный файл: $cfg${NC}"
         echo
     fi
 
-    found_files=0
-    all_files=()
+    local count=0 file
+    for file in "${files[@]}"; do
+        count=$((count + 1))
+        echo -e "${CYAN}▸ ${MAGENTA}${file#"$PWD"/}${NC}"
 
-    # Получаем файлы
-    while IFS= read -r file; do
-        if [[ -n "$file" && -f "$GIT_ROOT/$file" ]]; then
-            all_files+=("$file")
-        fi
-    done < <($get_files_func)
-
-    # Убираем дубликаты
-    if [[ ${#all_files[@]} -gt 0 ]]; then
-        mapfile -t all_files < <(printf "%s\n" "${all_files[@]}" | sort -u)
-    fi
-
-    # Проверяем каждый файл, не останавливаясь на первой ошибке:
-    for file in "${all_files[@]}"; do
-        found_files=$((found_files + 1))
-        echo -e "${CYAN}▸ ${MAGENTA}$file${NC}"
-
-        # Получаем абсолютный путь к файлу
-        local file_path
-        local file_dir
-        local file_name
-
-        file_path="$GIT_ROOT/$file"
-        file_dir="$(dirname "$file_path")"
-        file_name="$(basename "$file_path")"
-
-        # Запускаем линтер из директории файла
-        if (cd "$file_dir" && eval "$lint_cmd \"$file_name\""); then
+        if (cd "$(dirname "$file")" && "${cmd[@]}" "$(basename "$file")"); then
             :
         else
             print_error "Ошибка проверки: $file"
@@ -132,36 +219,52 @@ run_check() {
         fi
     done
 
-    if [ $found_files -eq 0 ]; then
+    if [ "$count" -eq 0 ]; then
         echo -e "${GRAY}ℹ️  Файлы не найдены${NC}"
     else
         local category_failed=$((TOTAL_FAILED - failed_before))
-        if [ $category_failed -eq 0 ]; then
-            print_success "Проверка завершена ($found_files файлов)"
+        if [ "$category_failed" -eq 0 ]; then
+            print_success "Проверка завершена ($count файлов)"
         else
-            print_error "Проверка завершена с ошибками ($category_failed из $found_files файлов)"
+            print_error "Проверка завершена с ошибками ($category_failed из $count файлов)"
         fi
     fi
+    return 0
 }
 
 # Общий счётчик проблемных файлов по всем категориям проверок:
 TOTAL_FAILED=0
 
+# Экстра-аргументы автофиксов для поддерживающих их инструментов:
+DCLINT_EXTRA=()
+MDLINT_EXTRA=()
+if [ "$FIX" -eq 1 ]; then
+    DCLINT_EXTRA+=(--fix)
+    MDLINT_EXTRA+=(--fix)
+fi
+
+# Сбор файлов по категориям:
+gather FILES_COMPOSE is_compose 'docker-compose*.yml' 'docker-compose*.yaml' 'compose*.yml' 'compose*.yaml'
+gather FILES_DOCKER is_dockerfile 'Dockerfile' '*.Dockerfile'
+gather FILES_SH is_sh '*.sh'
+gather FILES_MD is_md '*.md'
+
 # Проверка docker-compose файлов:
 cfg="$SCRIPT_DIR/.dclintrc"
-run_check "🐙 docker-compose файлы" "dclint -c \"$cfg\"" "$cfg" "get_docker_compose_files"
+run_check "🐙 docker-compose файлы" FILES_COMPOSE "$cfg" dclint -c "$cfg" "${DCLINT_EXTRA[@]}"
 
 # Проверка Dockerfile:
 cfg="$SCRIPT_DIR/.hadolint.yaml"
-run_check "🐋 Dockerfile" "hadolint --config \"$cfg\"" "$cfg" "get_dockerfiles"
+run_check "🐋 Dockerfile" FILES_DOCKER "$cfg" hadolint --config "$cfg"
 
-# Проверка shell-скриптов:
-cfg="$SCRIPT_DIR/.shellcheckrc"
-run_check "🐚 shell-скрипты" "shellcheck --source-path=\"$cfg\"" "$cfg" "get_git_files_by_extension sh"
+# Проверка shell-скриптов; у shellcheck нет опции конфига: он сам ищет
+# .shellcheckrc вверх по дереву от файла, поэтому вне дерева dl_utils
+# могут применяться правила самого проекта:
+run_check "🐚 shell-скрипты" FILES_SH '' shellcheck
 
 # Проверка Markdown файлов:
 cfg="$SCRIPT_DIR/.markdownlint.yaml"
-run_check "📖 Markdown файлы" "markdownlint --config \"$cfg\"" "$cfg" "get_git_files_by_extension md"
+run_check "📖 Markdown файлы" FILES_MD "$cfg" markdownlint --config "$cfg" "${MDLINT_EXTRA[@]}"
 
 # Финальный вердикт: скрипт успешен только при отсутствии ошибок:
 print_separator "ВСЕ ПРОВЕРКИ ЗАВЕРШЕНЫ"

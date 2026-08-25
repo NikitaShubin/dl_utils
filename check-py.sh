@@ -1,7 +1,9 @@
 #!/bin/bash
 
-# Файлы из корня репозитория, которые будут проверяться:
-root_files=("labels.py" "pt_utils.py" "ollm_utils.py" "boxmot_utils.py" "ul_utils.py" "sam3al.py")
+# Файлы из корня репозитория, которые проверяются в дефолтном режиме запуска
+# без аргументов из корня dl_utils; временный костыль - со временем от белых
+# списков планируется отказаться совсем:
+root_files=("labels.py" "pt_utils.py" "ollm_utils.py" "boxmot_utils.py" "ul_utils.py" "sam3al.py" "docker/set_symbolic_flag.py")
 
 set -e  # Выход при первой ошибке
 
@@ -10,13 +12,46 @@ RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
-MAGENTA='\033[0;35m'
 CYAN='\033[0;36m'
 PURPLE='\033[0;95m'
 NC='\033[0m' # No Color
 
-# Параметры для mypy:
-MYPY_ARGS=("--no-incremental" "--show-error-codes" "--warn-unused-ignores" "--follow-imports=skip")
+# Абсолютный путь к директории скрипта: конфиги линтеров всегда берутся отсюда,
+# чтобы проверка работала одинаково из любой точки файловой системы:
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+RUFF_CONFIG="$SCRIPT_DIR/pyproject.toml"
+
+usage() {
+    cat <<EOF
+Использование: $(basename "$0") [-f|--fix] [-g|--git-only] [путь...]
+
+Позиционные аргументы - проверяемые файлы или папки (.py).
+Без путей: запуск из корня dl_utils проверяет белый список,
+из любой другой папки - её содержимое.
+
+-f, --fix       разрешить автофиксы (ruff format и ruff check --unsafe-fixes);
+                по умолчанию режим отчёта - файлы не изменяются
+-g, --git-only  проверять только файлы, закоммиченные в git (удобно для CI)
+EOF
+}
+
+# Разбор аргументов: пути - в цели, флаги - на месте:
+FIX=0
+GIT_ONLY=0
+TARGETS=()
+for arg in "$@"; do
+    case $arg in
+        -f | --fix) FIX=1 ;;
+        -g | --git-only) GIT_ONLY=1 ;;
+        -h | --help) usage; exit 0 ;;
+        -*)
+            echo "Неизвестный флаг: $arg" >&2
+            usage >&2
+            exit 2
+            ;;
+        *) TARGETS+=("$arg") ;;
+    esac
+done
 
 # Список проваленных этапов; наполняется по ходу проверок:
 FAILED_STAGES=()
@@ -77,175 +112,280 @@ print_step() {
     echo -e "${CYAN}🔹 $1${NC}"
 }
 
-# Получаем абсолютный путь к директории скрипта:
-SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+# Каталоги, исключаемые из поиска файлов на диске:
+PRUNE_DIRS=(-name .git -o -name __pycache__ -o -name .venv -o -name venv \
+    -o -name node_modules -o -name dist -o -name build \
+    -o -name .mypy_cache -o -name .pytest_cache -o -name .ruff_cache)
 
-# Проверяем Git-репозиторий относительно директории скрипта
-if ! git -C "$SCRIPT_DIR" rev-parse --git-dir > /dev/null 2>&1; then
-    print_error "Этот скрипт должен запускаться внутри Git-репозитория"
-    exit 1
+# Режим работы: явные пути, либо дефолтное поведение по месту запуска:
+if [ ${#TARGETS[@]} -eq 0 ]; then
+    if [[ "$PWD" -ef "$SCRIPT_DIR" ]]; then
+        MODE='legacy'
+    else
+        MODE='targets'
+        TARGETS+=("$PWD")
+    fi
+else
+    MODE='targets'
 fi
 
-# Получаем корень Git-репозитория (относительно директории скрипта):
-GIT_ROOT="$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel)"
+# Каждая цель проверяется из собственной директории с путями относительно неё:
+# послабления конфига (например, '**/tests/**' для assert в тестах) матчатся
+# у любых внешних проектов, а mypy видит их собственные импорты:
+TARGET_DIRS=()
+declare -A MAIN_OF TEST_OF SEEN_ROOT SEEN_FILE
 
-# Сбор аргументов для ruff check:
-RUFF_CHECK_ARGS=("$@")
-
-# Функция для проверки индексированных файлов
-check_indexed_files() {
-    local description="$1"
-    local check_cmd="$2"
-    shift 2
-    local patterns=("$@")
-
-    print_separator "$description" "$CYAN"
-
-    found_files=0
-    all_files=()
-
-    # Собираем все индексированные файлы по паттернам
-    for pattern in "${patterns[@]}"; do
-        while IFS= read -r file; do
-            if [[ -n "$file" && -f "$GIT_ROOT/$file" ]]; then
-                all_files+=("$file")
-            fi
-        done < <(git -C "$GIT_ROOT" ls-files -c -o --exclude-standard -- "$pattern" 2>/dev/null || true)
-    done
-
-    # Убираем дубликаты
-    if [[ ${#all_files[@]} -gt 0 ]]; then
-        mapfile -t all_files < <(printf "%s\n" "${all_files[@]}" | sort -u)
-    fi
-
-    # Проверяем каждый файл
-    for file in "${all_files[@]}"; do
-        found_files=$((found_files + 1))
-        print_step "Проверка файла: $file"
-
-        local file_path="$GIT_ROOT/$file"
-        local file_dir
-        local file_name
-
-        file_dir="$(dirname "$file_path")"
-        file_name="$(basename "$file_path")"
-
-        # Запускаем проверку из директории файла
-        (cd "$file_dir" && eval "$check_cmd \"$file_name\"")
-    done
-
-    if [ $found_files -eq 0 ]; then
-        print_warning "Файлы не найдены"
-    else
-        print_success "Проверка завершена ($found_files файлов)"
+# Регистрация корня цели без дублей:
+add_root() {
+    local root=$1
+    if [[ -z ${SEEN_ROOT[$root]:-} ]]; then
+        SEEN_ROOT[$root]=1
+        TARGET_DIRS+=("$root")
+        MAIN_OF[$root]=''
+        TEST_OF[$root]=''
     fi
 }
 
-# Основной скрипт:
+# Добавление файла в бакет цели без дублей:
+add_file() {
+    local root=$1 rel=$2 kind=$3 key="$1/$2"
+    if [[ -z ${SEEN_FILE[$key]:-} ]]; then
+        SEEN_FILE[$key]=1
+        if [[ $kind == test ]]; then
+            TEST_OF[$root]+="${TEST_OF[$root]:+$'\n'}$rel"
+        else
+            MAIN_OF[$root]+="${MAIN_OF[$root]:+$'\n'}$rel"
+        fi
+    fi
+}
+
+is_test_file() {
+    case $1 in
+        test_*.py | *_test.py) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+# Тройка линтеров для одного файла; поведение ruff зависит от флага --fix;
+# путь передаётся относительно текущего каталога (корня цели):
+check_one_file() {
+    local display=$1
+    local file=$2
+
+    # Ruff format:
+    print_separator "Ruff format: $display" "$CYAN"
+    if [ "$FIX" -eq 1 ]; then
+        if ruff format --config "$RUFF_CONFIG" "$file" 2> >(suppress_com812_warning); then
+            print_success "Форматирование завершено"
+        else
+            mark_failure "ruff format: $display"
+        fi
+    else
+        if ruff format --check --diff --config "$RUFF_CONFIG" "$file" 2> >(suppress_com812_warning); then
+            print_success "Формат в порядке"
+        else
+            mark_failure "ruff format: $display"
+        fi
+    fi
+
+    # Ruff check:
+    print_separator "Ruff check: $display" "$CYAN"
+    local -a check_args=(check --config "$RUFF_CONFIG")
+    if [ "$FIX" -eq 1 ]; then
+        check_args+=(--fix --unsafe-fixes)
+    fi
+    if ruff "${check_args[@]}" "$file" 2> >(suppress_com812_warning); then
+        print_success "Проверка завершена"
+    else
+        mark_failure "ruff check: $display"
+    fi
+
+    # Mypy:
+    print_separator "Mypy: $display" "$PURPLE"
+    if mypy --config-file "$RUFF_CONFIG" "$file"; then
+        print_success "Типы в порядке"
+    else
+        mark_failure "mypy: $display"
+    fi
+}
+
+# Прогон тройки линтеров по всем целям; второй аргумент - имя ассоциативного
+# массива "корень -> список относительных путей":
+run_stage() {
+    local label=$1
+    local -n bucket=$2
+    print_separator "$label" "$BLUE"
+
+    local total=0 root rel lines
+    for root in "${TARGET_DIRS[@]}"; do
+        [[ -n ${bucket[$root]} ]] || continue
+        lines="$(grep -c . <<<"${bucket[$root]}")"
+        total=$((total + lines))
+    done
+    if [ "$total" -eq 0 ]; then
+        print_warning "Подходящих файлов не найдено"
+        return 0
+    fi
+
+    for root in "${TARGET_DIRS[@]}"; do
+        [[ -n ${bucket[$root]} ]] || continue
+        pushd "$root" >/dev/null
+        while IFS= read -r rel; do
+            [[ -n $rel ]] || continue
+            check_one_file "$root/$rel" "$rel"
+        done <<<"${bucket[$root]}"
+        popd >/dev/null
+    done
+    print_success "Этап завершён ($total файлов)"
+}
+
+# Сбор py-файлов целей в структуры "корень -> относительные пути":
+# только закоммиченные при --git-only, иначе всё найденное на диске
+# за вычетом служебных каталогов:
+collect_targets() {
+    local t abs root rel p prefix groot
+    local -a spec
+    for t in "${TARGETS[@]}"; do
+        if [[ ! -e $t ]]; then
+            print_error "Путь не найден: $t"
+            exit 1
+        fi
+        if [[ -d $t ]]; then
+            abs="$(cd "$t" && pwd)"
+            root=$abs
+        else
+            abs="$(cd "$(dirname "$t")" && pwd)/$(basename "$t")"
+            root=${abs%/*}
+        fi
+        add_root "$root"
+
+        if [ "$GIT_ONLY" -eq 1 ]; then
+            groot="$(git -C "$abs" rev-parse --show-toplevel)" || {
+                print_error "--git-only требует git-репозиторий, а цель вне его: $abs"
+                exit 1
+            }
+            # git ls-files отдаёт пути от корня репозитория - обрезаем префикс,
+            # чтобы получить путь относительно цели; сам файл цели приходит
+            # без префикса только если он закоммичен:
+            prefix="$(realpath --relative-to="$groot" "$abs")"
+            if [[ -f $abs ]]; then
+                spec=("$prefix")
+            else
+                spec=("${prefix%/}/*.py")
+            fi
+            while IFS= read -r p; do
+                [ -n "$p" ] || continue
+                rel=${p#"$prefix"}
+                rel=${rel#/}
+                [[ -n $rel ]] || rel=${prefix##*/}
+                if is_test_file "${rel##*/}"; then
+                    add_file "$root" "$rel" test
+                else
+                    add_file "$root" "$rel" main
+                fi
+            done < <(git -C "$groot" ls-files -c -- "${spec[@]}" 2>/dev/null || true)
+        else
+            if ! git -C "$abs" rev-parse --git-dir >/dev/null 2>&1; then
+                print_warning "Вне git-репозитория - берутся все файлы с диска: $abs"
+            fi
+            # Одиночный файл на диске проверяется всегда:
+            if [[ -f $abs ]]; then
+                rel=${abs##*/}
+                if is_test_file "$rel"; then
+                    add_file "$root" "$rel" test
+                else
+                    add_file "$root" "$rel" main
+                fi
+                continue
+            fi
+            while IFS= read -r p; do
+                [ -n "$p" ] || continue
+                rel=${p#"$root"/}
+                if is_test_file "${rel##*/}"; then
+                    add_file "$root" "$rel" test
+                else
+                    add_file "$root" "$rel" main
+                fi
+            done < <(
+                find "$abs" \( "${PRUNE_DIRS[@]}" \) -prune \
+                    -o -type f -name '*.py' -print 2>/dev/null || true
+            )
+        fi
+    done
+
+    # Детерминированный порядок файлов внутри каждой цели:
+    local root
+    local -a sorted
+    for root in "${TARGET_DIRS[@]}"; do
+        mapfile -t sorted < <(grep . <<<"${MAIN_OF[$root]}" | LC_ALL=C sort -u)
+        ((${#sorted[@]} > 0)) && MAIN_OF[$root]="$(printf '%s\n' "${sorted[@]}")"
+        mapfile -t sorted < <(grep . <<<"${TEST_OF[$root]}" | LC_ALL=C sort -u)
+        ((${#sorted[@]} > 0)) && TEST_OF[$root]="$(printf '%s\n' "${sorted[@]}")"
+    done
+    return 0
+}
+
 clear
 echo -e "${GREEN}🚀 Запуск проверок качества кода и тестов...${NC}"
 
-# Очистка кеша Ruff (из корня репозитория)
-print_step "Очистка кеша Ruff..."
-ruff clean
-
-# Основные файлы для проверки (только индексированные):
-print_separator "Проверка индексированных Python файлов" "$BLUE"
-
-# Проверка каждого файла отдельно:
-for file in "${root_files[@]}"; do
-    # Проверка по git-индексу закомментирована — проверяем все файлы:
-    # if git -C "$GIT_ROOT" ls-files --error-unmatch "$file" >/dev/null 2>&1; then
-    if git -C "$GIT_ROOT" ls-files -c -o --exclude-standard -- "$file" | grep -q .; then
-        # Ruff format:
-        print_separator "Ruff format: $file" "$CYAN"
-        print_step "Форматирование файла $file..."
-        if (cd "$GIT_ROOT" && ruff format "$file" 2> >(suppress_com812_warning)); then
-            print_success "Форматирование $file завершено"
-        else
-            mark_failure "ruff format: $file"
-        fi
-
-        # Ruff check:
-        print_separator "Ruff check: $file" "$CYAN"
-        print_step "Проверка файла $file..."
-        if (cd "$GIT_ROOT" && ruff check "${RUFF_CHECK_ARGS[@]}" "$file" 2> >(suppress_com812_warning)); then
-            print_success "Проверка $file завершена"
-        else
-            mark_failure "ruff check: $file"
-        fi
-
-        # Mypy проверка:
-        print_separator "Mypy: $file" "$PURPLE"
-        print_step "Проверка типов в файле $file..."
-        if (cd "$GIT_ROOT" && mypy "${MYPY_ARGS[@]}" "$file"); then
-            print_success "Проверка типов $file завершена"
-        else
-            mark_failure "mypy: $file"
-        fi
-    fi
-    # else
-    #     print_warning "Файл $file не индексирован или не найден, пропускаем"
-    # fi
-done
-
-# Запуск тестов:
-print_separator "Запуск тестов" "$YELLOW"
-print_step "Запуск pytest с детализированным выводом..."
-if (cd "$GIT_ROOT" && pytest -v); then
-    print_success "Все тесты прошли успешно"
+# Версии инструментов в шапке: дрейф версий сразу виден при странных прогонах:
+RUFF_V="$(ruff --version 2>/dev/null || true)"
+MYPY_V="$(mypy --version 2>/dev/null || true)"
+print_step "Инструменты: ${RUFF_V:-нет ruff}, ${MYPY_V:-нет mypy}"
+if [ "$FIX" -eq 1 ]; then
+    print_step "Режим правки (-f): автофиксы разрешены"
 else
-    mark_failure "pytest"
+    print_step "Режим отчёта: файлы не изменяются (автофиксы - ключ -f)"
 fi
 
-# Проверка папки tests (только индексированные файлы):
-if [[ -d "$GIT_ROOT/tests" ]]; then
-    # Получаем список индексированных .py файлов в папке tests
-    test_files=()
-    while IFS= read -r file; do
-        if [[ -n "$file" && -f "$GIT_ROOT/$file" ]]; then
-            test_files+=("$file")
-        fi
-    done < <(git -C "$GIT_ROOT" ls-files -c -o --exclude-standard -- "tests/*.py" 2>/dev/null || true)
+if [ "$MODE" = 'legacy' ]; then
+    print_step "Дефолтный запуск из корня dl_utils - белый список"
 
-    if [ ${#test_files[@]} -gt 0 ]; then
-        # Форматируем пути для отображения (убираем префикс tests/)
-        display_files=()
-        for file in "${test_files[@]}"; do
-            display_files+=("${file#tests/}")
-        done
-
-        # Ruff format для tests:
-        print_separator "Ruff format: tests" "$MAGENTA"
-        print_step "Форматирование тестовых файлов: ${display_files[*]}..."
-        if (cd "$GIT_ROOT" && ruff format tests 2> >(suppress_com812_warning)); then
-            print_success "Форматирование тестов завершено"
-        else
-            mark_failure "ruff format: tests"
-        fi
-
-        # Ruff check для tests:
-        print_separator "Ruff check: tests" "$MAGENTA"
-        print_step "Проверка тестов..."
-        if (cd "$GIT_ROOT" && ruff check "${RUFF_CHECK_ARGS[@]}" tests 2> >(suppress_com812_warning)); then
-            print_success "Проверка тестов завершена"
-        else
-            mark_failure "ruff check: tests"
-        fi
-
-        # Mypy проверка для tests:
-        print_separator "Mypy: tests" "$PURPLE"
-        print_step "Проверка типов в тестах..."
-        if (cd "$GIT_ROOT" && mypy "${MYPY_ARGS[@]}" tests); then
-            print_success "Проверка типов тестов завершена"
-        else
-            mark_failure "mypy: tests"
-        fi
-    else
-        print_warning "В папке tests не найдено индексированных .py файлов"
+    # Проверяем Git-репозиторий относительно директории скрипта:
+    if ! git -C "$SCRIPT_DIR" rev-parse --git-dir > /dev/null 2>&1; then
+        print_error "Этот скрипт должен запускаться внутри Git-репозитория"
+        exit 1
     fi
+    GIT_ROOT="$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel)"
+
+    add_root "$GIT_ROOT"
+    for f in "${root_files[@]}"; do
+        add_file "$GIT_ROOT" "$f" main
+    done
+    while IFS= read -r f; do
+        [ -n "$f" ] || continue
+        add_file "$GIT_ROOT" "$f" test
+    done < <(git -C "$GIT_ROOT" ls-files -c -o --exclude-standard -- 'tests/*.py' 2>/dev/null || true)
 else
-    print_warning "Папка tests не найдена, пропускаем"
+    print_step "Целевые пути: ${TARGETS[*]}"
+    collect_targets
+fi
+
+run_stage "Проверка основных файлов" MAIN_OF
+
+# pytest запускается отдельно в каждой цели со своими тестами - каждый проект
+# тестируется в собственном контексте (его rootdir, pythonpath, строгость):
+ANY_TESTS=0
+for root in "${TARGET_DIRS[@]}"; do
+    [[ -n ${TEST_OF[$root]} ]] || continue
+    ANY_TESTS=1
+done
+
+if [ "$ANY_TESTS" -eq 1 ]; then
+    print_separator "Запуск тестов" "$YELLOW"
+    for root in "${TARGET_DIRS[@]}"; do
+        [[ -n ${TEST_OF[$root]} ]] || continue
+        mapfile -t test_list < <(grep . <<<"${TEST_OF[$root]}")
+        if (cd "$root" && pytest -v "${test_list[@]}"); then
+            print_success "Тесты прошли: $root"
+        else
+            mark_failure "pytest: $root"
+        fi
+    done
+
+    run_stage "Проверка тестов" TEST_OF
+else
+    print_info "Тесты не найдены - pytest пропущен"
 fi
 
 # Финальный вердикт: скрипт успешен только при отсутствии проваленных этапов:
