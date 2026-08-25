@@ -2,19 +2,12 @@
 
 set -e
 
-# Цвета для вывода:
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-BLUE='\033[1;34m'
-CYAN='\033[0;36m'
-MAGENTA='\033[0;35m'
-GRAY='\033[0;90m'
-YELLOW='\033[1;33m'
-NC='\033[0m' # No Color
-
 # Абсолютный путь к директории скрипта: конфиги линтеров всегда берутся отсюда,
 # чтобы проверка работала одинаково из любой точки файловой системы:
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/utils.sh"
 
 usage() {
     cat <<EOF
@@ -53,18 +46,6 @@ if [ ${#TARGETS[@]} -eq 0 ]; then
     TARGETS+=("$PWD")
 fi
 
-print_separator() {
-    echo
-    echo "=========================================="
-    echo "$1"
-    echo "=========================================="
-    echo
-}
-
-print_success() { echo -e "${GREEN}✅ $1${NC}"; }
-print_error() { echo -e "${RED}❌ $1${NC}"; }
-print_warning() { echo -e "${YELLOW}⚠️  $1${NC}"; }
-
 # Каталоги, исключаемые из поиска файлов на диске:
 PRUNE_DIRS=(-name .git -o -name __pycache__ -o -name .venv -o -name venv \
     -o -name node_modules -o -name dist -o -name build \
@@ -102,11 +83,11 @@ for t in "${ABS_TARGETS[@]}"; do
     fi
 done
 
-echo -e "${BLUE}🎯 Целевые пути: ${ABS_TARGETS[*]}${NC}"
+print_step "Целевые пути: ${ABS_TARGETS[*]}"
 if [ "$FIX" -eq 1 ]; then
-    echo -e "${BLUE}🔧 Режим правки (-f): автофиксы разрешены${NC}"
+    print_info "Режим правки (-f): автофиксы разрешены"
 else
-    echo -e "${BLUE}👁 Режим отчёта: файлы не изменяются (автофиксы - ключ -f)${NC}"
+    print_info "Режим отчёта: файлы не изменяются (автофиксы - ключ -f)"
 fi
 echo
 
@@ -202,7 +183,7 @@ run_check() {
     print_separator "Проверка $desc"
 
     if [ -n "$cfg" ]; then
-        echo -e "${BLUE}📁 Конфигурационный файл: $cfg${NC}"
+        print_info "Конфигурационный файл: $cfg"
         echo
     fi
 
@@ -220,7 +201,7 @@ run_check() {
     done
 
     if [ "$count" -eq 0 ]; then
-        echo -e "${GRAY}ℹ️  Файлы не найдены${NC}"
+        print_info "Файлы не найдены"
     else
         local category_failed=$((TOTAL_FAILED - failed_before))
         if [ "$category_failed" -eq 0 ]; then

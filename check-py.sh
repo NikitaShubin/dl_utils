@@ -7,19 +7,13 @@ root_files=("labels.py" "pt_utils.py" "ollm_utils.py" "boxmot_utils.py" "ul_util
 
 set -e  # Выход при первой ошибке
 
-# Цвета для вывода:
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-CYAN='\033[0;36m'
-PURPLE='\033[0;95m'
-NC='\033[0m' # No Color
-
 # Абсолютный путь к директории скрипта: конфиги линтеров всегда берутся отсюда,
 # чтобы проверка работала одинаково из любой точки файловой системы:
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 RUFF_CONFIG="$SCRIPT_DIR/pyproject.toml"
+
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/utils.sh"
 
 usage() {
     cat <<EOF
@@ -66,50 +60,6 @@ mark_failure() {
 # COM812 (trailing comma) с форматтером; остальные предупреждения проходят:
 suppress_com812_warning() {
     grep -v 'may cause conflicts when used with the formatter' >&2
-}
-
-# Функция для получения ширины терминала:
-get_terminal_width() {
-    tput cols 2>/dev/null || echo 80
-}
-
-# Функция для красивого вывода разделителя:
-print_separator() {
-    local text="$1"
-    local color="${2:-$BLUE}"  # По умолчанию синий цвет
-    local width
-    width=$(get_terminal_width)
-    local text_length=${#text}
-    local padding=$(( (width - text_length - 4) / 2 ))
-
-    echo
-    printf "%${width}s\n" | tr ' ' '='
-
-    if [ $padding -gt 0 ]; then
-        printf "%${padding}s ${color}%s${NC} %${padding}s\n" "" "$text" ""
-    else
-        printf " ${color}%s${NC} \n" "$text"
-    fi
-
-    printf "%${width}s\n" | tr ' ' '='
-    echo
-}
-
-# Функции для цветного вывода:
-print_info() {
-    echo -e "${BLUE}ℹ️  INFO:${NC} $1"
-}
-print_success() {
-    echo -e "${GREEN}✅ SUCCESS:${NC} $1"
-}
-print_warning() {
-    echo -e "${YELLOW}⚠️  WARNING:${NC} $1"
-}
-print_error() {
-    echo -e "${RED}❌ ERROR:${NC} $1"
-}
-print_step() {
-    echo -e "${CYAN}🔹 $1${NC}"
 }
 
 # Каталоги, исключаемые из поиска файлов на диске:
@@ -214,7 +164,7 @@ check_one_file() {
 run_stage() {
     local label=$1
     local -n bucket=$2
-    print_separator "$label" "$BLUE"
+    print_separator "$label" "$CYAN"
 
     local total=0 root rel lines
     for root in "${TARGET_DIRS[@]}"; do
@@ -325,7 +275,6 @@ collect_targets() {
     return 0
 }
 
-clear
 echo -e "${GREEN}🚀 Запуск проверок качества кода и тестов...${NC}"
 
 # Версии инструментов в шапке: дрейф версий сразу виден при странных прогонах:
@@ -389,7 +338,7 @@ else
 fi
 
 # Финальный вердикт: скрипт успешен только при отсутствии проваленных этапов:
-print_separator "ИТОГ" "$BLUE"
+print_separator "ИТОГ" "$CYAN"
 if [ ${#FAILED_STAGES[@]} -gt 0 ]; then
     print_error "Проваленных этапов: ${#FAILED_STAGES[@]}"
     for stage in "${FAILED_STAGES[@]}"; do

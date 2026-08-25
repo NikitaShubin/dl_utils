@@ -156,6 +156,8 @@ graph RL;
 - **[check-infra.sh](./docs/check-infra.md "Перейти к документации")**: Линтинг инфраструктурных
   файлов любого проекта: docker-compose (dclint), Dockerfile (hadolint),
   shell-скрипты (shellcheck), Markdown (markdownlint)
+- **[check.sh](./docs/check.md "Перейти к документации")**: Комбинированная проверка
+  (check-py.sh + check-infra.sh); аргументы передаются обоим скриптам
 
 ---
 
