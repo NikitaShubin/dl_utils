@@ -170,8 +170,8 @@ com/PublicPackages/_packaging/onnxruntime-cuda-12/pypi/simple/           \
     # Линтеры, стайлчекеры, тестеры и прочие утилиты работы с кодом:     \
     cookiecutter-data-science pytest-cov pycodestyle pycodestyle_magic   \
     python-lsp-server[all] jupyterlab-lsp black[jupyter] ruff flake8     \
-    isort[requirements_deprecated_finder,pipfile_deprecated_finder]      \
-    nbqa pylint wemake-python-styleguide ondivi mypy                     \
+    isort[requirements_deprecated_finder,pipfile_deprecated_finder] nbqa \
+    pylint wemake-python-styleguide ondivi mypy jupyter-ruff pynblint    \
                                                                          \
     # Дополнительные модули для корректной работы mypy                   \
     pandas-stubs types-tqdm types-PyYAML                                 \
