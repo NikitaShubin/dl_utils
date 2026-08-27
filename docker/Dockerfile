@@ -302,33 +302,43 @@ RUN mkdir -p "${THEMEDIR}" && \
 # при запуске:
 # RUN sudo chmod u+s /sbin/ldconfig.real
 
-# Задаём текстовый редактор по умолчанию для mc:
-RUN echo SELECTED_EDITOR=\"/bin/nano\"> "${HOMEDIR}"/.selected_editor
 
-# Настраиваем соединение JupyterLab по-умолчанию:
+# Конфигурируем ПО:
+
 ARG JPCONF="${HOMEDIR}/.jupyter/jupyter_lab_config.py"
-RUN jupyter lab --generate-config && \
-    echo "c.ServerApp.allow_root = True"          >> "${JPCONF}" && \
-    echo "c.ServerApp.allow_remote_access = True" >> "${JPCONF}" && \
-    echo "c.ServerApp.ip = '*'"                   >> "${JPCONF}" && \
-    echo "c.ServerApp.token = ''"                 >> "${JPCONF}" && \
-    echo "c.ServerApp.port = 8888"                >> "${JPCONF}" && \
-    echo "c.NotebookApp.open_browser = False"     >> "${JPCONF}"
-# По-умолчанию пароли и токены не используются.
-# Однако далее пароль будет взят из переменной окружения.
+ARG TMCONF="${HOMEDIR}/.tmux.conf"
 
-# Другине настройки Jupyter-сервера:
-RUN echo "c.ContentsManager.allow_hidden = True"  >> "${JPCONF}" && \
-    echo "c.LatexConfig.run_times = 2"            >> "${JPCONF}" && \
-    echo "c.LatexConfig.manual_cmd_args = ["      >> "${JPCONF}" && \
-    echo "    'pdflatex',"                        >> "${JPCONF}" && \
-    echo "    '-interaction=nonstopmode',"        >> "${JPCONF}" && \
-    echo "    '-halt-on-error',"                  >> "${JPCONF}" && \
-    echo "    '-file-line-error'"                 >> "${JPCONF}" && \
-    echo "    '-shell-escape',"                   >> "${JPCONF}" && \
-    echo "    '-synctex=1',"                      >> "${JPCONF}" && \
-    echo "    '{filename}.tex'"                   >> "${JPCONF}" && \
-    echo "]"                                      >> "${JPCONF}"
+    # Задаём текстовый редактор по умолчанию для mc:
+RUN echo SELECTED_EDITOR=\"/bin/nano\" > "${HOMEDIR}"/.selected_editor && \
+    # Настраиваем tmux:
+    echo '# Используем мышь:'                        >> "${TMCONF}" && \
+    echo 'set -g mouse on'                           >> "${TMCONF}" && \
+    echo '# 256 цветов'                              >> "${TMCONF}" && \
+    echo 'set -g default-terminal "screen-256color"' >> "${TMCONF}" && \
+    echo '# Увеличиваем историю прокрутки'           >> "${TMCONF}" && \
+    echo 'set -g history-limit 10000'                >> "${TMCONF}" && \
+    # Настраиваем соединение JupyterLab по-умолчанию:
+    jupyter lab --generate-config                                   && \
+    echo "c.ServerApp.allow_root = True"             >> "${JPCONF}" && \
+    echo "c.ServerApp.allow_remote_access = True"    >> "${JPCONF}" && \
+    echo "c.ServerApp.ip = '*'"                      >> "${JPCONF}" && \
+    echo "c.ServerApp.token = ''"                    >> "${JPCONF}" && \
+    echo "c.ServerApp.port = 8888"                   >> "${JPCONF}" && \
+    echo "c.NotebookApp.open_browser = False"        >> "${JPCONF}" && \
+    # По-умолчанию пароли и токены не используются.
+    # Однако далее пароль будет взят из переменной окружения.
+    # Другине настройки Jupyter-сервера:
+    echo "c.ContentsManager.allow_hidden = True"     >> "${JPCONF}" && \
+    echo "c.LatexConfig.run_times = 2"               >> "${JPCONF}" && \
+    echo "c.LatexConfig.manual_cmd_args = ["         >> "${JPCONF}" && \
+    echo "    'pdflatex',"                           >> "${JPCONF}" && \
+    echo "    '-interaction=nonstopmode',"           >> "${JPCONF}" && \
+    echo "    '-halt-on-error',"                     >> "${JPCONF}" && \
+    echo "    '-file-line-error'"                    >> "${JPCONF}" && \
+    echo "    '-shell-escape',"                      >> "${JPCONF}" && \
+    echo "    '-synctex=1',"                         >> "${JPCONF}" && \
+    echo "    '{filename}.tex'"                      >> "${JPCONF}" && \
+    echo "]"                                         >> "${JPCONF}"
 
 # Отключаем автосохранение в JupyterLab:
 ARG DOCMANAGER_DIR="${HOMEDIR}/.jupyter/lab/user-settings/@jupyterlab/docmanager-extension"
