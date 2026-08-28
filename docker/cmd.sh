@@ -11,7 +11,7 @@ if [ -n "$LOCAL_UID" ] && [ "$LOCAL_UID" != "0" ] && [ -z "${_USER_INIT_DONE:-}"
     sed -i "s/^user:[^:]*:[^:]*:/user:x:$LOCAL_GID:/" /etc/group
     # Меняем владельца только тех файлов, куда нужна запись:
     chown "$LOCAL_UID:$LOCAL_GID" /home/user
-    chown -R "$LOCAL_UID:$LOCAL_GID" /home/user/.jupyter /home/user/.config /home/user/.cache /home/user/.local /home/user/.npm /home/user/.gitconfig /home/user/.selected_editor /home/user/.bashrc /home/user/.profile 2>/dev/null || true
+    chown -R "$LOCAL_UID:$LOCAL_GID" /home/user/.jupyter /home/user/.config /home/user/.cache /home/user/.local /home/user/.npm /home/user/.gitconfig /home/user/.selected_editor /home/user/.bashrc /home/user/.profile /home/user/.zshrc /home/user/.oh-my-zsh 2>/dev/null || true
     set -e
     exec gosu user bash "$0" "$@"
 fi
@@ -26,6 +26,16 @@ cleanup() {
     log "Завершение работы..."
     # shellcheck disable=SC2046
     kill $(jobs -p) 2>/dev/null
+    # Ждём корректного завершения фоновых сервисов до 10 с (как docker stop),
+    # затем принудительно добиваем и выходим, чтобы PID1 не завис:
+    local i
+    for ((i = 0; i < 10; i++)); do
+        # shellcheck disable=SC2015
+        jobs -p | grep -q . || break
+        sleep 1
+    done
+    # shellcheck disable=SC2046
+    kill -KILL $(jobs -p) 2>/dev/null
     wait 2>/dev/null
     exit 0
 }

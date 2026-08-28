@@ -1,0 +1,138 @@
+# ==============================================================================
+# Аппендикс к .zshrc контейнера dl_cv.
+# Подключается строкой `source ~/.zshrc.custom` из основного .zshrc (oh-my-zsh),
+# поэтому устойчив к изменениям внутреннего .zshrc при пересборках образа.
+# ==============================================================================
+
+# ==== Читаемость и цветовая гамма темы agnoster ===============================
+# Дефолтный тёмно-синий фон пути (blue) плохо читается. Берём более светлый синий
+# фон + тёмный текст, с автовыбором под терминал: при поддержке 256 цветов
+# (xterm-256color) — нежно-голубой 111, иначе (базовые 16) — cyan. Присваивание
+# действует, т.к. переменные читаются при отрисовке приглашения после oh-my-zsh:
+if [[ "$(tput colors 2>/dev/null || echo 8)" -ge 256 ]]; then
+    export AGNOSTER_DIR_BG=111 AGNOSTER_DIR_FG=black
+    export AGNOSTER_VENV_BG=111 AGNOSTER_VENV_FG=black
+else
+    export AGNOSTER_DIR_BG=cyan AGNOSTER_DIR_FG=black
+    export AGNOSTER_VENV_BG=cyan AGNOSTER_VENV_FG=black
+fi
+
+# ==== Баннер: таблица состояния системы и GPU =================================
+# Рисуется при каждом входе в интерактивную консоль (zsh выполняет .zshrc неинтерактивно).
+
+# Печатает одну строку таблицы с выравниванием правой границы.
+# Длина содержимого считается по чистому тексту (без ANSI-кодов),
+# поэтому цвет не ломает паддинг. "$1" — текст, "$2" — опциональный цвет.
+_banner_line() {
+    local content="$1" color="${2:-}" len pad
+    len=${#content}
+    pad=$((inner - len - 2))
+    ((pad < 0)) && pad=0
+    printf "${CYAN}║${NC} "
+    [[ -n "$color" ]] && printf "$color"
+    printf -- "%s" "$content"
+    [[ -n "$color" ]] && printf "$NC"
+    printf "%${pad}s ${CYAN}║${NC}\n" ""
+}
+
+_print_banner() {
+    # Палитра (в духе dl_utils/utils.sh):
+    local CYAN='\033[0;36m' YELLOW='\033[1;33m' GRAY='\033[0;90m' NC='\033[0m'
+
+    local width inner
+    width=$(tput cols 2>/dev/null || echo 80)
+    inner=$((width - 2))
+
+    local line_top="" line_mid="" line_bot="" i
+    for ((i = 0; i < inner; i++)); do line_top+="═"; done
+    for ((i = 0; i < inner; i++)); do line_mid+="─"; done
+    for ((i = 0; i < inner; i++)); do line_bot+="═"; done
+
+    # --- Сбор данных ---
+    local hostname_="$(hostname)"
+    local date_="$(date '+%d.%m.%Y %H:%M')"
+    local mem_="n/a"
+    command -v free >/dev/null 2>&1 && mem_="$(free -h | awk '/Mem:/ {print $3 "/" $2}')"
+    local cpu_="n/a"
+    command -v nproc >/dev/null 2>&1 && cpu_="$(nproc) cores"
+    local uptime_="n/a"
+    command -v uptime >/dev/null 2>&1 && uptime_="$(uptime -p 2>/dev/null | sed 's/up //')"
+    local py_="n/a"
+    command -v python3 >/dev/null 2>&1 && py_="$(python3 --version 2>/dev/null)"
+    # CUDA (nvcc) — может отсутствовать или быть в другой версии:
+    local cuda_="$(nvcc --version 2>/dev/null | grep -o 'release [0-9.]*' | awk '{print $2}')"
+    [ -z "$cuda_" ] && cuda_="${CUDA_VERSION:-n/a}"
+
+    # --- Таблица ---
+    printf "${CYAN}╔${line_top}╗${NC}\n"
+    _banner_line "dl_cv  |  ${hostname_}  |  ${date_}"
+    printf "${CYAN}╠${line_mid}╣${NC}\n"
+    _banner_line "RAM ${mem_}   CPU ${cpu_}   Uptime: ${uptime_}"
+    _banner_line "${py_}   CUDA ${cuda_}"
+
+    # --- GPU (если доступен) ---
+    if command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi -L >/dev/null 2>&1; then
+        printf "${CYAN}╠${line_mid}╣${NC}\n"
+        local line
+        while IFS= read -r line; do
+            _banner_line "GPU ${line}" "$GRAY"
+        done < <(nvidia-smi --query-gpu=index,name,memory.used,memory.total,utilization.gpu --format=csv,noheader,nounits 2>/dev/null)
+    else
+        printf "${CYAN}╠${line_mid}╣${NC}\n"
+        _banner_line "GPU недоступен (nvidia-smi)" "$YELLOW"
+    fi
+
+    printf "${CYAN}╚${line_bot}╝${NC}\n"
+    printf "\n"
+}
+
+# Показываем баннер только в интерактивной сессии и при первом появлении
+# (перемена директории/команды не перерисовывает его):
+if [[ -o interactive ]] && [[ -z "${_DL_BANNER_SHOWN:-}" ]]; then
+    export _DL_BANNER_SHOWN=1
+    _print_banner
+fi
+
+# ==== Общие алиасы (одинаковые для user и root) ==============================
+alias nv='nvidia-smi -l 1'
+alias yt='yt-dlp'
+alias ffmpeg=/usr/bin/ffmpeg
+alias ffprobe=/usr/bin/ffprobe
+alias ffplay=/usr/bin/ffplay
+alias checkcrc='md5sum -c crc.md5'
+alias makecrc='find . -type f ! -name crc.md5 -exec md5sum {} + > crc.md5'
+# Редактирование и перезагрузка собственного .zshrc:
+alias brc='nano ~/.zshrc && source ~/.zshrc'
+
+# SSH-агент (если есть ключи):
+if command -v ssh-agent >/dev/null 2>&1 && command -v ssh-add >/dev/null 2>&1; then
+    setopt null_glob 2>/dev/null
+    _keys=(~/.ssh/*(N))
+    if [[ ${#_keys} -gt 0 ]]; then
+        eval "$(ssh-agent -s)" > /dev/null 2>&1
+        ssh-add -q ~/.ssh/* 2> /dev/null
+    fi
+    unset _keys
+fi
+
+# ==== Алиасы c учётом пользователя ===========================================
+if [[ $UID -eq 0 ]]; then
+    # root: управление Jupyter выполняется от имени обычного пользователя
+    # (запускать jupyter под root некорректно), а brc редактирует /root/.zshrc
+    # явно, т.к. HOME у root в контейнере = /home/user (задано в run.sh) и `~`
+    # указывал бы не на root.
+    alias brc='nano /root/.zshrc && source /root/.zshrc'
+    alias jp='gosu user bash -lc "cd /workspace && jupyter-lab --notebook-dir /workspace > /dev/null &"'
+    alias jl='gosu user bash -lc "jupyter-lab list"'
+    alias js='gosu user bash -lc "killall jupyter-lab"'
+    # Остановить контейнер: SIGTERM на PID1 (cmd.sh) → trap cleanup корректно
+    # завершает фоновые Jupyter/OpenCode и выходит.
+    alias ds='kill -TERM 1'
+else
+    # Обычный пользователь:
+    alias jp='cd /workspace && jupyter-lab --notebook-dir /workspace > /dev/null &'
+    alias jl='jupyter-lab list'
+    alias js='killall jupyter-lab'
+    # То же через sudo: PID1 запущен root, а сессия — от обычного пользователя.
+    alias ds='sudo kill -TERM 1'
+fi

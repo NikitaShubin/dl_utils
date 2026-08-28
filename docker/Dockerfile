@@ -9,8 +9,7 @@ ARG WORKSPACE='/workspace'       # Рабочая папка
 # hadolint ignore=DL3064
 ARG USERNAME='user'              # Имя пользователя
 ARG HOMEDIR="/home/${USERNAME}"  # Домашняя папка пользователя
-ARG SHELL_PATH='/bin/bash'       # Путь к интерпретатору оболочки
-ARG BRC="${HOMEDIR}/.bashrc"     # Путь к настройкам сессии терминала
+ARG SHELL_PATH='/usr/bin/zsh'    # Путь к интерпретатору оболочки
 
 
 # Меняем sh на bash:
@@ -39,6 +38,7 @@ ARG APPLICATIONS="                                    \
                                                       \
     # Базовые пользовательские приложения в консоли:  \
     sudo gosu nano mc git ssh p7zip-full zip unzip    \
+    zsh                                               \
                                                       \
     # Консольные утилиты для загрузки файлов из сети: \
     curl wget wget2                                   \
@@ -269,7 +269,38 @@ RUN python ./tmp/py/sam2al.py                       && \
     gosu "${USERNAME}" python ./tmp/py/gdinoal.py   && \
     # Остальные модели можно качать под обычным пользователем.
     rm -rf ./tmp/py/
-    # В конце удаляем временные файлы.# Переключаемся на пользователя:
+
+# Переходим на zsh + oh-my-zsh как дефолтный шелл.
+# Аппендикс (баннер + алиасы) хранится отдельным файлом и подключается к .zshrc
+# строкой source, поэтому не ломается при изменениях внутреннего .zshrc при пересборках.
+# Общий файл для user и root:
+COPY docker/zshrc.custom /etc/zshrc.custom
+
+# Установка oh-my-zsh для обычного пользователя (тема agnoster) и его .zshrc:
+# hadolint ignore=SC2016
+RUN gosu "${USERNAME}" sh -c 'RUNZSH=no CHSH=no \
+        sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)"' && \
+    sed -i 's/^ZSH_THEME=.*/ZSH_THEME="agnoster"/' "${HOMEDIR}/.zshrc" && \
+    sed -i '1i export ZSH_DISABLE_COMPFIX=true' "${HOMEDIR}/.zshrc" && \
+    echo 'source /etc/zshrc.custom' >> "${HOMEDIR}/.zshrc" && \
+    chmod -R g-w,o-w "${HOMEDIR}/.oh-my-zsh" && \
+    chsh -s /usr/bin/zsh "${USERNAME}"
+
+# Параметры отрисовки темы (цвета пути, жирность) задаются в /etc/zshrc.custom.
+# Исходные PUA-глифы agnoster (ue0b0/ue0a0/...) оставляем как есть — они
+# отображаются при использовании powerline-патченного шрифта в терминале.
+
+# Установка oh-my-zsh для root (тема agnoster) и его .zshrc:
+# hadolint ignore=DL4001
+RUN RUNZSH=no CHSH=no \
+        sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" && \
+    sed -i 's/^ZSH_THEME=.*/ZSH_THEME="agnoster"/' /root/.zshrc && \
+    sed -i '1i export ZSH_DISABLE_COMPFIX=true' /root/.zshrc && \
+    echo 'source /etc/zshrc.custom' >> /root/.zshrc && \
+    chmod -R g-w,o-w /root/.oh-my-zsh && \
+    chsh -s /usr/bin/zsh root
+
+# Переключаемся на пользователя:
 USER "${USERNAME}"
 
 # Звуковой плагин OpenCode (BEL-звонок в терминал при ожидании пользователя):
@@ -296,12 +327,6 @@ RUN mkdir -p "${THEMEDIR}" && \
 #ARG KERAS_MODELS_DIR="${HOMEDIR}/.keras/models/"
 #ARG KERAS_APP_URL='https://storage.googleapis.com/tensorflow/keras-applications/'
 #RUN wget --progress=dot:giga -P "${KERAS_MODELS_DIR}" "${KERAS_APP_URL}efficientnet_v2/efficientnetv2-m_notop.h5"
-
-# Убираем надоедливое 
-# "/sbin/ldconfig.real: Can't create temporary cache file /etc/ld.so.cache~: Permission denied"
-# при запуске:
-# RUN sudo chmod u+s /sbin/ldconfig.real
-
 
 # Конфигурируем ПО:
 
@@ -358,31 +383,6 @@ RUN mkdir -p "${DOCMANAGER_DIR}" && \
 # Поддержка LaTeX в JupyterLab:
 #RUN jupyter lab --generate-config && \
 #    echo "c.NotebookApp.extra_static_paths = ['node_modules/mathjax/es5/tex-mml-chtml.js']" >> ~/.jupyter/jupyter_lab_config.py
-
-# Прописываем ряд полезных алиасов в "${BRC}":
-#ARG JP="${HOMEDIR}"/.local/bin/jupyter-lab
-ARG JP=jupyter-lab
-ARG JPPARAMS="--notebook-dir '${WORKSPACE}'"
-RUN echo "alias jp=\"cd '${WORKSPACE}' && ${JP} ${JPPARAMS} > /dev/null &\""            >> "${BRC}" && \
-    echo "alias jl=\"${JP} list\""                                                      >> "${BRC}" && \
-    echo "alias js=\"killall jupyter-lab\""                                             >> "${BRC}" && \
-    echo "alias ds=\"js\""                                                              >> "${BRC}" && \
-                                                                                                       \
-    echo "alias checkcrc=\"md5sum -c crc.md5\""                                         >> "${BRC}" && \
-    echo "alias makecrc=\"find . -type f ! -name crc.md5 -exec md5sum {} + > crc.md5\"" >> "${BRC}" && \
-                                                                                                       \
-    echo "alias yt=\"yt-dlp\""                                                          >> "${BRC}" && \
-    echo "alias ffmpeg=/usr/bin/ffmpeg"                                                 >> "${BRC}" && \
-    echo "alias ffprobe=/usr/bin/ffprobe"                                               >> "${BRC}" && \
-    echo "alias ffplay=/usr/bin/ffplay"                                                 >> "${BRC}" && \
-                                                                                                       \
-    echo "alias nv=\"nvidia-smi -l 1\""                                                 >> "${BRC}" && \
-                                                                                                       \
-    echo "alias brc=\"nano '${BRC}' && source '${BRC}'\""                               >> "${BRC}" && \
-                                                                                                       \
-    echo "eval \"\$(ssh-agent -s)\" > /dev/null"                                        >> "${BRC}" && \
-    echo "ssh-add -q ~/.ssh/* 2> /dev/null"                                             >> "${BRC}"
-
 
 # Используемые порты:
 EXPOSE 8888 6006 8000 8866
