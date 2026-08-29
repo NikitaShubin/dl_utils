@@ -263,6 +263,15 @@ class TestResult2Objs(unittest.TestCase):
         assert objs[0].attribs['label'] == 'class1'
         assert objs[0].attribs['confidence'] == 0.9
 
+    def test_result2objs_attribs_none(self) -> None:
+        """Без attribs используется пустой словарь."""
+        mock_result = self.create_mock_result_with_detections()
+
+        objs = _result2objs(mock_result)
+
+        assert objs[0].attribs['label'] == 'class1'
+        assert objs[0].attribs['track_id'] is None
+
 
 class TestUltralyticsModel(unittest.TestCase):
     """Тесты для класса UltralyticsModel."""
@@ -772,6 +781,55 @@ class TestUltralyticsModel(unittest.TestCase):
 
                 tmp_path.unlink()
 
+    def test_result2df_with_unsupported_type(self) -> None:
+        """Тест result2df с объектом неподдерживаемого типа."""
+        with patch('ul_utils.YOLO') as mock_yolo_class:
+            mock_yolo_class.return_value = self.mock_yolo
+
+            with tempfile.NamedTemporaryFile(suffix='.pt', delete=False) as tmp:
+                tmp_path = Path(tmp.name)
+
+                model = UltralyticsModel(str(tmp_path))
+                mock_result = MagicMock()
+                mock_result.orig_shape = (200, 200)
+
+                with (
+                    patch('ul_utils._result2objs', return_value=[object()]),
+                    pytest.raises(
+                        TypeError,
+                        match='Неподдерживаемый тип',
+                    ),
+                ):
+                    model.result2df(mock_result)
+
+                tmp_path.unlink()
+
+    def test_result2df_with_two_arg_filter(self) -> None:
+        """Тест result2df с фильтром, принимающим (objs, img)."""
+        with patch('ul_utils.YOLO') as mock_yolo_class:
+            mock_yolo_class.return_value = self.mock_yolo
+
+            with tempfile.NamedTemporaryFile(suffix='.pt', delete=False) as tmp:
+                tmp_path = Path(tmp.name)
+
+                received: list[object] = []
+
+                def test_filter(objs: list[object], img: object) -> list[object]:
+                    received.append(img)
+                    return objs
+
+                model = UltralyticsModel(
+                    str(tmp_path),
+                    postprocess_filters=[test_filter],
+                )
+
+                with patch('ul_utils._result2objs', return_value=[]):
+                    df = model.result2df(MagicMock())
+                    assert len(received) == 1
+                    assert df is None
+
+                tmp_path.unlink()
+
     def test_result2df_with_invalid_filter(self) -> None:
         """Тест result2df с невалидным фильтром."""
         with patch('ul_utils.YOLO') as mock_yolo_class:
@@ -850,6 +908,79 @@ class TestUltralyticsModel(unittest.TestCase):
             assert mapping == {0: 0, 1: 1}
             # tqdm не должен вызываться, так как desc=None
             mock_tqdm.assert_not_called()
+
+    def test_video2subtask_with_desc(self) -> None:
+        """Тест video2subtask с desc - результаты оборачиваются в tqdm."""
+        with (
+            patch('ul_utils.tqdm') as mock_tqdm,
+            patch('ul_utils.VideoGenerator') as mock_video_gen,
+            patch('ul_utils.isinstance') as mock_isinstance,
+        ):
+            mock_model = MagicMock(spec=ULModel)
+
+            def isinstance_side_effect(obj: object, cls: object) -> bool:
+                if cls is ULModel and obj is mock_model:
+                    return True
+                # Проверяем, что cls — тип или кортеж типов, затем вызываем isinstance
+                if isinstance(cls, (type, tuple)):
+                    return isinstance(obj, cls)
+                return False
+
+            mock_isinstance.side_effect = isinstance_side_effect
+
+            mock_result = MagicMock()
+            mock_result.cpu.return_value = mock_result
+            mock_model.return_value = [mock_result]
+            mock_video_gen.return_value.__len__.return_value = 1
+
+            model_wrapper = UltralyticsModel(mock_model)
+            model_wrapper.result2df = MagicMock(
+                return_value=pd.DataFrame({'label': ['test']}),
+            )
+
+            model_wrapper.video2subtask('dummy.mp4', desc='processing')
+
+            mock_tqdm.assert_called_once()
+            assert mock_tqdm.call_args[0][1] == 'processing'
+
+    def test_result2df_with_mask_no_scaling(self) -> None:
+        """Тест result2df с маской без масштабирования и с непустыми точками."""
+        with patch('ul_utils.YOLO') as mock_yolo_class:
+            mock_yolo_class.return_value = self.mock_yolo
+
+            with tempfile.NamedTemporaryFile(suffix='.pt', delete=False) as tmp:
+                tmp_path = Path(tmp.name)
+
+                model = UltralyticsModel(str(tmp_path))
+                model.frame_ind = 1
+
+                mock_result = MagicMock()
+                mock_result.orig_shape = (200, 200)
+                mock_result.orig_img = np.zeros((200, 200, 3), dtype=np.uint8)
+
+                mock_mask = MagicMock(spec=Mask)
+                mock_mask.array = np.zeros((200, 200), dtype=np.uint8)
+                mock_mask.attribs = {'label': 'class1', 'frame': 1, 'true_frame': 1}
+
+                with (
+                    patch('ul_utils._result2objs', return_value=[mock_mask]),
+                    patch('ul_utils.CVATPoints.from_mask') as mock_from_mask,
+                    patch('ul_utils.concat_dfs') as mock_concat_dfs,
+                ):
+                    mock_points = MagicMock()
+                    mock_points.__len__.return_value = 1
+                    mock_points.to_dfrow.return_value = {'label': 'class1'}
+                    mock_from_mask.return_value = mock_points
+
+                    df = model.result2df(mock_result)
+
+                    mock_from_mask.assert_called_once_with(mock_mask)
+                    mock_points.scale.assert_not_called()
+                    mock_points.to_dfrow.assert_called_once()
+                    mock_concat_dfs.assert_called_once()
+                    assert df == mock_concat_dfs.return_value
+
+                tmp_path.unlink()
 
 
 class TestUltralyticsModelIntegration(unittest.TestCase):
