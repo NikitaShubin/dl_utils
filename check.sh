@@ -9,34 +9,6 @@ SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 # shellcheck disable=SC1091
 source "$SCRIPT_DIR/utils.sh"
 
-# Прямоугольник из псевдографики (╔═╗║╚═╝) с текстом по центру:
-#   ╔═══════════════════════ Текст ═══════════════════════╗
-#   ║                                                     ║
-#   ╚═════════════════════════════════════════════════════╝
-print_box() {
-    local text="$1"
-    local color="${2:-$CYAN}"
-    local width
-    width=$(get_terminal_width)
-    local inner=$((width - 3))
-    local text_length=${#text}
-    local half=$(( (inner - text_length) / 2 ))
-    local lpad=$half
-    local rpad=$(( inner - text_length - half ))
-    local hline empty pad_h
-    pad_h=$(printf "%$((inner))s" "")
-    hline="${pad_h// /═}"
-    empty=$(printf "%$((inner))s")
-
-    echo
-    echo -e "${color}╔${hline}╗${NC}"
-    echo -e "${color}║${empty}║${NC}"
-    echo -e "${color}║$(printf "%*s" "$lpad" "")${text}$(printf "%*s" "$rpad" "")║${NC}"
-    echo -e "${color}║${empty}║${NC}"
-    echo -e "${color}╚${hline}╝${NC}"
-    echo
-}
-
 usage() {
     cat <<EOF
 Использование: $(basename "$0") [-f|--fix] [-g|--git-only] [путь...]
@@ -45,7 +17,16 @@ usage() {
 check-infra.sh (Docker/shell/Markdown). Аргументы передаются обоим
 скриптам одинаково.
 
-Позиционные аргументы - проверяемые файлы или папки.
+Чтобы каждый чекер не печатал «нет файлов» по не своим файлам, check.sh
+передаёт подскриптам флаги тишины (-q) и шапки (-H): каждый дочерний чекер
+проверяет только свои релевантные файлы и показывает шапку лишь когда что-то
+проверил. Если ни один чекер не нашёл файлов подходящего типа (например,
+передан одиночный файл неподдерживаемого типа), check.sh выводит
+предупреждение и завершается с кодом 0.
+
+Позиционные аргументы - проверяемые файлы или папки; файл автоматически
+направляется только подходящему по типу чекеру (.py/.ipynb -> check-py.sh,
+Dockerfile/compose/*.sh/*.md -> check-infra.sh).
 Без путей: из корня dl_utils — белый список py + текущая папка infra,
 из любой другой папки — её содержимое.
 
@@ -73,23 +54,47 @@ for arg in "$@"; do
     esac
 done
 
-# Сборка аргументов для подскриптов:
+# Код возврата подчинённого чекера при отсутствии файлов подходящего типа:
+# такой подчинённый не считает ни ошибкой, ни «проверено хоть что-то»:
+NO_FILES=3
+
+# Сборка аргументов для подскриптов: -q/-H ставятся всегда, чтобы подчинённый
+# сам решил, печатать ли шапку и замолчать ли при отсутствии файлов:
 SCRIPT_ARGS=()
 [ "$FIX" -eq 1 ] && SCRIPT_ARGS+=("-f")
 [ "$GIT_ONLY" -eq 1 ] && SCRIPT_ARGS+=("-g")
+SCRIPT_ARGS+=("-q")
+SCRIPT_ARGS+=("-H")
 SCRIPT_ARGS+=("${TARGETS[@]}")
 
-print_box "▶ check-py.sh"
-PY_FAILED=0
-bash "$SCRIPT_DIR/check-py.sh" "${SCRIPT_ARGS[@]}" || PY_FAILED=1
+# Прогон одного подчинённого чекера: код 3 (нет подходящих файлов) учитываем
+# отдельно, чтобы в итоге проверить, что хоть один чекер нашёл и проверил
+# хоть один файл:
+FOUND_ANY=0
+FAILED=0
+run_sub() {
+    local rc=0
+    bash "$SCRIPT_DIR/$1" "${SCRIPT_ARGS[@]}" || rc=$?
+    case $rc in
+        0) FOUND_ANY=1 ;;
+        "$NO_FILES") ;;
+        *) FOUND_ANY=1; FAILED=1 ;;
+    esac
+}
+run_sub check-py.sh
+run_sub check-infra.sh
 
-print_box "▶ check-infra.sh"
-INFRA_FAILED=0
-bash "$SCRIPT_DIR/check-infra.sh" "${SCRIPT_ARGS[@]}" || INFRA_FAILED=1
-
-if [ "$PY_FAILED" -eq 1 ] || [ "$INFRA_FAILED" -eq 1 ]; then
-    print_box "✗ ИТОГ: ошибки в одном или обоих скриптах" "$RED"
+if [ "$FAILED" -eq 1 ]; then
+    print_box "✗ ИТОГ: ошибки в одном или обоих подскриптах" "$RED"
     exit 1
 fi
 
-print_box "✓ ИТОГ: все проверки пройдены успешно" "$GREEN"
+if [ "$FOUND_ANY" -eq 1 ]; then
+    print_box "✓ ИТОГ: все проверки пройдены успешно" "$GREEN"
+    exit 0
+fi
+
+# Ни один подчинённый не нашёл файлов подходящего типа (например, передан
+# одиночный файл неподдерживаемого типа) - предупреждение, но не ошибка:
+print_box "⚠ ИТОГ: нет файлов подходящего типа ни для одного чекера" "$YELLOW"
+exit 0

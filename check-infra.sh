@@ -9,9 +9,15 @@ SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 # shellcheck disable=SC1091
 source "$SCRIPT_DIR/utils.sh"
 
+# Код возврата при отсутствии файлов подходящего типа
+# (Dockerfile/compose/shell/markdown): возвращается только в режиме тишины
+# (-q); в CI это честный nonzero, чтобы покровная проверка не давала ложный
+# «зелёный» по пустому списку файлов:
+NO_FILES=3
+
 usage() {
     cat <<EOF
-Использование: $(basename "$0") [-f|--fix] [-g|--git-only] [путь...]
+Использование: $(basename "$0") [-f|--fix] [-g|--git-only] [-q] [-H] [путь...]
 
 Позиционные аргументы - проверяемые файлы или папки
 (Dockerfile, docker-compose, shell, markdown).
@@ -20,17 +26,26 @@ usage() {
 -f, --fix       разрешить автофиксы (умеют dclint и markdownlint);
                 по умолчанию режим отчёта - файлы не изменяются
 -g, --git-only  проверять только файлы, закоммиченные в git (удобно для CI)
+-q, --quiet-no-files  в режиме тишины (для главного check.sh): при отсутствии
+                файлов подходящего типа ничего не печатать и выйти с кодом 3;
+                иначе вывести сообщение об отсутствии и выйти с кодом 0
+-H, --print-header  печатать шапку (заголовок, режим, цели) - для check.sh;
+                без флага шапка подавлена
 EOF
 }
 
 # Разбор аргументов: пути - в цели, флаги - на месте:
 FIX=0
 GIT_ONLY=0
+QUIET=0
+PRINT_HEADER=0
 TARGETS=()
 for arg in "$@"; do
     case $arg in
         -f | --fix) FIX=1 ;;
         -g | --git-only) GIT_ONLY=1 ;;
+        -q | --quiet-no-files) QUIET=1 ;;
+        -H | --print-header) PRINT_HEADER=1 ;;
         -h | --help) usage; exit 0 ;;
         -*)
             echo "Неизвестный флаг: $arg" >&2
@@ -77,19 +92,11 @@ for t in "${ABS_TARGETS[@]}"; do
             exit 1
         fi
         if [ -z "${REPO_WARNED[$d]:-}" ]; then
-            print_warning "Вне git-репозитория - берутся все файлы с диска: $d"
+            [ "$QUIET" -eq 1 ] || print_warning "Вне git-репозитория - берутся все файлы с диска: $d"
             REPO_WARNED[$d]=1
         fi
     fi
 done
-
-print_step "Целевые пути: ${ABS_TARGETS[*]}"
-if [ "$FIX" -eq 1 ]; then
-    print_info "Режим правки (-f): автофиксы разрешены"
-else
-    print_info "Режим отчёта: файлы не изменяются (автофиксы - ключ -f)"
-fi
-echo
 
 # Кандидаты категории по цели: маски передаются аргументами; при --git-only
 # это листинг git относительно корня репозитория, иначе поиск по диску:
@@ -180,6 +187,12 @@ run_check() {
     local -n files=$arr
     local failed_before=$TOTAL_FAILED
 
+    # В режиме тишины (-q) пустая категория не выводится вовсе (печатаются
+    # только непустые); иначе пустой категории соответствует инфо-строка:
+    if [ ${#files[@]} -eq 0 ] && [ "$QUIET" -eq 1 ]; then
+        return 0
+    fi
+
     print_separator "Проверка $desc"
 
     if [ -n "$cfg" ]; then
@@ -229,6 +242,31 @@ gather FILES_COMPOSE is_compose 'docker-compose*.yml' 'docker-compose*.yaml' 'co
 gather FILES_DOCKER is_dockerfile 'Dockerfile' '*.Dockerfile'
 gather FILES_SH is_sh '*.sh'
 gather FILES_MD is_md '*.md'
+
+TOTAL_FILES=$(( ${#FILES_COMPOSE[@]} + ${#FILES_DOCKER[@]} + ${#FILES_SH[@]} + ${#FILES_MD[@]} ))
+
+# Нет файлов подходящего типа: в режиме тишины (-q) ничего не печатаем и
+# отдаём код 3 (для check.sh и честного CI), иначе - инфо-сообщение и код 0:
+if [ "$TOTAL_FILES" -eq 0 ]; then
+    if [ "$QUIET" -eq 1 ]; then
+        exit $NO_FILES
+    fi
+    print_warning "Нет файлов подходящего типа (Dockerfile, compose, shell, markdown)"
+    exit 0
+fi
+
+# Шапка: заголовок-box, режим и цели; печатается только при флаге -H
+# (его ставит главный check.sh) и раз файлы есть - уместна:
+if [ "$PRINT_HEADER" -eq 1 ]; then
+    print_box "▶ check-infra.sh"
+    print_step "Целевые пути: ${ABS_TARGETS[*]}"
+    if [ "$FIX" -eq 1 ]; then
+        print_info "Режим правки (-f): автофиксы разрешены"
+    else
+        print_info "Режим отчёта: файлы не изменяются (автофиксы - ключ -f)"
+    fi
+    echo
+fi
 
 # Проверка docker-compose файлов:
 cfg="$SCRIPT_DIR/.dclintrc"

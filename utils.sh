@@ -46,3 +46,31 @@ print_success() { echo -e "${GREEN}✅ SUCCESS:${NC} $1"; }
 print_warning() { echo -e "${YELLOW}⚠️  WARNING:${NC} $1"; }
 print_error()   { echo -e "${RED}❌ ERROR:${NC} $1"; }
 print_step()    { echo -e "${CYAN}🔹 $1${NC}"; }
+
+# Прямоугольник из псевдографики (╔═╗║╚═╝) с текстом по центру:
+#   ╔═══════════════════════ Текст ═══════════════════════╗
+#   ║                                                     ║
+#   ╚═════════════════════════════════════════════════════╝
+print_box() {
+    local text="$1"
+    local color="${2:-$CYAN}"
+    local width
+    width=$(get_terminal_width)
+    local inner=$((width - 3))
+    local text_length=${#text}
+    local half=$(( (inner - text_length) / 2 ))
+    local lpad=$half
+    local rpad=$(( inner - text_length - half ))
+    local hline empty pad_h
+    pad_h=$(printf "%$((inner))s" "")
+    hline="${pad_h// /═}"
+    empty=$(printf "%$((inner))s")
+
+    echo
+    echo -e "${color}╔${hline}╗${NC}"
+    echo -e "${color}║${empty}║${NC}"
+    echo -e "${color}║$(printf "%*s" "$lpad" "")${text}$(printf "%*s" "$rpad" "")║${NC}"
+    echo -e "${color}║${empty}║${NC}"
+    echo -e "${color}╚${hline}╝${NC}"
+    echo
+}
