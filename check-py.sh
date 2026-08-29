@@ -3,7 +3,7 @@
 # Файлы из корня репозитория, которые проверяются в дефолтном режиме запуска
 # без аргументов из корня dl_utils; временный костыль - со временем от белых
 # списков планируется отказаться совсем:
-root_files=("labels.py" "pt_utils.py" "ollm_utils.py" "boxmot_utils.py" "ul_utils.py" "sam3al.py" "docker/set_symbolic_flag.py")
+root_files=("labels.py" "pt_utils.py" "onnx_utils.py" "ollm_utils.py" "boxmot_utils.py" "ul_utils.py" "sam3al.py" "docker/set_symbolic_flag.py")
 
 set -e  # Выход при первой ошибке
 

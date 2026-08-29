@@ -46,20 +46,18 @@ except ImportError:
     TF2ONNX_AVAILABLE = False
 
 import numpy as np
-
 from onnxconverter_common.float16 import convert_float_to_float16
 from onnxruntime import quantization
 from tqdm.auto import tqdm
 
+from ml_utils import chw2hwc, hwc2chw, is_channel_first
 from utils import rmpath
-from ml_utils import is_channel_first, chw2hwc, hwc2chw
 
 
 def get_weights(path):
-    '''
-    Возвращает список весов.
-    https://stackoverflow.com/a/52424141/14474616
-    '''
+    """Возвращает список весов.
+    https://stackoverflow.com/a/52424141/14474616.
+    """
     model = onnx.load(path)
     INTIALIZERS = model.graph.initializer
     weights = []
@@ -71,19 +69,16 @@ def get_weights(path):
 
 
 class DataReader(quantization.calibrate.CalibrationDataReader):
-    '''
-    Преобразует генератор данных (например tf.data.Dataset)
+    """Преобразует генератор данных (например tf.data.Dataset)
     в объект, позволяющий генерировать входы для onnx-модели.
 
     Используется при калибровке модели для статической оптимизации.
-    '''
+    """
 
-    def __init__(self, ds, model):
+    def __init__(self, ds, model) -> None:
         # Определяем имя входа:
         model = onnxruntime.InferenceSession(
-            model,
-            providers=['CUDAExecutionProvider',
-                       'CPUExecutionProvider']
+            model, providers=['CUDAExecutionProvider', 'CPUExecutionProvider'],
         )
         self.input_name = model.get_inputs()[0].name
 
@@ -101,22 +96,24 @@ class DataReader(quantization.calibrate.CalibrationDataReader):
 
         # Признаком достижения конца итератора является возвращение None:
         if batch is None:
-            return
+            return None
 
         # Возвращаем подготовленный входной тензор:
         return {self.input_name: np.array(batch[0])}
 
 
-def keras2onnx(model,
-               f32='f32.onnx',
-               f16='f16.onnx',
-               dyn='dyn.onnx',
-               stc='stc.onnx',
-               ds=None,
-               tmp_file='tmp.onnx',
-               *args, **kwargs):
-    '''
-    Сохраняет keras-модель в следующие onnx-модели:
+def keras2onnx(
+    model,
+    f32='f32.onnx',
+    f16='f16.onnx',
+    dyn='dyn.onnx',
+    stc='stc.onnx',
+    ds=None,
+    tmp_file='tmp.onnx',
+    *args,
+    **kwargs,
+):
+    """Сохраняет keras-модель в следующие onnx-модели:
         полноценную float32,
         упрощённую  float16,
         динамическую uint8 ,
@@ -128,11 +125,13 @@ def keras2onnx(model,
     Для построения статической модели необходимо задать
     генератор данных, используемый, например, при обучении
     модели. Он нужен для калибровки сети перед дискретизацией.
-    '''
+    """
     # Без tf2onnx конвертация невозможна:
     if not TF2ONNX_AVAILABLE:
-        msg = ('Для keras2onnx() требуется пакет tf2onnx. '
-               'Установите его: pip install tf2onnx')
+        msg = (
+            'Для keras2onnx() требуется пакет tf2onnx. '
+            'Установите его: pip install tf2onnx'
+        )
         raise ImportError(msg)
 
     # Keras -> ONNX Float32:
@@ -152,23 +151,18 @@ def keras2onnx(model,
 
     # Если нужна оптимизация до int8:
     if (stc and ds) or dyn:
-
         # Формируем подготовленную для квантизации модель:
         if f32:
-            quantization.quant_pre_process(f32, tmp_file,
-                                           skip_symbolic_shape=True)
+            quantization.quant_pre_process(f32, tmp_file, skip_symbolic_shape=True)
         else:
             onnx.save_model(onnx32, tmp_file)
-            quantization.quant_pre_process(tmp_file, tmp_file,
-                                           skip_symbolic_shape=True)
+            quantization.quant_pre_process(tmp_file, tmp_file, skip_symbolic_shape=True)
         # Сохраняем её в tmp_file.
 
         # Конвертрируем и сохраняем динамический ONNX Uint8, если надо:
         if dyn:
             quantization.quantize_dynamic(
-                tmp_file,
-                dyn,
-                weight_type=quantization.QuantType.QUInt8
+                tmp_file, dyn, weight_type=quantization.QuantType.QUInt8,
             )
             onnxdn = onnx.load_model(dyn)
         else:
@@ -176,7 +170,6 @@ def keras2onnx(model,
 
         # Конвертрируем и сохраняем статический ONNX int8, если надо:
         if stc and ds:
-
             # Генератор калибровочных данных:
             dr = DataReader(tqdm(ds, desc='Калибровка'), tmp_file)
 
@@ -197,17 +190,16 @@ def keras2onnx(model,
 
 
 class ONNXModel:
-    '''
-    # Обёртка ONNX-модели в функтор для инференса.
+    """# Обёртка ONNX-модели в функтор для инференса.
 
-    Используется, например, при построении 
+    Используется, например, при построении
     конвейера фильтров в video_utils.py.
 
     Вынесен отдельно от video_utils.py чтобы не
     нагружать последний зависимостями от onnx-библиотек.
-    '''
+    """
 
-    def __init__(self, model, name='ONNXModel'):
+    def __init__(self, model, name='ONNXModel') -> None:
 
         # Сохраняем параметры:
         self.model = model
@@ -215,12 +207,10 @@ class ONNXModel:
 
         # Инициализируем среду выполнения:
         self.sess = onnxruntime.InferenceSession(
-            self.model,
-            providers=["CUDAExecutionProvider",
-                       "CPUExecutionProvider"]
+            self.model, providers=['CUDAExecutionProvider', 'CPUExecutionProvider'],
         )
 
-        self.inp = self.sess.get_inputs ()[0]  # Вход  модели
+        self.inp = self.sess.get_inputs()[0]  # Вход  модели
         self.out = self.sess.get_outputs()[0]  # Выход модели
 
         # Получаем строковое описание типа входа:
@@ -228,18 +218,20 @@ class ONNXModel:
         self.is_channel_first = is_channel_first(self.inp.shape)
 
         # Строковое описание должно быть вида "tensor(тип)":
-        assert inp_type[:7] == 'tensor(' and inp_type[-1] == ')'
+        assert inp_type[:7] == 'tensor('
+        assert inp_type[-1] == ')'
 
         # Берём из строкового описания только сам тип тензора:
         inp_type = inp_type[7:-1]
 
         # Определяемся c требуемым типом входного тензора:
-        if inp_type in {'float16'}:
+        if inp_type == 'float16':
             self.inp_type = inp_type
         elif inp_type == 'float':
             self.inp_type = np.float32
         else:
-            raise ValueError('Неизвестный тип входа: "%s"!' % inp_type)
+            msg = f'Неизвестный тип входа: "{inp_type}"!'
+            raise ValueError(msg)
 
     # Применение модели к входным данным:
     def __call__(self, image):
