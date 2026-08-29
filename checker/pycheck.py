@@ -38,21 +38,26 @@ from checker.report import GREEN, YELLOW, Reporter, tool_color
 # покровная проверка не давала ложный «зелёный» по пустому списку файлов:
 NO_FILES = 3
 
-USAGE = """Использование: check-py.sh [-f|--fix] [-g|--git-only] [-q] [-H] [путь...]
-
-Позиционные аргументы - проверяемые файлы или папки (.py, .ipynb).
-Без путей: запуск из корня dl_utils проверяет белый список,
-из любой другой папки - её содержимое.
-
--f, --fix       разрешить автофиксы (ruff format и ruff check --unsafe-fixes);
-                по умолчанию режим отчёта - файлы не изменяются
--g, --git-only  проверять только файлы, закоммиченные в git (удобно для CI)
--q, --quiet-no-files  в режиме тишины (для главного check.sh): при отсутствии
-                файлов подходящего типа ничего не печатать и выйти с кодом 3;
-                иначе вывести сообщение об отсутствии и выйти с кодом 0
--H, --print-header  печатать шапку (заголовок, версии, цели) - для check.sh;
-                без флага шапка подавлена
-"""
+USAGE = (
+    'Использование: check-py.sh [-f|--fix] [-g|--git-only] '
+    '[-c|--clean-cache] [-q] [-H] [путь...]\n'
+    '\n'
+    'Позиционные аргументы - проверяемые файлы или папки (.py, .ipynb).\n'
+    'Без путей: запуск из корня dl_utils проверяет белый список,\n'
+    'из любой другой папки - её содержимое.\n'
+    '\n'
+    '-f, --fix       разрешить автофиксы (ruff format и ruff check --unsafe-fixes);\n'
+    '                по умолчанию режим отчёта - файлы не изменяются\n'
+    '-g, --git-only  проверять только файлы, закоммиченные в git (удобно для CI)\n'
+    '-c, --clean-cache  удалить кеши инструментов (mypy/ruff/pytest) в корнях целей\n'
+    '                перед прогоном - на случай «фантомных» ошибок после смены\n'
+    '                версий инструментов или окружения\n'
+    '-q, --quiet-no-files  в режиме тишины (для главного check.sh): при отсутствии\n'
+    '                файлов подходящего типа ничего не печатать и выйти с кодом 3;\n'
+    '                иначе вывести сообщение об отсутствии и выйти с кодом 0\n'
+    '-H, --print-header  печатать шапку (заголовок, версии, цели) - для check.sh;\n'
+    '                без флага шапка подавлена\n'
+)
 
 
 @dataclass(frozen=True)
@@ -68,13 +73,15 @@ class Ctx:
 
 def parse_flags(argv: list[str]) -> tuple[Settings, list[str]]:
     """Разбор флагов и целей, как в bash-версии; help/ошибка - SystemExit."""
-    fix = git_only = quiet = header = False
+    fix = git_only = quiet = header = clean_cache = False
     targets: list[str] = []
     for arg in argv:
         if arg in ('-f', '--fix'):
             fix = True
         elif arg in ('-g', '--git-only'):
             git_only = True
+        elif arg in ('-c', '--clean-cache'):
+            clean_cache = True
         elif arg in ('-q', '--quiet-no-files'):
             quiet = True
         elif arg in ('-H', '--print-header'):
@@ -88,7 +95,7 @@ def parse_flags(argv: list[str]) -> tuple[Settings, list[str]]:
             raise SystemExit(2)
         else:
             targets.append(arg)
-    return Settings(fix, git_only, quiet, header), targets
+    return Settings(fix, git_only, quiet, header, clean_cache), targets
 
 
 def run_process(cmd: list[str], cwd: Path) -> subprocess.CompletedProcess[str]:
@@ -333,6 +340,23 @@ def _collect_main(
     return collected
 
 
+# Имена каталогов кешей инструментов, удаляемых флагом --clean-cache:
+CACHE_DIRS = ('.mypy_cache', '.ruff_cache', '.pytest_cache')
+
+
+def clean_caches(ctx: Ctx, roots: list[Path]) -> None:
+    """Удаление кешей инструментов в корнях целей перед прогоном."""
+    removed: list[str] = []
+    for root in roots:
+        for name in CACHE_DIRS:
+            cache_path = root / name
+            if cache_path.is_dir() and not cache_path.is_symlink():
+                shutil.rmtree(cache_path)
+                removed.append(str(cache_path))
+    if removed:
+        ctx.reporter.info('Очищен кеш инструментов: ' + ', '.join(removed))
+
+
 def _final_verdict(ctx: Ctx) -> int:
     """Финальный вердикт и код возврата по проваленным этапам."""
     reporter = ctx.reporter
@@ -368,6 +392,9 @@ def main(argv: list[str]) -> int:
             return NO_FILES
         reporter.warning('Нет файлов подходящего типа (.py, .ipynb)')
         return 0
+
+    if settings.clean_cache:
+        clean_caches(ctx, collected.target_dirs)
 
     if settings.header:
         print_header(ctx, mode, targets)

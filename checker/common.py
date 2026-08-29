@@ -62,6 +62,7 @@ class Settings:
     git_only: bool
     quiet: bool
     header: bool
+    clean_cache: bool
 
 
 class Targets:

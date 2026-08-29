@@ -46,6 +46,13 @@ def test_parse_flags_quiet_header() -> None:
     assert targets == []
 
 
+def test_parse_flags_clean_cache() -> None:
+    """Короткий и длинный флаги очистки кеша разбираются на месте."""
+    settings, targets = parse_flags(['-c', '--clean-cache'])
+    assert settings.clean_cache
+    assert targets == []
+
+
 def test_parse_flags_unknown_flag(capsys: pytest.CaptureFixture[str]) -> None:
     """Неизвестный флаг - сообщение в stderr и код 2."""
     with pytest.raises(SystemExit) as exc_info:
@@ -304,7 +311,13 @@ def test_iter_py_targets_prunes_and_filters(tmp_path: Path) -> None:
 
 def _settings(*, quiet: bool = False, git_only: bool = False) -> Settings:
     """Настройки: флаги тишины и git-only по умолчанию выключены."""
-    return Settings(fix=False, git_only=git_only, quiet=quiet, header=False)
+    return Settings(
+        fix=False,
+        git_only=git_only,
+        quiet=quiet,
+        header=False,
+        clean_cache=False,
+    )
 
 
 def test_collect_folder_and_lift(tmp_path: Path) -> None:

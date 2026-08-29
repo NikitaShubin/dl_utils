@@ -17,7 +17,7 @@ NO_FILES=3
 
 usage() {
     cat <<EOF
-Использование: $(basename "$0") [-f|--fix] [-g|--git-only] [-q] [-H] [путь...]
+Использование: $(basename "$0") [-f|--fix] [-g|--git-only] [-c|--clean-cache] [-q] [-H] [путь...]
 
 Позиционные аргументы - проверяемые файлы или папки
 (Dockerfile, docker-compose, shell, markdown).
@@ -26,6 +26,8 @@ usage() {
 -f, --fix       разрешить автофиксы (умеют dclint и markdownlint);
                 по умолчанию режим отчёта - файлы не изменяются
 -g, --git-only  проверять только файлы, закоммиченные в git (удобно для CI)
+-c, --clean-cache  не влияет на infra-проверки; принимается для совместимости
+                с комбинированным check.sh (очистка кешей - в py-чеке)
 -q, --quiet-no-files  в режиме тишины (для главного check.sh): при отсутствии
                 файлов подходящего типа ничего не печатать и выйти с кодом 3;
                 иначе вывести сообщение об отсутствии и выйти с кодом 0
@@ -44,6 +46,7 @@ for arg in "$@"; do
     case $arg in
         -f | --fix) FIX=1 ;;
         -g | --git-only) GIT_ONLY=1 ;;
+        -c | --clean-cache) ;;  # no-op: кеши очищает только py-чекер
         -q | --quiet-no-files) QUIET=1 ;;
         -H | --print-header) PRINT_HEADER=1 ;;
         -h | --help) usage; exit 0 ;;

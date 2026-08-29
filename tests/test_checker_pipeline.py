@@ -484,6 +484,59 @@ def test_main_header_flag(
     assert 'Инструменты' in capsys.readouterr().out
 
 
+def test_main_clean_cache(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Флаг -c удаляет кеши инструментов в корне цели до прогона."""
+    proj = _make_proj(tmp_path)
+    for name in ('.mypy_cache', '.ruff_cache', '.pytest_cache'):
+        cache_dir = proj / name
+        cache_dir.mkdir()
+        (cache_dir / 'junk').write_text('x', encoding='utf-8')
+    bins = _make_bins(tmp_path, proj)
+    _patch_path(monkeypatch, bins)
+    assert main(['-c', str(proj)]) == 0
+    for name in ('.mypy_cache', '.ruff_cache', '.pytest_cache'):
+        assert not (proj / name).exists()
+    assert 'Очищен кеш' in capsys.readouterr().out
+
+
+def test_main_without_clean_cache_keeps_caches(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Без флага -c кеши инструментов не трогаются."""
+    proj = _make_proj(tmp_path)
+    cache_dir = proj / '.mypy_cache'
+    cache_dir.mkdir()
+    (cache_dir / 'junk').write_text('x', encoding='utf-8')
+    bins = _make_bins(tmp_path, proj)
+    _patch_path(monkeypatch, bins)
+    assert main([str(proj)]) == 0
+    assert (proj / '.mypy_cache').exists()
+    out = capsys.readouterr().out
+    assert 'Очищен кеш' not in out
+
+
+def test_main_clean_cache_without_dirs(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Флаг -c без кешей ничего не удаляет и не печатает сообщение."""
+    proj = _make_proj(tmp_path)
+    bins = _make_bins(tmp_path, proj)
+    _patch_path(monkeypatch, bins)
+    assert main(['-c', str(proj)]) == 0
+    for name in ('.mypy_cache', '.ruff_cache', '.pytest_cache'):
+        assert not (proj / name).exists()
+    out = capsys.readouterr().out
+    assert 'Очищен кеш' not in out
+
+
 def test_main_legacy_run(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
