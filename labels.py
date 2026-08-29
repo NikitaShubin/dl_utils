@@ -441,7 +441,7 @@ class CoreLabelsConvertor(dict):
         # Ищем запрещённые объекты, если надо:
         if self.values2raise:
             problem_frames = df[labels.isin(self.values2raise)]['frame'].unique()
-            if problem_frames:
+            if problem_frames.size:
                 msg = (
                     'В кадрах {'
                     + ', '.join(map(str, sorted(problem_frames)))

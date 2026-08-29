@@ -10,7 +10,13 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from labels import ForbiddenLabelError, LabelsConvertor
+import labels
+from labels import (
+    CoreLabelsConvertor,
+    ForbiddenLabelError,
+    LabelsConvertor,
+    _file2superlabels_df,
+)
 
 # ============================================================================
 # Тесты для вспомогательных функций (через публичный интерфейс)
@@ -761,3 +767,269 @@ class TestLabelsConvertor:
                 LabelsConvertor(temp_path)
         finally:
             Path(temp_path).unlink()
+
+
+class TestCoverageGaps:
+    """Тесты краевых веток labels.py, расширяющие покрытие."""
+
+    def test_superlabels_missing_number(self, tmp_path: Path) -> None:
+        """Новая суперметка без номера - сообщение об ошибке с номером строки."""
+        path = tmp_path / 'superlabels.csv'
+        path.write_text(
+            '№ п/п,Наименование суперкласса,Классы (содержимое суперкласса),'
+            'Приоритет\n'
+            ',Метка,Человек,Высокий\n',
+            encoding='utf-8',
+        )
+        with pytest.raises(ValueError, match=r'\[0, Наименование суперкласса\] = NaN'):
+            _file2superlabels_df(str(path))
+
+    def test_superlabels_missing_priority(self, tmp_path: Path) -> None:
+        """Новая суперметка без приоритета - сообщение об ошибке."""
+        path = tmp_path / 'superlabels.csv'
+        path.write_text(
+            '№ п/п,Наименование суперкласса,Классы (содержимое суперкласса),'
+            'Приоритет\n'
+            '1,Метка,Человек,\n',
+            encoding='utf-8',
+        )
+        with pytest.raises(ValueError, match=r'\[0, Приоритет\] = NaN'):
+            _file2superlabels_df(str(path))
+
+    def test_superlabels_continuation_with_number(self, tmp_path: Path) -> None:
+        """Строка продолжения с заполненным номером - ошибка."""
+        path = tmp_path / 'superlabels.csv'
+        path.write_text(
+            '№ п/п,Наименование суперкласса,Классы (содержимое суперкласса),'
+            'Приоритет\n'
+            '1,Метка,Человек,Высокий\n'
+            '5,,Машина,\n',
+            encoding='utf-8',
+        )
+        with pytest.raises(ValueError, match=r'\[1, Наименование суперкласса\] = 5'):
+            _file2superlabels_df(str(path))
+
+    def test_superlabels_continuation_with_priority(self, tmp_path: Path) -> None:
+        """Строка продолжения с заполненным приоритетом - ошибка."""
+        path = tmp_path / 'superlabels.csv'
+        path.write_text(
+            '№ п/п,Наименование суперкласса,Классы (содержимое суперкласса),'
+            'Приоритет\n'
+            '1,Метка,Человек,Высокий\n'
+            ',,Машина,Ниже\n',
+            encoding='utf-8',
+        )
+        with pytest.raises(ValueError, match=r'\[1, Приоритет\] = Ниже'):
+            _file2superlabels_df(str(path))
+
+    def test_duplicate_label_mismatch(self, tmp_path: Path) -> None:
+        """Одной метке соответствуют две разные расшифровки - ошибка."""
+        path = tmp_path / 'labels.csv'
+        path.write_text(
+            'Класс объекта,Метка в CVAT,Метка в другом источнике данных,Признаки\n'
+            'I. Транспорт,,,\n'
+            '1. Машина,car,,\n'
+            'II. Другое,,,\n'
+            '1. Машина 2,car,,\n',
+            encoding='utf-8',
+        )
+        with pytest.raises(KeyError, match='несовпадающие расшифровки'):
+            LabelsConvertor(str(path))
+
+    def test_duplicate_synonym_mismatch(self, tmp_path: Path) -> None:
+        """Одному синониму соответствуют две разные расшифровки - ошибка."""
+        path = tmp_path / 'labels.csv'
+        path.write_text(
+            'Класс объекта,Метка в CVAT,Метка в другом источнике данных,Признаки\n'
+            'I. Транспорт,,,\n'
+            '1. Машина,car,машина,\n'
+            'II. Другое,,,\n'
+            '1. Лошадь,horse,машина,\n',
+            encoding='utf-8',
+        )
+        with pytest.raises(KeyError, match='несовпадающие расшифровки'):
+            LabelsConvertor(str(path))
+
+    def test_label_with_synonym_only(self, tmp_path: Path) -> None:
+        """Метка пуста, но заполнен синоним - учёт синонима в словаре."""
+        path = tmp_path / 'labels.csv'
+        path.write_text(
+            'Класс объекта,Метка в CVAT,Метка в другом источнике данных,Признаки\n'
+            'I. Транспорт,,,\n'
+            '1. Автомобиль,,машина,\n',
+            encoding='utf-8',
+        )
+        lc = LabelsConvertor(str(path))
+        assert lc.main_dict == 'label2meaning'
+        assert lc('машина') == 'Автомобиль'
+
+    def test_duplicate_superlabels_meaning(self, tmp_path: Path) -> None:
+        """Расшифровка встречается в суперметках дважды - ошибка."""
+        path = tmp_path / 'superlabels.csv'
+        path.write_text(
+            '№ п/п,Наименование суперкласса,Классы (содержимое суперкласса),'
+            'Приоритет\n'
+            '1,Метка,Человек,Высокий\n'
+            '2,Другое,Человек,Высокий\n',
+            encoding='utf-8',
+        )
+        with pytest.raises(KeyError, match='встречается минимум дважды'):
+            LabelsConvertor(str(path))
+
+    def test_contradictory_superind(self, tmp_path: Path) -> None:
+        """Противоречивые номера одной суперметки - ошибка."""
+        path = tmp_path / 'superlabels.csv'
+        path.write_text(
+            '№ п/п,Наименование суперкласса,Классы (содержимое суперкласса),'
+            'Приоритет\n'
+            '1,СУПЕР,Человек,Высокий\n'
+            '2,СУПЕР,Машина,Высокий\n',
+            encoding='utf-8',
+        )
+        with pytest.raises(KeyError, match='Противоречивые записи'):
+            LabelsConvertor(str(path))
+
+    def test_core_convertor_init_defaults(self) -> None:
+        """CoreLabelsConvertor: пустые наборы по умолчанию."""
+        converter = CoreLabelsConvertor({'a': 'b'})
+        assert dict(converter) == {'a': 'b'}
+        assert converter.values2del == set()
+        assert converter.values2raise == set()
+
+    def test_core_convertor_init_with_sets(self) -> None:
+        """CoreLabelsConvertor: переданные наборы сохраняются."""
+        converter = CoreLabelsConvertor(
+            {'a': 'b'},
+            values2del={'x'},
+            values2raise={'y'},
+        )
+        assert converter.values2del == {'x'}
+        assert converter.values2raise == {'y'}
+
+    def test_apply2df_values2raise_without_problems(self) -> None:
+        """Запрещённая метка задана, но в данных её нет - ошибки нет."""
+        converter = LabelsConvertor(
+            {'a': 'A', 'b': 'B'},
+            main_dict='label2meaning',
+            values2raise='A',
+        )
+        df = pd.DataFrame({'label': ['b', 'b'], 'frame': [1, 2]})
+        result = converter.apply2df(df)
+        assert result['label'].tolist() == ['B', 'B']
+
+    def test_read_files_unknown_type_first(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Неизвестный тип первого файла - NotImplementedError."""
+        df = pd.DataFrame({'a': [1]})
+        monkeypatch.setattr(labels, '_any_file2df', lambda _: (df, 'else'))
+        with pytest.raises(NotImplementedError, match='Неизвестный тип'):
+            LabelsConvertor('file.csv')
+
+    def test_read_files_two_labels_files(self, tmp_path: Path) -> None:
+        """Два файла меток - ошибка."""
+        content = (
+            'Класс объекта,Метка в CVAT,Метка в другом источнике данных,Признаки\n'
+            'I. Транспорт,,,\n1. Машина,car,,\n'
+        )
+        first = tmp_path / 'l1.csv'
+        second = tmp_path / 'l2.csv'
+        first.write_text(content, encoding='utf-8')
+        second.write_text(content, encoding='utf-8')
+        with pytest.raises(ValueError, match='два файла меток'):
+            LabelsConvertor(str(first), str(second))
+
+    def test_read_files_two_superlabels_files(self, tmp_path: Path) -> None:
+        """Два файла суперметок - ошибка."""
+        content = (
+            '№ п/п,Наименование суперкласса,Классы (содержимое суперкласса),'
+            'Приоритет\n'
+            '1,Метка,Человек,Высокий\n'
+        )
+        first = tmp_path / 's1.csv'
+        second = tmp_path / 's2.csv'
+        first.write_text(content, encoding='utf-8')
+        second.write_text(content, encoding='utf-8')
+        with pytest.raises(ValueError, match='два файла суперметок'):
+            LabelsConvertor(str(first), str(second))
+
+    def test_read_files_unknown_type_second(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Неизвестный тип второго файла - NotImplementedError."""
+        df = pd.DataFrame({'a': [1]})
+        calls = iter([(df, 'labels'), (df, 'else')])
+        monkeypatch.setattr(labels, '_any_file2df', lambda _: next(calls))
+        with pytest.raises(NotImplementedError, match='Неизвестный тип'):
+            LabelsConvertor('first.csv', 'second.csv')
+
+    def test_read_dicts_dict_after_labels_file(self, tmp_path: Path) -> None:
+        """Словарь меток при уже прочитанном файле меток трактуется иначе."""
+        path = tmp_path / 'labels.csv'
+        path.write_text(
+            'Класс объекта,Метка в CVAT,Метка в другом источнике данных,Признаки\n'
+            'I. Транспорт,,,\n1. Машина,car,,\n',
+            encoding='utf-8',
+        )
+        lc = LabelsConvertor({'x': 'y'}, str(path), main_dict='meaning2superlabel')
+        assert lc('x') == 'y'
+
+    def test_read_dicts_dict_after_superlabels_file(self, tmp_path: Path) -> None:
+        """Словарь суперметок при уже прочитанном файле суперметок трактуется иначе."""
+        path = tmp_path / 'superlabels.csv'
+        path.write_text(
+            '№ п/п,Наименование суперкласса,Классы (содержимое суперкласса),'
+            'Приоритет\n'
+            '1,Метка,Человек,Высокий\n',
+            encoding='utf-8',
+        )
+        lc = LabelsConvertor(str(path), {'m': 'super'}, main_dict='label2meaning')
+        assert lc('m') == 'super'
+
+    def test_build_dicts_skip_unknown_superlabel(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """Суперметка вне словаря индексов пропускается при построении."""
+        labels_path = tmp_path / 'labels.csv'
+        labels_path.write_text(
+            'Класс объекта,Метка в CVAT,Метка в другом источнике данных,Признаки\n'
+            'I. Транспорт,,,\n1. Машина,car,,\n',
+            encoding='utf-8',
+        )
+        superlabels_path = tmp_path / 'superlabels.csv'
+        superlabels_path.write_text(
+            '№ п/п,Наименование суперкласса,Классы (содержимое суперкласса),'
+            'Приоритет\n'
+            '1,Метка,Человек,Высокий\n',
+            encoding='utf-8',
+        )
+        lc = LabelsConvertor(str(labels_path), str(superlabels_path))
+        lc.labels2meanings['новое'] = 'новая расшифровка'
+        lc.meanings2superlabels['новая расшифровка'] = 'неизвестный суперкласс'
+        lc._build_dicts()  # noqa: SLF001
+        assert lc.labels2superlabels['новое'] == 'неизвестный суперкласс'
+        assert 'новое' not in lc.labels2superinds
+
+    def test_iterable2set_list_and_tuple(self) -> None:
+        """Список и кортеж значений переводятся во множество."""
+        converter_list = LabelsConvertor(
+            {'a': 'A'},
+            main_dict='label2meaning',
+            values2del=['A'],
+        )
+        assert converter_list.values2del == {'A'}
+        converter_tuple = LabelsConvertor(
+            {'a': 'A'},
+            main_dict='label2meaning',
+            values2raise=('A',),
+        )
+        assert converter_tuple.values2raise == {'A'}
+
+    def test_auto_dict_name_not_found(self) -> None:
+        """Отсутствие подходящих словарей при выборе 'auto' - ошибка."""
+        lc = LabelsConvertor.__new__(LabelsConvertor)
+        with pytest.raises(NotImplementedError, match='подходящих методов'):
+            lc.main_dict = 'auto'
