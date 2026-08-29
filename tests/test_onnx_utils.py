@@ -1,6 +1,7 @@
 """Тесты для модуля onnx_utils (работа с ONNX-моделями)."""
 
 import sys
+from pathlib import Path
 from unittest.mock import MagicMock, Mock, call, patch
 
 import numpy as np
@@ -69,6 +70,23 @@ class TestDataReader:
         assert reader.datasize == 2
         mock_session.assert_called_once_with(
             'model.onnx',
+            providers=['CUDAExecutionProvider', 'CPUExecutionProvider'],
+        )
+
+    def test_initialization_with_path(self) -> None:
+        """Путь как pathlib.Path передаётся в InferenceSession как есть."""
+        mock_input = Mock()
+        mock_input.name = 'input'
+        ds = [(np.ones((1, 3)), 0)]
+        model_path = Path('model.onnx')
+
+        with patch('onnxruntime.InferenceSession') as mock_session:
+            mock_session.return_value.get_inputs.return_value = [mock_input]
+            reader = DataReader(ds, model_path)
+
+        assert reader.input_name == 'input'
+        mock_session.assert_called_once_with(
+            model_path,
             providers=['CUDAExecutionProvider', 'CPUExecutionProvider'],
         )
 
@@ -224,6 +242,57 @@ class TestKeras2Onnx:
             keras2onnx(model, f16=None, dyn=None, stc=None, target='cuda', opset=13)
 
         mock_from_keras.assert_called_once_with(model, target='cuda', opset=13)
+
+    def test_accepts_pathlib_paths(self) -> None:
+        """Пути как pathlib.Path уходят в onnx-библиотеки без изменений."""
+        onnx32 = Mock()
+        onnx16 = Mock()
+        onnx_dyn = Mock()
+        f32_path = Path('f32.onnx')
+        f16_path = Path('f16.onnx')
+        dyn_path = Path('dyn.onnx')
+        tmp_path = Path('tmp.onnx')
+
+        with (
+            patch(
+                'onnx_utils.tf2onnx.convert.from_keras',
+                return_value=(onnx32, None),
+            ),
+            patch('onnx.save_model') as mock_save_model,
+            patch(
+                'onnx_utils.convert_float_to_float16',
+                return_value=onnx16,
+            ) as mock_convert,
+            patch('onnxmltools.utils.save_model') as mock_save_16,
+            patch('onnx_utils.quantization.quant_pre_process') as mock_pre_process,
+            patch('onnx_utils.quantization.quantize_dynamic') as mock_quantize_dynamic,
+            patch('onnx.load_model', return_value=onnx_dyn) as mock_load_model,
+            patch('onnx_utils.rmpath') as mock_rmpath,
+        ):
+            models = keras2onnx(
+                Mock(),
+                f32=f32_path,
+                f16=f16_path,
+                dyn=dyn_path,
+                tmp_file=tmp_path,
+            )
+
+        assert models == (onnx32, onnx16, onnx_dyn, None)
+        mock_save_model.assert_called_once_with(onnx32, f32_path)
+        mock_convert.assert_called_once_with(onnx32)
+        mock_save_16.assert_called_once_with(onnx16, f16_path)
+        mock_pre_process.assert_called_once_with(
+            f32_path,
+            tmp_path,
+            skip_symbolic_shape=True,
+        )
+        mock_quantize_dynamic.assert_called_once_with(
+            tmp_path,
+            dyn_path,
+            weight_type=onnx_utils.quantization.QuantType.QUInt8,
+        )
+        mock_load_model.assert_called_once_with(dyn_path)
+        mock_rmpath.assert_called_once_with(tmp_path)
 
 
 class TestONNXModel:

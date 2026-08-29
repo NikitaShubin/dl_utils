@@ -44,6 +44,7 @@ try:
 except ImportError:
     TF2ONNX_AVAILABLE = False
 
+from collections.abc import Collection
 from pathlib import Path
 
 import numpy as np
@@ -57,7 +58,7 @@ from ml_utils import chw2hwc, hwc2chw, is_channel_first
 from utils import rmpath
 
 
-def get_weights(path: str | Path) -> list:
+def get_weights(path: str | Path) -> list[np.ndarray]:
     """Возвращает список весов.
 
     https://stackoverflow.com/a/52424141/14474616.
@@ -75,7 +76,7 @@ class DataReader(quantization.calibrate.CalibrationDataReader):
     Используется при калибровке модели для статической оптимизации.
     """
 
-    def __init__(self, ds, model: str | Path) -> None:
+    def __init__(self, ds: Collection[tuple], model: str | Path) -> None:
         """Инициализирует калибровочный ридер.
 
         Определяет имя входа модели и формирует итератор по данным.
@@ -93,7 +94,7 @@ class DataReader(quantization.calibrate.CalibrationDataReader):
         # Формируем итератор:
         self.iter = iter(ds)
 
-    def get_next(self) -> dict[str, np.ndarray]:
+    def get_next(self) -> dict[str, np.ndarray] | None:
         """Возвращает очередной подготовленный для onnx батч.
 
         По исчерпании итератора возвращается None.
@@ -109,17 +110,22 @@ class DataReader(quantization.calibrate.CalibrationDataReader):
         return {self.input_name: np.array(batch[0])}
 
 
-def keras2onnx(
-    model,
-    f32='f32.onnx',
-    f16='f16.onnx',
-    dyn='dyn.onnx',
-    stc='stc.onnx',
-    ds=None,
-    tmp_file='tmp.onnx',
-    *args: list,
+def keras2onnx(  # noqa: PLR0913, PLR0917
+    model: object,
+    f32: str | Path | None = 'f32.onnx',
+    f16: str | Path | None = 'f16.onnx',
+    dyn: str | Path | None = 'dyn.onnx',
+    stc: str | Path | None = 'stc.onnx',
+    ds: Collection[tuple] | None = None,
+    tmp_file: str | Path = 'tmp.onnx',
+    *args: object,
     **kwargs: object,
-):
+) -> tuple[
+    onnx.ModelProto,
+    onnx.ModelProto | None,
+    onnx.ModelProto | None,
+    onnx.ModelProto | None,
+]:
     """Конвертирует keras-модель в onnx-модели нескольких видов.
 
     - полноценную float32;
@@ -209,7 +215,7 @@ class ONNXModel:
     нагружать последний зависимостями от onnx-библиотек.
     """
 
-    def __init__(self, model, name: str = 'ONNXModel') -> None:
+    def __init__(self, model: str | Path | bytes, name: str = 'ONNXModel') -> None:
         """Инициализация обёртки."""
         # Сохраняем параметры:
         self.model = model
