@@ -64,6 +64,12 @@ done
 # Список проваленных этапов; наполняется по ходу проверок:
 FAILED_STAGES=()
 
+# Флаги окраски для внешних инструментов (вычисляются здесь, где stderr -
+# настоящий терминал, а не при захвате вывода в run_linter):
+COLOR_RUFF="$(color_flags ruff)"
+COLOR_MYPY="$(color_flags mypy)"
+COLOR_PYTEST="$(color_flags pytest)"
+
 # Фиксация проваленного этапа с продолжением остальных проверок:
 mark_failure() {
     FAILED_STAGES+=("$1")
@@ -162,21 +168,21 @@ check_one_file() {
     local file=$2
     echo -e "${CYAN}▸ ${MAGENTA}${display}${NC}"
 
-    local -a check_args=(check --config "$RUFF_CONFIG")
+    local -a check_args=(check --config "$RUFF_CONFIG" "$COLOR_RUFF")
     if [ "$FIX" -eq 1 ]; then
         check_args+=(--fix --unsafe-fixes)
     fi
 
     if [ "$FIX" -eq 1 ]; then
-        run_linter "ruff format" "$display" ruff format --config "$RUFF_CONFIG" "$file"
+        run_linter "ruff format" "$display" ruff format --config "$RUFF_CONFIG" "$COLOR_RUFF" "$file"
     else
-        run_linter "ruff format" "$display" ruff format --check --diff --config "$RUFF_CONFIG" "$file"
+        run_linter "ruff format" "$display" ruff format --check --diff --config "$RUFF_CONFIG" "$COLOR_RUFF" "$file"
     fi
     run_linter "ruff check" "$display" ruff "${check_args[@]}" "$file"
 
     # Mypy: для .ipynb используется обёртка nbqa, т.к. mypy не понимает
     # формат notebook нативно:
-    local -a mypy_cmd=(mypy --config-file "$RUFF_CONFIG")
+    local -a mypy_cmd=(mypy --config-file "$RUFF_CONFIG" "$COLOR_MYPY")
     if [[ $file == *.ipynb ]]; then
         mypy_cmd=(nbqa mypy)
     fi
@@ -401,7 +407,7 @@ if [ "$ANY_TESTS" -eq 1 ]; then
         mapfile -t test_list < <(grep . <<<"${TEST_OF[$root]}")
         # Вывод pytest захватывается и печатается только при неудаче (краткие
         # traceback и сводка), чтобы в норме не было шума из имён тестов:
-        if out=$( (cd "$root" && pytest -q --tb=short "${test_list[@]}" ) 2>&1); then
+        if out=$( (cd "$root" && pytest -q --tb=short "$COLOR_PYTEST" "${test_list[@]}" ) 2>&1); then
             print_success "Тесты прошли: $root"
         else
             [[ -n $out ]] && printf '%s\n' "$out"

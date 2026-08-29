@@ -19,6 +19,29 @@ get_terminal_width() {
     tput cols 2>/dev/null || echo 80
 }
 
+# Флаги окраски для внешних инструментов. При захвате вывода ($(...), пайпы)
+# их авто-детект (auto) видит не терминал и гасит подсветку — в отчётном
+# режиме чекеров пропадают цвета ruff и подсветка синтаксиса в ошибках.
+# Включение/выключение делаем явно; терминал определяем по fd 2 (stderr):
+# он не перехватывается подстановками stdout. Неизвестный инструмент ->
+# пусто (свой --color у него нет, работает его авто-детект):
+color_flags() {
+    local tool=$1
+    if [[ -t 2 ]]; then
+        case "$tool" in
+            ruff)   echo --color=always ;;
+            mypy)   echo --color-output ;;
+            pytest) echo --color=yes ;;
+        esac
+    else
+        case "$tool" in
+            ruff)   echo --color=never ;;
+            mypy)   echo --no-color-output ;;
+            pytest) echo --color=no ;;
+        esac
+    fi
+}
+
 # Сплошная линия ═ с текстом по центру:
 #   ═══════════════════ Текст ═══════════════════
 print_separator() {
