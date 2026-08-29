@@ -1,5 +1,7 @@
 """Тесты для модуля sam3al (загрузка SAM3)."""
 
+import importlib
+import sys
 from pathlib import Path
 from unittest.mock import patch
 
@@ -200,3 +202,16 @@ class TestDownloadSam3:
             download_sam3(path)
 
         assert exc_info.value is fake_error
+
+    def test_modelscope_import_error_captured(self) -> None:
+        """При недоступном modelscope ловится исключение импорта."""
+        blocked = {
+            name: None
+            for name in sys.modules
+            if name == 'modelscope' or name.startswith('modelscope.')
+        }
+        with patch.dict(sys.modules, blocked):
+            importlib.reload(sam3al)
+        assert isinstance(sam3al.ModelscopeNotFoundError, ModuleNotFoundError)
+        with pytest.raises(ModuleNotFoundError):
+            sam3al.download_sam3('/some/path/model.pt')
