@@ -124,6 +124,22 @@ is_test_file() {
     esac
 }
 
+# Поднимает корень до родителя ближайшего каталога tests, если цель лежит в нём
+# или глубже: в относительных путях должен оставаться компонент tests/, иначе
+# per-file-ignores ruff вида '**/tests/**' (S101, PLR2004 в тестах) не
+# срабатывают при явном указании файла или самого каталога tests/:
+lift_tests_root() {
+    local d=$1
+    while [[ -n ${d%/*} && ${d##*/} != tests ]]; do
+        d=${d%/*}
+    done
+    if [[ -n ${d%/*} ]]; then
+        echo "${d%/*}"
+    else
+        echo "$1"
+    fi
+}
+
 # Прогон одного линтера: вывод захватывается и печатается только при неудаче,
 # чтобы в норме не было шума; имя линтера уходит в маркер провала этапа:
 run_linter() {
@@ -222,17 +238,27 @@ collect_targets() {
             abs="$(cd "$(dirname "$t")" && pwd)/$(basename "$t")"
             root=${abs%/*}
         fi
+        root="$(lift_tests_root "$root")"
         add_root "$root"
 
+        # git работает с каталогами: для целевого файла берём его родителя:
+        if [[ -d $abs ]]; then
+            git_ctx=$abs
+        else
+            git_ctx=${abs%/*}
+        fi
         if [ "$GIT_ONLY" -eq 1 ]; then
-            groot="$(git -C "$abs" rev-parse --show-toplevel)" || {
+            groot="$(git -C "$git_ctx" rev-parse --show-toplevel)" || {
                 print_error "--git-only требует git-репозиторий, а цель вне его: $abs"
                 exit 1
             }
             # git ls-files отдаёт пути от корня репозитория - обрезаем префикс,
-            # чтобы получить путь относительно цели; сам файл цели приходит
-            # без префикса только если он закоммичен:
+            # чтобы получить путь относительно корня цели (возможно поднятого
+            # над тестами); сам файл цели приходит без префикса только если
+            # он закоммичен:
             prefix="$(realpath --relative-to="$groot" "$abs")"
+            root_grel="$(realpath --relative-to="$groot" "$root")"
+            [[ $root_grel == '.' ]] && root_grel=''
             if [[ -f $abs ]]; then
                 case $abs in
                     *.py | *.ipynb) spec=("$prefix") ;;
@@ -243,9 +269,8 @@ collect_targets() {
             fi
             while IFS= read -r p; do
                 [ -n "$p" ] || continue
-                rel=${p#"$prefix"}
-                rel=${rel#/}
-                [[ -n $rel ]] || rel=${prefix##*/}
+                rel=${p#"$root_grel"/}
+                [[ -n $rel ]] || rel=${abs#"$root"/}
                 if is_test_file "${rel##*/}"; then
                     add_file "$root" "$rel" test
                 else
@@ -253,15 +278,15 @@ collect_targets() {
                 fi
             done < <(git -C "$groot" ls-files -c -- "${spec[@]}" 2>/dev/null || true)
         else
-            if ! git -C "$abs" rev-parse --git-dir >/dev/null 2>&1; then
+            if ! git -C "$git_ctx" rev-parse --git-dir >/dev/null 2>&1; then
                 [ "$QUIET" -eq 1 ] || print_warning "Вне git-репозитория - берутся все файлы с диска: $abs"
             fi
             # Одиночный файл проверяется только если подходит по типу (.py/.ipynb):
             if [[ -f $abs ]]; then
                 case $abs in
                     *.py | *.ipynb)
-                        rel=${abs##*/}
-                        if is_test_file "$rel"; then
+                        rel=${abs#"$root"/}
+                        if is_test_file "${rel##*/}"; then
                             add_file "$root" "$rel" test
                         else
                             add_file "$root" "$rel" main
