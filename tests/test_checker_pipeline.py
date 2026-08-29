@@ -541,3 +541,161 @@ def test_main_missing_path(tmp_path: Path) -> None:
     with pytest.raises(SystemExit) as exc_info:
         main([str(tmp_path / 'gone')])
     assert exc_info.value.code == 1
+
+
+def test_run_linter_failure_silent(tmp_path: Path) -> None:
+    """Неудача линтера без вывода всё равно помечается ошибкой."""
+    bins = _make_bins(tmp_path, tmp_path / 'proj')
+    _script(bins, 'silent', '#!/usr/bin/env bash\nexit 1\n')
+    ctx = _ctx(bins, tmp_path)
+    run_linter(
+        ctx,
+        'ruff check',
+        'mod.py',
+        [str(bins / 'silent'), 'check', 'mod.py'],
+        tmp_path,
+    )
+    assert ctx.reporter.failures == ['ruff check: mod.py']
+
+
+def test_check_one_file_ipynb_uses_nbqa(tmp_path: Path) -> None:
+    """Для .ipynb mypy запускается через обёртку nbqa."""
+    proj = _make_proj(tmp_path)
+    (proj / 'src' / 'mod.ipynb').write_text('{"cells": []}', encoding='utf-8')
+    bins = _make_bins(tmp_path, proj)
+    ctx = _ctx(bins, proj / 'pyproject.toml')
+    check_one_file(ctx, proj, 'src/mod.ipynb', None, annotate=False)
+    assert ctx.reporter.failures == []
+
+
+def test_run_tests_skips_root_without_tests(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Корень цели без тестов пропускается в цикле pytest."""
+    proj = _make_proj(tmp_path)
+    empty = tmp_path / 'empty'
+    empty.mkdir()
+    bins = _make_bins(tmp_path, proj)
+    targets = Targets()
+    targets.add_root(proj)
+    targets.add_root(empty)
+    targets.add_file(proj, 'tests/test_mod.py', 'test')
+    cov = run_tests(_ctx(bins, proj / 'pyproject.toml'), targets)
+    assert 'Тесты прошли' in capsys.readouterr().out
+    assert cov.totals_line() == 'строки 100%'
+
+
+def test_run_tests_without_coverage(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Без pytest-cov pytest запускается без замера покрытия."""
+    proj = _make_proj(tmp_path)
+    bins = _make_bins(tmp_path, proj)
+    monkeypatch.setattr('checker.pycheck.coverage_available', lambda: False)
+    targets = Targets()
+    targets.add_root(proj)
+    targets.add_file(proj, 'tests/test_mod.py', 'test')
+    cov = run_tests(_ctx(bins, proj / 'pyproject.toml'), targets)
+    out = capsys.readouterr().out
+    assert 'Тесты прошли' in out
+    assert 'Покрытие тестами' not in out
+    assert cov.totals_line() is None
+
+
+def test_run_tests_failure_silent(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Падение pytest без вывода помечается ошибкой и не печатает шум."""
+    proj = _make_proj(tmp_path)
+    (proj / 'tests' / 'test_mod.py').write_text('assert FAIL\n', encoding='utf-8')
+    bins = _make_bins(tmp_path, proj, with_json=False)
+    _script(bins, 'pytest', '#!/usr/bin/env bash\nexit 1\n')
+    targets = Targets()
+    targets.add_root(proj)
+    targets.add_file(proj, 'tests/test_mod.py', 'test')
+    run_ctx = _ctx(bins, proj / 'pyproject.toml')
+    cov = run_tests(run_ctx, targets)
+    assert run_ctx.reporter.failures == [f'pytest: {proj}']
+    out = capsys.readouterr().out
+    assert 'pytest-output' not in out
+    assert cov.totals_line() is None
+
+
+def test_run_tests_success_empty_totals(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Пустые totals после успешного pytest не дают строки покрытия."""
+    proj = _make_proj(tmp_path)
+    bins = _make_bins(tmp_path, proj)
+    zero_doc = json.dumps(
+        {
+            'files': {},
+            'totals': {
+                'num_statements': 0,
+                'covered_lines': 0,
+                'num_branches': 0,
+                'covered_branches': 0,
+            },
+        },
+    )
+    _script(
+        bins,
+        'pytest',
+        f"""#!/usr/bin/env bash
+set -u
+out=""
+for a in "$@"; do
+  case "$a" in
+    --cov-report=json:*) out="${{a#--cov-report=json:}}" ;;
+  esac
+done
+[[ -n "$out" ]] && printf '%s' '{zero_doc}' > "$out"
+exit 0
+""",
+    )
+    targets = Targets()
+    targets.add_root(proj)
+    targets.add_file(proj, 'tests/test_mod.py', 'test')
+    cov = run_tests(_ctx(bins, proj / 'pyproject.toml'), targets)
+    out = capsys.readouterr().out
+    assert 'Тесты прошли' in out
+    assert 'Покрытие тестами' not in out
+    assert cov.totals_line() is None
+
+
+def test_main_legacy_without_git(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Дефолтный запуск без git завершается ошибкой внутри репозитория."""
+    root = tmp_path / 'repo'
+    root.mkdir()
+    bins = tmp_path / 'bin'
+    bins.mkdir()
+    monkeypatch.setenv('DLUTILS_DIR', str(root))
+    monkeypatch.chdir(root)
+    monkeypatch.setenv('PATH', str(bins))
+    with pytest.raises(SystemExit) as exc_info:
+        main(['-q'])
+    assert exc_info.value.code == 1
+    assert 'внутри Git-репозитория' in capsys.readouterr().out
+
+
+def test_main_targets_no_args_uses_cwd(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Без аргументов вне корня dl_utils целью становится текущая директория."""
+    proj = _make_proj(tmp_path)
+    bins = _make_bins(tmp_path, proj)
+    _patch_path(monkeypatch, bins)
+    monkeypatch.chdir(proj)
+    assert main(['-q']) == 0
+    assert 'Проверка основных файлов' in capsys.readouterr().out

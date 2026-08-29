@@ -12,9 +12,10 @@ import pytest
 
 from checker import coverage as covmod
 from checker import report as repmod
-from checker.common import (
+from checker.common import (  # noqa: PLC0415
     Settings,
     Targets,
+    _collect_git,
     collect_targets,
     detect_mode,
     dl_root,
@@ -410,6 +411,54 @@ def test_collect_git_only_outside_repo(
     assert '--git-only требует git-репозиторий' in capsys.readouterr().out
 
 
+def test_collect_git_only_single_py_file(tmp_path: Path) -> None:
+    """В git-only режиме файл-цель даёт spec только по нему."""
+    git = shutil.which('git')
+    assert git is not None
+    target = tmp_path / 'mod.py'
+    target.write_text('x = 1\n', encoding='utf-8')
+    _git_init(tmp_path)
+    collected = collect_targets(
+        [str(target)],
+        git,
+        _settings(git_only=True),
+        repmod.Reporter(),
+    )
+    assert collected.main_of[tmp_path] == ['mod.py']
+
+
+def test_collect_git_only_non_py_file_ignored(tmp_path: Path) -> None:
+    """В git-only режиме файл-цель не по типу игнорируется."""
+    git = shutil.which('git')
+    assert git is not None
+    target = tmp_path / 'notes.md'
+    target.write_text('# note\n', encoding='utf-8')
+    _git_init(tmp_path)
+    collected = collect_targets(
+        [str(target)],
+        git,
+        _settings(git_only=True),
+        repmod.Reporter(),
+    )
+    assert not collected.main_of.get(tmp_path)
+    assert not collected.test_of.get(tmp_path)
+
+
+def test_collect_git_only_empty_rel_fallback(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Пустое rel после обрезки корня подменяется абсолютным путём."""
+    proj = tmp_path / 'proj'
+    proj.mkdir()
+    monkeypatch.setattr('checker.common.git_top', lambda *_: str(tmp_path))
+    monkeypatch.setattr('checker.common.git_list', lambda *_: ['proj/'])
+    collected = Targets()
+    collected.add_root(proj)
+    _collect_git(collected, proj, proj, tmp_path, 'git', repmod.Reporter())
+    assert collected.main_of[proj] == [str(proj)]
+
+
 def test_collect_disk_warns_outside_git(
     capsys: pytest.CaptureFixture[str],
     tmp_path: Path,
@@ -496,6 +545,60 @@ def test_suffix_broken_symlink(tmp_path: Path) -> None:
     (tmp_path / 'broken').symlink_to('/no/such/target/file')
     cov = covmod.Coverage()
     assert cov.suffix(tmp_path, 'broken') is None
+
+
+def test_column_signature_physical_symlink(tmp_path: Path) -> None:
+    """Подпись находится по физическому пути через симлинк на файл."""
+    (tmp_path / 'real.py').write_text('x = 1\n', encoding='utf-8')
+    (tmp_path / 'alias.py').symlink_to(tmp_path / 'real.py')
+    cov = covmod.Coverage()
+    cov.metrics['real.py'] = covmod.FileMetrics(50, None)
+    assert cov.suffix(tmp_path, 'alias.py') == 'строки 50%'
+
+
+def test_read_metrics_edge_cases(tmp_path: Path) -> None:
+    """Некорректные секции отчёта не роняют чтение и игнорируются."""
+    json_path = tmp_path / 'cov.json'
+    json_path.write_text(
+        json.dumps(
+            {
+                'files': {
+                    str(tmp_path / 'a.py'): ['not-a-dict'],
+                    str(tmp_path / 'b.py'): {'summary': [1, 2]},
+                    str(tmp_path / 'c.py'): {
+                        'summary': {
+                            'num_statements': 10,
+                            'covered_lines': 'nope',
+                            'num_branches': 4,
+                            'covered_branches': 'nope',
+                        },
+                    },
+                },
+                'totals': ['not-a-dict'],
+            },
+        ),
+        encoding='utf-8',
+    )
+    cov = covmod.read(tmp_path, json_path)
+    assert cov.suffix(tmp_path, 'a.py') is None
+    assert cov.suffix(tmp_path, 'b.py') is None
+    assert cov.suffix(tmp_path, 'c.py') == 'строки 0% · ветки 0%'
+    assert cov.totals_line() is None
+
+
+def test_read_skips_physical_path_outside_root(tmp_path: Path) -> None:
+    """Физический путь вне корня не добавляется в ключи метрик."""
+    outside = tmp_path.parent / 'outside.py'
+    outside.write_text('x = 1\n', encoding='utf-8')
+    (tmp_path / 'ref.py').symlink_to(outside)
+    json_path = tmp_path / 'cov.json'
+    file_stats = {'summary': {'num_statements': 10, 'covered_lines': 5}}
+    json_path.write_text(
+        json.dumps({'files': {str(tmp_path / 'ref.py'): file_stats}}),
+        encoding='utf-8',
+    )
+    cov = covmod.read(tmp_path, json_path)
+    assert cov.suffix(tmp_path, 'ref.py') == 'строки 50%'
 
 
 def test_coverage_available_patch(monkeypatch: pytest.MonkeyPatch) -> None:
