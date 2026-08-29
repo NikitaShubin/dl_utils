@@ -1,5 +1,6 @@
 """Тесты для модуля onnx_utils (работа с ONNX-моделями)."""
 
+import importlib
 import sys
 from pathlib import Path
 from unittest.mock import MagicMock, Mock, call, patch
@@ -350,6 +351,22 @@ class TestONNXModel:
             with pytest.raises(ValueError, match='int64'):
                 ONNXModel('model.onnx')
 
+    def test_init_malformed_input_type_raises(self) -> None:
+        """Тип входа без обёртки tensor(...) -> ValueError."""
+        mock_input = Mock()
+        mock_input.name = 'input'
+        mock_input.type = 'float32'
+        mock_input.shape = [1, 224, 3]
+
+        with patch('onnxruntime.InferenceSession') as mock_session:
+            mock_session.return_value.get_inputs.return_value = [mock_input]
+            mock_session.return_value.get_outputs.return_value = [Mock()]
+            with pytest.raises(
+                ValueError,
+                match='Некорректный формат типа входа',
+            ):
+                ONNXModel('model.onnx')
+
     def test_call_channel_last(self) -> None:
         """Применение к HWC-изображению без смены порядка каналов."""
         mock_input = Mock()
@@ -407,3 +424,13 @@ class TestONNXModel:
 
 if __name__ == '__main__':
     pytest.main([__file__])
+
+
+def test_reimport_without_tf2onnx_falls_back() -> None:
+    """Без tf2onnx модуль импортируется, а флаг выставляется в False."""
+    blocked = {name: None for name in sys.modules if name == 'tf2onnx'}
+    with patch.dict(sys.modules, blocked):
+        importlib.reload(onnx_utils)
+    assert onnx_utils.TF2ONNX_AVAILABLE is False
+    with pytest.raises(ImportError, match='tf2onnx'):
+        keras2onnx(Mock())
