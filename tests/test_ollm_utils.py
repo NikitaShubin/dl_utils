@@ -3,13 +3,17 @@
 Модуль содержит тесты для функций работы с Ollama-сервисом.
 """
 
+import importlib
+import sys
 import tempfile
 from collections.abc import Iterator
 from pathlib import Path
-from unittest.mock import Mock, patch
+from unittest.mock import MagicMock, Mock, patch
 
 import pytest
 import requests
+
+import ollm_utils
 
 # Импортируем только если модуль доступен
 from ollm_utils import (
@@ -340,6 +344,25 @@ class TestHosts2ChatEmbdCmplModels:
             assert cmpl == {}
             mock_host2models.assert_not_called()
 
+    def test_hosts2chat_embd_cmpl_models_duplicate_across_hosts(self) -> None:
+        """Тест: одна и та же модель на разных хостах попадает в словарь один раз."""
+        models = [{'name': 'llama2:7b'}]
+        with (
+            patch(
+                'ollm_utils.host2models_info',
+                side_effect=[models, models],
+            ),
+            patch('ollm_utils.model_name2type', return_value='chat'),
+        ):
+            chat, embd, cmpl = hosts2chat_embd_cmpl_models(
+                ['http://h1:11434', 'http://h2:11434'],
+            )
+
+            # Сохраняется запись первого хоста:
+            assert chat == {'llama2:7b': {'base_url': 'http://h1:11434'}}
+            assert embd == {}
+            assert cmpl == {}
+
 
 # ============================================================================
 # Тесты для model_name_to_v3
@@ -579,6 +602,54 @@ class TestSetJupyterAiV3Settings:
             assert cfg['AiExtension']['some_other_key'] == 'value'
             # Новые должны быть добавлены
             assert cfg['AiExtension']['initial_language_model'] == 'ollama/llama2:7b'
+
+    def test_v3_settings_without_models(self, temp_home: Path) -> None:
+        """Тест v3 без моделей: дефолтные модели и kwarg'и не задаются."""
+        _ = temp_home
+
+        with (
+            patch('ollm_utils.JUPYTER_AI_AVAILABLE', new=True),
+            patch(
+                'ollm_utils.hosts2chat_embd_cmpl_models',
+                return_value=({}, {}, {}),
+            ),
+            patch('ollm_utils.Path.exists', return_value=False),
+            patch('ollm_utils.obj2json') as mock_obj2json,
+            patch('ollm_utils.mkdirs'),
+        ):
+            set_jupyter_ai_v3_settings(['http://localhost:11434'])
+
+            call_args = mock_obj2json.call_args
+            assert call_args is not None
+            cfg, _ = call_args[0]
+            ai_cfg = cfg['AiExtension']
+            assert 'initial_language_model' not in ai_cfg
+            assert 'initial_embeddings_model' not in ai_cfg
+            assert 'model_kwargs' not in ai_cfg
+
+    def test_v3_settings_model_without_base_url(self, temp_home: Path) -> None:
+        """Тест v3: модель без base_url не попадает в model_kwargs."""
+        _ = temp_home
+        chat_models: Fields = {'llama2:7b': {}}
+
+        with (
+            patch('ollm_utils.JUPYTER_AI_AVAILABLE', new=True),
+            patch(
+                'ollm_utils.hosts2chat_embd_cmpl_models',
+                return_value=(chat_models, {}, {}),
+            ),
+            patch('ollm_utils.Path.exists', return_value=False),
+            patch('ollm_utils.obj2json') as mock_obj2json,
+            patch('ollm_utils.mkdirs'),
+        ):
+            set_jupyter_ai_v3_settings(['http://localhost:11434'])
+
+            call_args = mock_obj2json.call_args
+            assert call_args is not None
+            cfg, _ = call_args[0]
+            ai_cfg = cfg['AiExtension']
+            assert ai_cfg['initial_language_model'] == 'ollama/llama2:7b'
+            assert 'model_kwargs' not in ai_cfg
 
 
 # ============================================================================
@@ -890,6 +961,29 @@ class TestSetOpenCodeSettings:
             # Провайдеры тоже должны быть в порядке:
             assert 'ollama0' in cfg['provider']
             assert 'ollama1' in cfg['provider']
+
+    def test_existing_dir_skips_mkdirs(self, temp_home: Path) -> None:
+        """Тест: при существующей папке конфига mkdirs не вызывается."""
+        cfg_dir = temp_home / '.config' / 'opencode'
+        cfg_dir.mkdir(parents=True)
+        chat_models: Fields = {'llama2:7b': {'base_url': 'http://localhost:11434'}}
+
+        with (
+            patch('ollm_utils.OPENCODE_AVAILABLE', new=True),
+            patch(
+                'ollm_utils.hosts2chat_embd_cmpl_models',
+                return_value=(chat_models, {}, {}),
+            ),
+            patch('ollm_utils.Path.is_file', return_value=False),
+            patch('ollm_utils.obj2json') as mock_obj2json,
+            patch('ollm_utils.mkdirs') as mock_mkdirs,
+        ):
+            set_opencode_settings(['http://localhost:11434'])
+
+            mock_mkdirs.assert_not_called()
+            call_args = mock_obj2json.call_args
+            assert call_args is not None
+            assert call_args[0][1] == cfg_dir / 'opencode.jsonc'
 
 
 # ============================================================================
@@ -1218,6 +1312,18 @@ class TestTypeAnnotations:
         assert isinstance(hosts_set, set)
         assert isinstance(hosts_tuple, tuple)
         assert hosts_none is None
+
+
+def test_module_import_with_jupyter_ai() -> None:
+    """Проверка ветки импорта при установленном jupyter_ai.
+
+    Перезагружаем модуль с подменённым в sys.modules jupyter_ai.
+    Тест обязан стоять последним: после него состояние ollm_utils изменяется.
+    """
+    with patch.dict(sys.modules, {'jupyter_ai': MagicMock()}):
+        importlib.reload(ollm_utils)
+
+    assert ollm_utils.JUPYTER_AI_AVAILABLE is True
 
 
 if __name__ == '__main__':
