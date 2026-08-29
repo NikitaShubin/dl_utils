@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """onnx_utils.py.
 
 ********************************************
@@ -34,8 +33,8 @@
 """
 
 import onnx
-import onnxmltools
-import onnxruntime
+import onnxmltools  # type: ignore[import-untyped]
+import onnxruntime  # type: ignore[import-untyped]
 
 # Выясняем, установлен ли tf2onnx; нужен только для keras2onnx():
 try:
@@ -45,8 +44,12 @@ try:
 except ImportError:
     TF2ONNX_AVAILABLE = False
 
+from pathlib import Path
+
 import numpy as np
-from onnxconverter_common.float16 import convert_float_to_float16
+from onnxconverter_common.float16 import (  # type: ignore[import-untyped]
+    convert_float_to_float16,
+)
 from onnxruntime import quantization
 from tqdm.auto import tqdm
 
@@ -54,34 +57,35 @@ from ml_utils import chw2hwc, hwc2chw, is_channel_first
 from utils import rmpath
 
 
-def get_weights(path):
+def get_weights(path: str | Path) -> list:
     """Возвращает список весов.
+
     https://stackoverflow.com/a/52424141/14474616.
     """
-    model = onnx.load(path)
-    INTIALIZERS = model.graph.initializer
-    weights = []
-    for initializer in INTIALIZERS:
-        W = onnx.numpy_helper.to_array(initializer)
-        weights.append(W)
-
-    return weights
+    model = onnx.load(str(path))
+    return [onnx.numpy_helper.to_array(i) for i in model.graph.initializer]
 
 
 class DataReader(quantization.calibrate.CalibrationDataReader):
-    """Преобразует генератор данных (например tf.data.Dataset)
-    в объект, позволяющий генерировать входы для onnx-модели.
+    """Преобразует генератор данных в объект для калибровки onnx-модели.
+
+    Например, входом служит генератор tf.data.Dataset,
+    из которого извлекаются батчи для калибровки.
 
     Используется при калибровке модели для статической оптимизации.
     """
 
-    def __init__(self, ds, model) -> None:
+    def __init__(self, ds, model: str | Path) -> None:
+        """Инициализирует калибровочный ридер.
+
+        Определяет имя входа модели и формирует итератор по данным.
+        """
         # Определяем имя входа:
-        model = onnxruntime.InferenceSession(
+        sess = onnxruntime.InferenceSession(
             model,
             providers=['CUDAExecutionProvider', 'CPUExecutionProvider'],
         )
-        self.input_name = model.get_inputs()[0].name
+        self.input_name = sess.get_inputs()[0].name
 
         # Определяем число элементов:
         self.datasize = len(ds)
@@ -89,9 +93,11 @@ class DataReader(quantization.calibrate.CalibrationDataReader):
         # Формируем итератор:
         self.iter = iter(ds)
 
-    # Получает очередной батч из генератора и возвращает
-    # его в уже подготовленном для onnx виде:
-    def get_next(self):
+    def get_next(self) -> dict[str, np.ndarray]:
+        """Возвращает очередной подготовленный для onnx батч.
+
+        По исчерпании итератора возвращается None.
+        """
         # Получаем очередную минивыборку из итератора:
         batch = next(self.iter, None)
 
@@ -111,14 +117,15 @@ def keras2onnx(
     stc='stc.onnx',
     ds=None,
     tmp_file='tmp.onnx',
-    *args,
-    **kwargs,
+    *args: list,
+    **kwargs: object,
 ):
-    """Сохраняет keras-модель в следующие onnx-модели:
-        полноценную float32,
-        упрощённую  float16,
-        динамическую uint8 ,
-        статическую   int8 .
+    """Конвертирует keras-модель в onnx-модели нескольких видов.
+
+    - полноценную float32;
+    - упрощённую float16;
+    - динамическую uint8;
+    - статическую int8.
 
     args и kwargs - параметры, передающиеся напрямую в
     tf2onnx.convert.from_keras.
@@ -202,9 +209,8 @@ class ONNXModel:
     нагружать последний зависимостями от onnx-библиотек.
     """
 
-    def __init__(self, model, name='ONNXModel') -> None:
+    def __init__(self, model, name: str = 'ONNXModel') -> None:
         """Инициализация обёртки."""
-
         # Сохраняем параметры:
         self.model = model
         self.name = name
@@ -223,8 +229,9 @@ class ONNXModel:
         self.is_channel_first = is_channel_first(self.inp.shape)
 
         # Строковое описание должно быть вида "tensor(тип)":
-        assert inp_type[:7] == 'tensor('
-        assert inp_type[-1] == ')'
+        if not (inp_type.startswith('tensor(') and inp_type.endswith(')')):
+            msg = f'Некорректный формат типа входа: "{inp_type}"!'
+            raise ValueError(msg)
 
         # Берём из строкового описания только сам тип тензора:
         inp_type = inp_type[7:-1]
@@ -238,9 +245,8 @@ class ONNXModel:
             msg = f'Неизвестный тип входа: "{inp_type}"!'
             raise ValueError(msg)
 
-    def __call__(self, image):
+    def __call__(self, image: np.ndarray) -> np.ndarray:
         """Применение модели к входным данным."""
-
         # Подготавливаем данные:
         if self.is_channel_first:
             image = hwc2chw(image)
