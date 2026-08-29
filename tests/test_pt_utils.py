@@ -55,6 +55,37 @@ class TestAutoDevice:
             device = AutoDevice.get_avliable_device()
             assert isinstance(device, torch.device)
 
+    def test_get_available_device_cuda(self) -> None:
+        """Тест выбора CUDA при её доступности."""
+        with patch('torch.cuda.is_available', return_value=True):
+            assert AutoDevice.get_avliable_device() == 'cuda'
+
+    def test_get_available_device_mps(self) -> None:
+        """Тест выбора MPS при доступности и отсутствии CUDA."""
+        with (
+            patch('torch.cuda.is_available', return_value=False),
+            patch('torch.backends.mps.is_available', return_value=True),
+        ):
+            assert AutoDevice.get_avliable_device() == 'mps'
+
+    def test_auto_device_init_with_device_object(self) -> None:
+        """Тест инициализации готовым объектом torch.device."""
+        with patch('pt_utils.AutoDevice.prepare_device'):
+            auto_device = AutoDevice(torch.device('cpu'))
+        assert auto_device.device == torch.device('cpu')
+
+    def test_auto_device_init_with_str_cpu(self) -> None:
+        """Тест инициализации строкой устройства без автоподбора."""
+        with patch('pt_utils.AutoDevice.get_avliable_device') as mock_get_device:
+            mock_get_device.return_value = torch.device('cuda')
+            auto_device = AutoDevice('cpu')
+            mock_get_device.assert_not_called()
+        assert auto_device.device == torch.device('cpu')
+
+    def test_prepare_device_mps(self) -> None:
+        """Тест prepare_device для MPS - не должно быть ошибок."""
+        AutoDevice.prepare_device(torch.device('mps'))
+
     def test_auto_device_init(self) -> None:
         """Тест инициализации AutoDevice."""
         with patch('pt_utils.AutoDevice.get_avliable_device') as mock_get_device:
@@ -151,6 +182,17 @@ class TestTensorUtils:
         small_tensor = torch.randn(2, 1)  # Только 2 элемента по размерности 0
         assert not has_var_sufficient_elements(small_tensor, dim=0, correction=2)
 
+    def test_has_var_sufficient_elements_none_dim(self) -> None:
+        """Тест has_var_sufficient_elements без указания размерности."""
+        tensor = torch.randn(5)
+        assert has_var_sufficient_elements(tensor, None, correction=2)
+        assert not has_var_sufficient_elements(tensor, None, correction=5)
+
+    def test_has_var_sufficient_elements_tuple_dim(self) -> None:
+        """Тест has_var_sufficient_elements с кортежем размерностей."""
+        tensor = torch.randn(3, 4)
+        assert has_var_sufficient_elements(tensor, (0, 1), correction=5)
+
     def test_safe_var_normal_case(self, sample_tensor: torch.Tensor) -> None:
         """Тест safe_var в нормальном случае."""
         result = safe_var(sample_tensor, dim=1)
@@ -192,6 +234,18 @@ class TestSegDataset:
         assert mask.shape == (100, 100)  # Без one-hot encoding
         assert image.dtype == np.uint8
         assert mask.dtype == np.uint8
+
+    def test_dataset_getitem_non_image(self, tmp_path: Path) -> None:
+        """Тест ошибки при чтении файла, не являющегося изображением."""
+        inp = tmp_path / 'inp'
+        out = tmp_path / 'out'
+        inp.mkdir()
+        out.mkdir()
+        (inp / 'x.png').write_text('не изображение', encoding='utf-8')
+        (out / 'x.png').write_text('не изображение', encoding='utf-8')
+        dataset = SegDataset(str(tmp_path))
+        with pytest.raises(ValueError, match='не содержит изображение'):
+            dataset[0]
 
     def test_dataset_invalid_structure(self) -> None:
         """Тест датасета с несовпадающими именами файлов."""
@@ -265,6 +319,13 @@ class TestSenderReceiver:
         # Тестируем с tuple
         result = Receiver.pair((5, 6))
         assert result == (5, 6)
+
+    def test_receiver_pair_single_and_error(self) -> None:
+        """Тест pair с одиночным значением и с недопустимой длиной."""
+        assert Receiver.pair([7]) == (7, 7)
+        assert Receiver.pair((8,)) == (8, 8)
+        with pytest.raises(ValueError, match='Ожидается 1 или 2'):
+            Receiver.pair([1, 2, 3])
 
 
 class TestIntegration:
