@@ -15,10 +15,32 @@ import cv2
 import numpy as np
 import pytest
 
+
 # Моки для зависимостей перед импортом модуля
-sys.modules['boxmot'] = MagicMock()
-sys.modules['boxmot.trackers'] = MagicMock()
-sys.modules['boxmot.trackers.tracker_zoo'] = MagicMock()
+class FakeTracker:
+    """Документация трекера по умолчанию."""
+
+
+class EmptyDocTracker:
+    """Класс без строки документации для проверки ветки по умолчанию."""
+
+
+EmptyDocTracker.__doc__ = None
+
+_mock_tracker_zoo = MagicMock()
+_mock_tracker_zoo.TRACKER_MAPPING = {
+    'fake': 'boxmot.FakeTracker',
+    'empty': 'boxmot.EmptyDocTracker',
+}
+_mock_tracker_zoo.REID_TRACKERS = ['fake']
+_mock_boxmot = MagicMock()
+_mock_boxmot.FakeTracker = FakeTracker
+_mock_boxmot.EmptyDocTracker = EmptyDocTracker
+_mock_boxmot.trackers = MagicMock()
+_mock_boxmot.trackers.tracker_zoo = _mock_tracker_zoo
+sys.modules['boxmot'] = _mock_boxmot
+sys.modules['boxmot.trackers'] = _mock_boxmot.trackers
+sys.modules['boxmot.trackers.tracker_zoo'] = _mock_tracker_zoo
 
 # Импортируем после установки моков
 from boxmot_utils import Tracker, suppress_module_logs  # noqa: E402
@@ -90,6 +112,24 @@ import boxmot_utils  # noqa: E402
 
 boxmot_utils.BBox = MockBBox
 boxmot_utils.Mask = MockMask
+
+
+class TestSuppressModuleLogsException:
+    """Тесты контекстного менеджера при исключении внутри блока."""
+
+    def test_suppress_reenables_on_exception(self) -> None:
+        """Логи модуля включаются даже при выбросе исключения."""
+        mock_logger = Mock()
+        message = 'boom'
+        with (
+            patch('boxmot_utils.logger', mock_logger),
+            pytest.raises(RuntimeError, match=message),
+            suppress_module_logs('test_module'),
+        ):
+            raise RuntimeError(message)
+        assert mock_logger.disable.call_args == call('test_module')
+        assert mock_logger.enable.call_args == call('test_module')
+        assert mock_logger.enable.called
 
 
 class TestTrackerInit:
@@ -242,6 +282,15 @@ class TestTrackerMethods:
         cls_id = self.tracker._label2cls('car')  # noqa: SLF001
 
         assert cls_id == 1
+
+    def test_label2cls_relabels_unhashable(self) -> None:
+        """Метка, дающая ошибку сравнения, пробрасывается наружу (re-raise)."""
+        self.tracker._labels = ['person']  # noqa: SLF001
+        with pytest.raises(
+            ValueError,
+            match='truth value of an array',
+        ):
+            self.tracker._label2cls(np.arange(4))  # noqa: SLF001
 
     def test_obj2det_bbox(self) -> None:
         """Тест конвертации BBox в детекцию."""
@@ -557,6 +606,23 @@ class TestTrackerIntegration:
 
             # Проверяем, что новая метка добавляется с индексом 0
             assert tracker._label2cls('dog') == 0  # noqa: SLF001
+
+
+class TestTrackerDocstring:
+    """Тесты дополнения docstring инициализации данными из boxmot."""
+
+    def test_init_docstring(self) -> None:
+        """Строки документации включают текст из тела класса."""
+        assert Tracker.__init__.__doc__
+        assert 'store_untracked' in Tracker.__init__.__doc__
+        assert 'Параметры для каждого из трекеров' in Tracker.__init__.__doc__
+
+    def test_docstring_includes_tracker_docs(self) -> None:
+        """В docstring попадают описания трекеров с учётом пустой документации."""
+        doc = Tracker.__init__.__doc__ or ''
+        assert 'fake:' in doc
+        assert 'Документация трекера по умолчанию.' in doc
+        assert 'Информация отсутствует.' in doc
 
 
 if __name__ == '__main__':
