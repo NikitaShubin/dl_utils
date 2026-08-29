@@ -78,7 +78,8 @@ class DataReader(quantization.calibrate.CalibrationDataReader):
     def __init__(self, ds, model) -> None:
         # Определяем имя входа:
         model = onnxruntime.InferenceSession(
-            model, providers=['CUDAExecutionProvider', 'CPUExecutionProvider'],
+            model,
+            providers=['CUDAExecutionProvider', 'CPUExecutionProvider'],
         )
         self.input_name = model.get_inputs()[0].name
 
@@ -162,7 +163,9 @@ def keras2onnx(
         # Конвертрируем и сохраняем динамический ONNX Uint8, если надо:
         if dyn:
             quantization.quantize_dynamic(
-                tmp_file, dyn, weight_type=quantization.QuantType.QUInt8,
+                tmp_file,
+                dyn,
+                weight_type=quantization.QuantType.QUInt8,
             )
             onnxdn = onnx.load_model(dyn)
         else:
@@ -190,7 +193,7 @@ def keras2onnx(
 
 
 class ONNXModel:
-    """# Обёртка ONNX-модели в функтор для инференса.
+    """Обёртка ONNX-модели в функтор для инференса.
 
     Используется, например, при построении
     конвейера фильтров в video_utils.py.
@@ -200,6 +203,7 @@ class ONNXModel:
     """
 
     def __init__(self, model, name='ONNXModel') -> None:
+        """Инициализация обёртки."""
 
         # Сохраняем параметры:
         self.model = model
@@ -207,7 +211,8 @@ class ONNXModel:
 
         # Инициализируем среду выполнения:
         self.sess = onnxruntime.InferenceSession(
-            self.model, providers=['CUDAExecutionProvider', 'CPUExecutionProvider'],
+            self.model,
+            providers=['CUDAExecutionProvider', 'CPUExecutionProvider'],
         )
 
         self.inp = self.sess.get_inputs()[0]  # Вход  модели
@@ -233,8 +238,8 @@ class ONNXModel:
             msg = f'Неизвестный тип входа: "{inp_type}"!'
             raise ValueError(msg)
 
-    # Применение модели к входным данным:
     def __call__(self, image):
+        """Применение модели к входным данным."""
 
         # Подготавливаем данные:
         if self.is_channel_first:
