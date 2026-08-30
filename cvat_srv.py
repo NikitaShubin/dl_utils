@@ -754,6 +754,14 @@ class CVATSRVBase:
         '''
         return [get_name(subobject) for subobject in self.values()]
 
+    def __contains__(self, key):
+        '''
+        Проверяет, есть ли вложенный объект с именем (или номером) key.
+        Дополняет словарное поведение объекта: позволяет писать
+        `key in obj` вместо `key in obj.keys()`.
+        '''
+        return key in self.keys()
+
     def items(self):
         '''
         Возращает список кортежей из пар (имя_подобъекта, подобъект).
