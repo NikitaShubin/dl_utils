@@ -6,6 +6,7 @@ from IPython import get_ipython
 from IPython.display import Video, clear_output, display, HTML
 import ipywidgets
 import os
+import threading
 from urllib.parse import quote
 
 from cv_utils import Mask
@@ -63,41 +64,97 @@ class IPYInteractiveSegmentation:
     neg_name = 'exclude'
     clr_name = 'clear'
 
-    # Ошибка при отрисовке, которую надо перехватывать:
+    # ВРЕМЕННЫЙ ОБВЕС: защита от бага mpl_point_clicker при интерактивном
+    # бэкенде ipympl — фоновый flush (savefig -> print_figure) на время
+    # рендера обнуляет canvas.manager, и наш синхронный canvas.draw() падает
+    # на refresh_all() у None. Баг на стороне библиотек, см.
+    # https://github.com/ianhi/mpl-point-clicker (repo живая, багфикс ждём
+    # там же). Когда исправят наверху, удалить ВСЁ, помеченное «ВРЕМЕННЫЙ
+    # ОБВЕС»: _install_canvas_guard() с её вызовом в _make_figure(),
+    # строки ниже exception/retry, метод _redraw (его вызовы — on_click,
+    # clear, show, on_class_changed — заменить на
+    # self.klicker._update_points()) и обёрнутый в retry вызов
+    # self._make_figure() в show() заменить на прямой. Импорт threading
+    # после этого тоже удалить, если он нигде больше не используется:
     exception = AttributeError("'NoneType' object has no attribute 'refresh_all'")
-    # Сам перехватчик:
-    retry = Retry(20, exception)
+    # Перехватчик — страховка на случай, если обвес не успел встать до того,
+    # как канву взял в оборот фоновый flush. Паузы короткие и постоянные,
+    # чтобы при плотном флаше не зависать надолго (растущий backoff ранее
+    # доводил показ до ~75 с застоя):
+    retry = Retry(50, exception, sleep_s=0.02)
+
+    # ВРЕМЕННЫЙ ОБВЕС (см. exception/retry выше): RLock-сериализация
+    # рисования на нашем canvas — draw и print_figure (в нём работает
+    # фоновый flush) делят один лок, и их окна не пересекаются. Обвязываем
+    # инстанс канвы конкретной фигуры, чужие канвы не трогаем. Снятие:
+    # удалить метод вместе со строкой его вызова в _make_figure().
+    def _install_canvas_guard(self, fig) -> None:
+        lock = threading.RLock()
+
+        draw = fig.canvas.draw
+        print_figure = fig.canvas.print_figure
+
+        def draw_():
+            with lock:
+                return draw()
+
+        def print_figure_(*args, **kwargs):
+            with lock:
+                return print_figure(*args, **kwargs)
+
+        fig.canvas.draw = draw_
+        fig.canvas.print_figure = print_figure_
 
     # Очищает все подсказки, если нажат класс "clear":
     def on_class_changed(self, new_class):
         if new_class == self.clr_name:
             self.klicker._current_class = self.pos_name
             self.clear()
-            self.klicker._update_points()
+            self._redraw()
+
+    # Строит фигуру с кликером одной попыткой; при сбое закрывает свой
+    # график, чтобы retry не накапливал линии и легенду на одних осях:
+    def _make_figure(self) -> tuple[plt.Figure, plt.Axes, clicker]:
+        fig, ax = plt.subplots(figsize=(10, 4), constrained_layout=True)
+        # ВРЕМЕННЫЙ ОБВЕС: ставим RLock-обвязку сразу после создания, пока
+        # канву ещё не подхватил фоновый flush (иначе выигрываем гонку
+        # только на старте). Снятие: удалить эту строку и _install_canvas_guard():
+        self._install_canvas_guard(fig)
+        try:
+            klicker = clicker(
+                ax,
+                [self.msk_name, self.box_name, self.pos_name,
+                 self.neg_name, self.clr_name],
+                markers=['p', 's', 'o', 'x', 'X'],
+                colors=['k', 'b', 'g', 'r', 'w'],
+            )
+        except Exception:  # noqa: BLE001
+            plt.close(fig)  # график построен лишь частично, выкидываем его
+            raise
+        return fig, ax, klicker
+
+    # Перерисовка точек; часть ВРЕМЕННОГО ОБВЕСА (см. exception/retry выше):
+    # после фикса бага наверху заменить тело на
+    # self.klicker._update_points():
+    def _redraw(self):
+        self.retry(self.klicker._update_points)()
 
     def show(self, img):
         self.img = img
 
+        # Закрываем прошлую фигуру, чтобы не накапливать графики в буфере
+        # ipympl: каждый открытый график удлиняет окно фонового savefig,
+        # в которое попадает наш draw (иначе ретраям сложнее его переждать):
+        if getattr(self, 'fig', None):
+            plt.close(self.fig)
+
         # Включаем интерактивный matplotlib.
         self.ipython.run_line_magic('matplotlib', 'widget')
 
-        # Инициируем графический вывод в ячейке ноутбука:
-        self.fig, self.ax = plt.subplots(figsize=(10, 4),
-                                         constrained_layout=True)
-
-        # Прикручиваем интерактивность:
-        self.klicker = self.retry(clicker)(
-            self.ax,
-            [
-                self.msk_name,
-                self.box_name,
-                self.pos_name,
-                self.neg_name,
-                self.clr_name
-            ],
-           markers=['p', 's', 'o', 'x', 'X'],
-           colors=['k', 'b', 'g', 'r', 'w']
-        )
+        # Кликер строится вместе с фигурой одной попыткой: при сбое график
+        # закрывается, и retry строит новый с нуля (закрытые фигуры не
+        # попадают в вывод ноутбука, поэтому артефакты не накапливаются):
+        self.fig, self.ax, self.klicker = self.retry(self._make_figure)()
 
         # Отрисовываем изображение:
         self.fig.canvas.header_visible = False    # Убираем название фигуры
@@ -121,7 +178,7 @@ class IPYInteractiveSegmentation:
                                         self.pos_name: self.init_pos_points,
                                         self.neg_name: self.init_neg_points,
                                         self.clr_name: []})
-            self.klicker._update_points()  # Отрисовка точек на экране
+            self._redraw()  # Отрисовка точек на экране
 
             # Очистка:
             self.init_msk_points = []
@@ -202,7 +259,7 @@ class IPYInteractiveSegmentation:
                 img = box.draw(img, color=(0, 0, 255), alpha=0.5)
 
         self.ax.imshow(img)
-        self.retry(self.klicker._update_points)()
+        self._redraw()
         plt.show()
 
     def clear(self):
@@ -211,7 +268,7 @@ class IPYInteractiveSegmentation:
                                     self.pos_name: [],
                                     self.neg_name: [],
                                     self.clr_name: []})
-        self.klicker._update_points()
+        self._redraw()
         self.on_click()
 
 
