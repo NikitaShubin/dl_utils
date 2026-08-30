@@ -794,9 +794,13 @@ def df_load(file='df.tsv'):
     '''
     df = pd.read_csv(file, sep='\t')
 
-    # Обрабатываем списки и словари:
+    # Обрабатываем списки и словари (literal_eval только для строковых ячеек:
+    # скаляры, например start_frame в attributes у Prompts, pandas уже
+    # распарсил, и разбор их как литералов падает):
     columns = ['points', 'attributes', 'mutable_attributes', 'attribs', 'elements']
-    df[columns] = df[columns].map(literal_eval)
+    df[columns] = df[columns].map(
+        lambda cell: literal_eval(cell) if isinstance(cell, str) else cell,
+    )
 
     # Восстановление track_id из строкового 'None' или NaN:
     df['track_id'] = df['track_id'].replace({np.nan: None, 'None': None})
