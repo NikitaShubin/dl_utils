@@ -11,7 +11,7 @@ from tqdm.auto import tqdm
 import sam2
 from sam2.build_sam import build_sam2_video_predictor
 import warnings
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from urllib.request import urlretrieve
 from pathlib import Path
 
@@ -481,10 +481,14 @@ class SAM2:
 
         # Объединяем 2 контекста в 1:
         with torch.inference_mode() as im, \
-                torch.autocast(device, dtype=dtype) as ac, \
                 warnings.catch_warnings() as cw:
             warnings.simplefilter("ignore")
-            yield (im, ac, cw)
+            # Автокаст осмыслен только при half: с float32 это всегда no-op,
+            # поэтому контекст не создаём (и варнинг про неподдерживаемый
+            # dtype физически не может возникнуть), а подставляем nullcontext:
+            ac = torch.autocast(device, dtype=dtype) if self.half else nullcontext()
+            with ac:
+                yield (im, ac, cw)
 
     # Перевод масок, возвращаемых моделью, в привычные для отрисовки и
     # векторизации:
