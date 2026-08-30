@@ -193,11 +193,12 @@ class Prompts:
     def set_points(self, msk_points, box_points, pos_points, neg_points,
                    frame, obj_id='new', label=None):
 
-        # Делаем координаты плоским списком:
-        msk_points = list(msk_points.flatten())
-        box_points = list(box_points.flatten())
-        pos_points = list(pos_points.flatten())
-        neg_points = list(neg_points.flatten())
+        # Делаем координаты плоским списком обычных Python-значений (иначе
+        # numpy-скаляры не читаются ast.literal_eval при загрузке из tsv):
+        msk_points = msk_points.flatten().tolist()
+        box_points = box_points.flatten().tolist()
+        pos_points = pos_points.flatten().tolist()
+        neg_points = neg_points.flatten().tolist()
 
         # Берём новый объект, если надо:
         if obj_id == 'new':
