@@ -3087,11 +3087,18 @@ class Retry:
         ... def ariph_operation():
         ...     # арифметическая операция
         ...     pass
+
+        >>> @Retry(max_attempts=5, exception=ValueError, sleep_s=0.1)
+        ... def transient_function():
+        ...     # код, который может вызвать исключение
+        ...     pass
     """
 
     def __init__(self,
                  max_attempts: int = 3,
-                 exception: ExceptoinOrType | RetryExceptions = Exception) -> None:
+                 exception: ExceptoinOrType | RetryExceptions = Exception,
+                 sleep_s: float = 0,
+                 backoff: float | None = None) -> None:
         """
         Инициализирует декоратор с указанными параметрами.
 
@@ -3100,6 +3107,14 @@ class Retry:
                 Максимальное количество попыток выполнения функции.
             exception : ExceptionOrType | RetryExceptions
                 Исключение или набор исключений для перехвата.
+            sleep_s : float, optional
+                Пауза (в секундах) между попытками после перехвата допустимого
+                исключения; по умолчанию 0 (без паузы).
+            backoff : float | None, optional
+                Множитель увеличения паузы с каждой попыткой
+                (пауза = sleep_s * backoff^номер_попытки, не более 5 секунд);
+                по умолчанию None (пауза постоянная). Полезно, если «окно»
+                сбоя может быть длинным и затянувшимся во времени.
 
         Raises
             TypeError
@@ -3112,6 +3127,8 @@ class Retry:
 
         self.exceptions = exception
         self.max_attempts = max_attempts
+        self.sleep_s = sleep_s
+        self.backoff = backoff
 
     def __call__(self, function: Callable) -> Callable:
         """
@@ -3148,11 +3165,19 @@ class Retry:
                         cached_exceptions.append(e)
 
                     # Обрабатываем исключение в зависимости от его допустимости:
-                    if self.is_acceptable_exception(e):
-                        print(f'Попытка №{attempt + 1}', end='\r')
-                    else:
+                    if not self.is_acceptable_exception(e):
                         print('=========')
                         raise e
+                    # Пауза между попытками, если она задана и это не последняя попытка;
+                    # растёт, если задан множитель backoff, и ограничена сверху
+                    # 5 секундами, чтобы затянувшееся окно сбоя не требовало
+                    # тысяч попыток:
+                    if attempt < self.max_attempts - 1:
+                        sleep_s = self.sleep_s
+                        if self.backoff:
+                            sleep_s = min(sleep_s * (self.backoff ** attempt), 5)
+                        if sleep_s:
+                            time.sleep(sleep_s)
 
             # Если допустимое число попыток исчерпано:
             print('Превышено допустимое число попыток!')
