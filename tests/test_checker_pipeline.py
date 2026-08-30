@@ -62,7 +62,13 @@ last="${@: -1}"
 exit 0
 """,
     )
-    _script(bins, 'nbqa', f'#!/usr/bin/env bash\nshift\nexec {bins}/mypy "$@"\n')
+    _script(
+        bins,
+        'nbqa',
+        '#!/usr/bin/env bash\nshift\n'
+        f'printf "%s\\n" "$@" >> {proj}/nbqa_args.log\n'
+        f'exec {bins}/mypy "$@"\n',
+    )
     if with_json:
         doc = json.dumps(
             {
@@ -612,13 +618,18 @@ def test_run_linter_failure_silent(tmp_path: Path) -> None:
 
 
 def test_check_one_file_ipynb_uses_nbqa(tmp_path: Path) -> None:
-    """Для .ipynb mypy запускается через обёртку nbqa."""
+    """Для .ipynb mypy запускается через обёртку nbqa с конфигом и этим флагом."""
     proj = _make_proj(tmp_path)
     (proj / 'src' / 'mod.ipynb').write_text('{"cells": []}', encoding='utf-8')
     bins = _make_bins(tmp_path, proj)
     ctx = _ctx(bins, proj / 'pyproject.toml')
     check_one_file(ctx, proj, 'src/mod.ipynb', None, annotate=False)
     assert ctx.reporter.failures == []
+    args = (proj / 'nbqa_args.log').read_text(encoding='utf-8').splitlines()
+    assert 'src/mod.ipynb' in args
+    cfg = str(proj / 'pyproject.toml')
+    assert f'--config-file={cfg}' in args
+    assert '--ignore-missing-imports' in args
 
 
 def test_run_tests_skips_root_without_tests(

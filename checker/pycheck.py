@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -150,15 +151,21 @@ def check_one_file(
     *,
     annotate: bool,
 ) -> None:
-    """Тройка линтеров для одного файла с путями относительно корня цели."""
+    """Тройка линтеров для одного файла с путями относительно каталога конфига."""
     display = f'{root}/{rel}'
     suffix = coverage.suffix(root, rel) if annotate and coverage is not None else None
     ctx.reporter.file_line(display, suffix)
 
+    # Точка запуска инструментов - каталог используемого pyproject.toml (корень
+    # dl_utils). Так first-party в isort определяется единообразно (по структуре
+    # каталога конфига, а не корня цели): иначе при проверке из подкаталога
+    # modules корня цели не попадают в first-party и сортировка импортов "пляшет".
     cfg = str(ctx.cfg)
+    tool_cwd = ctx.cfg.parent
+    cmd_rel = os.path.relpath(root / rel, tool_cwd)
     color = ctx.colors['ruff']
     if ctx.fix:
-        format_cmd = [_require(ctx, 'ruff'), 'format', '--config', cfg, color, rel]
+        format_cmd = [_require(ctx, 'ruff'), 'format', '--config', cfg, color, cmd_rel]
     else:
         format_cmd = [
             _require(ctx, 'ruff'),
@@ -168,9 +175,9 @@ def check_one_file(
             '--config',
             cfg,
             color,
-            rel,
+            cmd_rel,
         ]
-    run_linter(ctx, 'ruff format', display, format_cmd, root)
+    run_linter(ctx, 'ruff format', display, format_cmd, tool_cwd)
 
     check_args = ['check', '--config', cfg, color]
     if ctx.fix:
@@ -179,23 +186,32 @@ def check_one_file(
         ctx,
         'ruff check',
         display,
-        [_require(ctx, 'ruff'), *check_args, rel],
-        root,
+        [_require(ctx, 'ruff'), *check_args, cmd_rel],
+        tool_cwd,
     )
 
     # Mypy: для .ipynb используется обёртка nbqa, т.к. mypy не понимает
-    # формат notebook нативно:
-    if rel.endswith('.ipynb'):
-        mypy_cmd = [_require(ctx, 'nbqa'), 'mypy', rel]
+    # формат notebook нативно. Ноутбукам передаётся тот же конфиг, что и .py,
+    # а --ignore-missing-imports глушит импорты сторонних/внутренних модулей
+    # без stubs (utils, labels, torch, ...) - проверка кода ноутбука при этом
+    # остаётся. Не убирать флаги: без них ноутбуки сыплются на import-not-found
+    if cmd_rel.endswith('.ipynb'):
+        mypy_cmd = [
+            _require(ctx, 'nbqa'),
+            'mypy',
+            cmd_rel,
+            f'--config-file={cfg}',
+            '--ignore-missing-imports',
+        ]
     else:
         mypy_cmd = [
             _require(ctx, 'mypy'),
             '--config-file',
             cfg,
             ctx.colors['mypy'],
-            rel,
+            cmd_rel,
         ]
-    run_linter(ctx, 'mypy', display, mypy_cmd, root)
+    run_linter(ctx, 'mypy', display, mypy_cmd, tool_cwd)
 
 
 def run_stage(

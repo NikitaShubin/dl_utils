@@ -27,6 +27,9 @@ ROOT_FILES: list[str] = [
     'ul_utils.py',
     'sam3al.py',
     'docker/set_symbolic_flag.py',
+    'PreAnnotation/SAM3.ipynb',
+    'PreAnnotation/Detection.ipynb',
+    'PreAnnotation/Segmentation.ipynb',
     'checker/__init__.py',
     'checker/report.py',
     'checker/common.py',
@@ -47,6 +50,8 @@ PRUNE_NAMES = frozenset(
         '.mypy_cache',
         '.pytest_cache',
         '.ruff_cache',
+        # Транзитные артефакты Jupyter - не подлежат проверке:
+        '.ipynb_checkpoints',
     },
 )
 
