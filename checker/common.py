@@ -19,6 +19,7 @@ TARGETS_MODE: Literal['targets'] = 'targets'
 # без аргументов из корня dl_utils; временный костыль - со временем от белых
 # списков планируется отказаться совсем:
 ROOT_FILES: list[str] = [
+    'video_utils.py',
     'labels.py',
     'pt_utils.py',
     'onnx_utils.py',

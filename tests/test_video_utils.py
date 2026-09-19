@@ -201,11 +201,6 @@ class TestPipeline(unittest.TestCase):
         pipe = Pipeline(['bgr2rgb', 'rgb2gray'])
         assert pipe.names == ['bgr2rgb', 'rgb2gray']
 
-    @pytest.mark.xfail(
-        reason='Пре-существующий баг: concat рекурсивно зовёт concat, '
-        'а не Pipeline.concat -> NameError. Не чиним сейчас.',
-        strict=True,
-    )
     def test_concat_nested_list(self) -> None:
         """Вложенный список фильтров разворачивается."""
         pipe = Pipeline([['bgr2rgb'], 'rgb2gray'])
