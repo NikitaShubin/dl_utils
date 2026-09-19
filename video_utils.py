@@ -1,5 +1,9 @@
+import contextlib
 import os
+from pathlib import Path
+
 import cv2
+import av
 
 import scipy
 import numpy as np
@@ -47,6 +51,164 @@ def recomp2mp4(source_file, target_file, rm_soruce=True, quiet=True):
     else:
         raise NotImplementedError('Файл не создан, но ошибка не обнаружена!')
     # Удаляем исходный файл, если надо, и если пересжатие завершено успешно:
+
+
+def _find_broken_packets(source_file: str | Path) -> tuple[int, int, set[int]]:
+    """Находит видео-пакеты, которые декодер не может превратить в кадр.
+
+    Декодирование идёт пакет за пакетом, и только реальная ошибка декодера
+    (InvalidDataError) помечает пакет битым - валидные кадры не теряются.
+    Возвращает (packet_count, decoded_frames, broken): общее число
+    видео-пакетов, число успешно раскодированных кадров и множество номеров
+    битых пакетов.
+    """
+    broken = set()
+    packet_count = 0
+    decoded_frames = 0
+
+    with av.open(os.fspath(source_file)) as container:
+        stream = container.streams.video[0]
+
+        for packet in container.demux(stream):
+            # Служебный пакет конца потока (flush) пропускаем:
+            if packet.pts is None:
+                continue
+
+            index = packet_count
+            packet_count += 1
+
+            try:
+                decoded_frames += len(stream.decode(packet))
+            except av.InvalidDataError:
+                broken.add(index)
+
+        # Дочитываем кадры, задержанные декодером (flush может сам сообщить
+        # о битых данных, накопленных в декодере):
+        with contextlib.suppress(av.FFmpegError):
+            decoded_frames += len(stream.decode(None))
+
+    return packet_count, decoded_frames, broken
+
+
+def _remux_good_packets(
+    source_file: str | Path,
+    target_file: str | Path,
+    broken: set[int],
+) -> int:
+    """Копирует все видео-пакеты, кроме помеченных битыми, без пересжатия.
+
+    Возвращает число записанных пакетов. Пиксели не перекодируются: валидные
+    пакеты копируются байт-в-байт.
+    """
+    written = 0
+
+    with (
+        av.open(os.fspath(source_file)) as source,
+        av.open(os.fspath(target_file), 'w') as target,
+    ):
+        source_stream = source.streams.video[0]
+        target_stream = target.add_stream_from_template(source_stream)
+
+        index = 0
+        for packet in source.demux(source_stream):
+            # Служебный пакет конца потока (flush) пропускаем:
+            if packet.pts is None:
+                continue
+
+            current = index
+            index += 1
+
+            if current in broken:
+                continue
+
+            packet.stream = target_stream
+            target.mux(packet)
+            written += 1
+
+    return written
+
+
+def _ensure(*, condition: bool, message: str) -> None:
+    """Бросает RuntimeError с сообщением message, если условие не выполнено."""
+    if not condition:
+        raise RuntimeError(message)
+
+
+def clean_remux(
+    source_file: str | Path,
+    target_file: str | Path,
+    *,
+    rm_source: bool = False,
+    quiet: bool = True,
+    full_check: bool = True,
+) -> tuple[int, int]:
+    """Перепаковывает видео, выбрасывая нераскодируемые (битые) кадры.
+
+    В отличие от recomp2mp4, пиксели не пересжимаются: все валидные кадры
+    копируются байт-в-байт, а удаляются только пакеты, которые декодер не
+    может превратить в кадр (например, битые чанки записи устройства).
+    Потеря или изменение валидных данных недопустимы: при любом несовпадении
+    счётчиков результат удаляется, а функция бросает RuntimeError.
+
+    Аудио и прочие потоки не переносятся - обрабатывается только видео.
+
+    Возвращает (kept, dropped) - числа сохранённых и выброшенных пакетов.
+    При rm_source=True исходный файл удаляется только после успешной записи.
+    """
+    source_file = os.fspath(source_file)
+    target_file = os.fspath(target_file)
+
+    if not Path(source_file).is_file():
+        msg = f'Нет файла "{source_file}"!'
+        raise FileNotFoundError(msg)
+
+    if quiet:
+        av.logging.set_level(av.logging.PANIC)
+
+    # Определяем битые пакеты и сверяем два независимых счётчика:
+    packet_count, decoded_frames, broken = _find_broken_packets(source_file)
+    kept = packet_count - len(broken)
+
+    if decoded_frames != kept:
+        msg = (
+            f'Число раскодированных кадров ({decoded_frames}) не совпало '
+            f'с числом валидных пакетов ({kept}): нельзя гарантировать '
+            'отсутствие потерь!'
+        )
+        raise RuntimeError(msg)
+
+    # Перепаковываем только валидные пакеты:
+    try:
+        written = _remux_good_packets(source_file, target_file, broken)
+        _ensure(
+            condition=written == kept,
+            message=f'Записано пакетов ({written}) меньше ожидаемого ({kept})!',
+        )
+
+        # Проверяем, что результат полностью раскодируется и не растерял кадры:
+        if full_check:
+            out_packets, out_frames, out_broken = _find_broken_packets(target_file)
+            _ensure(
+                condition=(
+                    not out_broken and out_packets == kept and out_frames == kept
+                ),
+                message=(
+                    f'Проверка "{target_file}" не пройдена: пакетов '
+                    f'{out_packets}, кадров {out_frames}, битых '
+                    f'{len(out_broken)} (ожидалось {kept} кадров)!'
+                ),
+            )
+
+    except Exception:
+        # Строгий режим: неполный/повреждённый результат не оставляем:
+        rmpath(target_file)
+        raise
+
+    # Исходник удаляем только после успешной проверки:
+    if rm_source:
+        rmpath(source_file)
+
+    return kept, len(broken)
 
 
 ##############################################
