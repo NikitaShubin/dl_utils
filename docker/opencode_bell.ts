@@ -1,38 +1,22 @@
-import type { Plugin } from "@opencode-ai/plugin"
+import type { Plugin } from "@opencode/plugin"
 import { closeSync, openSync, writeSync } from "node:fs"
 
-const RING_NOW = new Set(["session.idle", "session.error"])
+// BEL-звонок в терминал, когда OpenCode ждёт пользователя.
+// API плагинов v2: https://opencode.ai/v2/docs/build/plugins
+// Импорт @opencode/plugin нужен только для типов — во время исполнения он
+// стирается, поэтому плагин работает без установки пакетов в node_modules.
 
-const ASKED = new Set([
-  "permission.asked",
-  "permission.v2.asked",
-  "question.asked",
-  "question.v2.asked",
-])
+// Звонок сразу: ход сессии завершён (успешно или с ошибкой):
+const RING_NOW = new Set(["session.execution.succeeded", "session.execution.failed"])
 
-const RESOLVED = new Set([
-  "permission.replied",
-  "permission.v2.replied",
-  "question.replied",
-  "question.rejected",
-])
+// Звонок с задержкой: запрашивают ответа пользователя, но если он успел
+// ответить раньше, звонок отменяется:
+const ASKED = new Set(["permission.asked", "form.created"])
+const RESOLVED = new Set(["permission.replied", "form.replied", "form.cancelled"])
 
 const GRACE_MS = 300
 
-const pending = new Map<string, ReturnType<typeof setTimeout>>()
-let anonymous = 0
-
-function requestId(props: unknown): string | undefined {
-  if (!props || typeof props !== "object") return undefined
-  const rec = props as Record<string, unknown>
-  for (const key of ["id", "requestID", "permissionID"]) {
-    const value = rec[key]
-    if (typeof value === "string" && value) return value
-  }
-  return undefined
-}
-
-function bell(): void {
+function ring(): void {
   try {
     const fd = openSync("/dev/tty", "w")
     writeSync(fd, "\x07")
@@ -40,35 +24,62 @@ function bell(): void {
   } catch {}
 }
 
-export const BellPlugin: Plugin = async () => ({
-  event: async ({ event }) => {
-    const props = "properties" in event ? event.properties : undefined
+export default {
+  id: "bell",
+  setup(ctx) {
+    const controller = new AbortController()
+    const pending = new Map<string, ReturnType<typeof setTimeout>>()
 
-    if (RING_NOW.has(event.type)) {
-      bell()
-      return
-    }
+    void (async () => {
+      for await (const event of ctx.event.subscribe({ signal: controller.signal })) {
+        if (RING_NOW.has(event.type)) {
+          ring()
+          continue
+        }
 
-    if (ASKED.has(event.type)) {
-      const id = requestId(props)
-      const key = id ?? `#anon:${++anonymous}`
-      if (id && pending.has(id)) return
-      const timer = setTimeout(() => {
-        pending.delete(key)
-        bell()
-      }, GRACE_MS)
-      pending.set(key, timer)
-      return
-    }
+        // Идентификатор запроса лежит в разных полях разных событий:
+        let id: string | undefined
+        switch (event.type) {
+          case "permission.asked":
+            id = event.data.id
+            break
+          case "form.created":
+            id = event.data.form.id
+            break
+          case "permission.replied":
+            id = event.data.requestID
+            break
+          case "form.replied":
+          case "form.cancelled":
+            id = event.data.id
+            break
+        }
+        if (id === undefined) continue
 
-    if (RESOLVED.has(event.type)) {
-      const id = requestId(props)
-      if (!id) return
-      const timer = pending.get(id)
-      if (timer) {
-        clearTimeout(timer)
-        pending.delete(id)
+        if (ASKED.has(event.type)) {
+          if (pending.has(id)) continue
+          pending.set(
+            id,
+            setTimeout(() => {
+              pending.delete(id)
+              ring()
+            }, GRACE_MS),
+          )
+        } else if (RESOLVED.has(event.type)) {
+          const timer = pending.get(id)
+          if (timer) {
+            clearTimeout(timer)
+            pending.delete(id)
+          }
+        }
       }
+    })()
+
+    // Вызывается при выгрузке плагина: останавливаем подписку и таймеры:
+    return () => {
+      controller.abort()
+      for (const timer of pending.values()) clearTimeout(timer)
+      pending.clear()
     }
   },
-})
+} satisfies Plugin

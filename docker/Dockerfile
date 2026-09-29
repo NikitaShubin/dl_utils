@@ -85,7 +85,7 @@ RUN apt-get update                                            && \
     # Линтеры:
     npm install -g markdownlint-cli dclint                    && \
     # ИИ-агенты:
-    npm install -g @openai/codex openclaw@latest opencode-ai@latest
+    npm install -g @openai/codex openclaw@latest @opencode/cli
 
 # См. http://bugs.python.org/issue19846
 ENV LANG C.UTF-8
@@ -333,41 +333,41 @@ ARG JPCONF="${HOMEDIR}/.jupyter/jupyter_lab_config.py"
 ARG TMCONF="${HOMEDIR}/.tmux.conf"
 
     # Задаём текстовый редактор по умолчанию для mc:
-RUN echo SELECTED_EDITOR=\"/bin/nano\" > "${HOMEDIR}"/.selected_editor                      && \
+RUN echo SELECTED_EDITOR=\"/bin/nano\" > "${HOMEDIR}"/.selected_editor        && \
     # Настраиваем tmux:
-    echo '# Используем мышь:'                                                >> "${TMCONF}" && \
-    echo 'set -g mouse on'                                                   >> "${TMCONF}" && \
-    echo '# Современный terminfo: 256 цветов + truecolor:'                   >> "${TMCONF}" && \
-    echo 'set -g default-terminal "tmux-256color"'                           >> "${TMCONF}" && \
-    echo '# Внешний терминал по SSH поддерживает 24-bit цвет:'               >> "${TMCONF}" && \
-    echo 'set -ga terminal-overrides ",*:Tc:RGB"'                            >> "${TMCONF}" && \
-    echo '# Передаём truecolor программам внутри tmux (нужно OpenCode/Ink):' >> "${TMCONF}" && \
-    echo 'set -g update-environment "COLORTERM"'                             >> "${TMCONF}" && \
-    echo 'set-environment -g COLORTERM truecolor'                            >> "${TMCONF}" && \
-    echo '# Увеличиваем историю прокрутки'                                   >> "${TMCONF}" && \
-    echo 'set -g history-limit 10000'                                        >> "${TMCONF}" && \
+    echo '# Используем мышь:'                                  >> "${TMCONF}" && \
+    echo 'set -g mouse on'                                     >> "${TMCONF}" && \
+    echo '# Современный terminfo: 256 цветов + truecolor:'     >> "${TMCONF}" && \
+    echo 'set -g default-terminal "tmux-256color"'             >> "${TMCONF}" && \
+    echo '# Внешний терминал по SSH поддерживает 24-bit цвет:' >> "${TMCONF}" && \
+    echo 'set -ga terminal-overrides ",*:Tc:RGB"'              >> "${TMCONF}" && \
+    echo '# Передаём truecolor программам внутри tmux'         >> "${TMCONF}" && \
+    echo 'set -g update-environment "COLORTERM"'               >> "${TMCONF}" && \
+    echo 'set-environment -g COLORTERM truecolor'              >> "${TMCONF}" && \
+    echo '# Увеличиваем историю прокрутки'                     >> "${TMCONF}" && \
+    echo 'set -g history-limit 10000'                          >> "${TMCONF}" && \
     # Настраиваем соединение JupyterLab по-умолчанию:
-    jupyter lab --generate-config                                                           && \
-    echo "c.ServerApp.allow_root = True"                                     >> "${JPCONF}" && \
-    echo "c.ServerApp.allow_remote_access = True"                            >> "${JPCONF}" && \
-    echo "c.ServerApp.ip = '*'"                                              >> "${JPCONF}" && \
-    echo "c.ServerApp.token = ''"                                            >> "${JPCONF}" && \
-    echo "c.ServerApp.port = 8888"                                           >> "${JPCONF}" && \
-    echo "c.NotebookApp.open_browser = False"                                >> "${JPCONF}" && \
+    jupyter lab --generate-config                                             && \
+    echo "c.ServerApp.allow_root = True"                       >> "${JPCONF}" && \
+    echo "c.ServerApp.allow_remote_access = True"              >> "${JPCONF}" && \
+    echo "c.ServerApp.ip = '*'"                                >> "${JPCONF}" && \
+    echo "c.ServerApp.token = ''"                              >> "${JPCONF}" && \
+    echo "c.ServerApp.port = 8888"                             >> "${JPCONF}" && \
+    echo "c.NotebookApp.open_browser = False"                  >> "${JPCONF}" && \
     # По-умолчанию пароли и токены не используются.
     # Однако далее пароль будет взят из переменной окружения.
     # Другине настройки Jupyter-сервера:
-    echo "c.ContentsManager.allow_hidden = True"                             >> "${JPCONF}" && \
-    echo "c.LatexConfig.run_times = 2"                                       >> "${JPCONF}" && \
-    echo "c.LatexConfig.manual_cmd_args = ["                                 >> "${JPCONF}" && \
-    echo "    'pdflatex',"                                                   >> "${JPCONF}" && \
-    echo "    '-interaction=nonstopmode',"                                   >> "${JPCONF}" && \
-    echo "    '-halt-on-error',"                                             >> "${JPCONF}" && \
-    echo "    '-file-line-error'"                                            >> "${JPCONF}" && \
-    echo "    '-shell-escape',"                                              >> "${JPCONF}" && \
-    echo "    '-synctex=1',"                                                 >> "${JPCONF}" && \
-    echo "    '{filename}.tex'"                                              >> "${JPCONF}" && \
-    echo "]"                                                                 >> "${JPCONF}"
+    echo "c.ContentsManager.allow_hidden = True"               >> "${JPCONF}" && \
+    echo "c.LatexConfig.run_times = 2"                         >> "${JPCONF}" && \
+    echo "c.LatexConfig.manual_cmd_args = ["                   >> "${JPCONF}" && \
+    echo "    'pdflatex',"                                     >> "${JPCONF}" && \
+    echo "    '-interaction=nonstopmode',"                     >> "${JPCONF}" && \
+    echo "    '-halt-on-error',"                               >> "${JPCONF}" && \
+    echo "    '-file-line-error'"                              >> "${JPCONF}" && \
+    echo "    '-shell-escape',"                                >> "${JPCONF}" && \
+    echo "    '-synctex=1',"                                   >> "${JPCONF}" && \
+    echo "    '{filename}.tex'"                                >> "${JPCONF}" && \
+    echo "]"                                                   >> "${JPCONF}"
 
 # Отключаем автосохранение в JupyterLab:
 ARG DOCMANAGER_DIR="${HOMEDIR}/.jupyter/lab/user-settings/@jupyterlab/docmanager-extension"

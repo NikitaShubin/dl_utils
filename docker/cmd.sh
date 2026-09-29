@@ -71,55 +71,58 @@ log "Запуск Jupyter Lab..."
 JPID=$!
 log "Jupyter Lab запущен (PID: $JPID) — порт ${JUPYTER_PORT:-8888} — лог: $JUPYTER_LOG"
 
+# OpenCode v2 без заданного пароля сгенерирует случайный и напечатает его
+# в лог, поэтому без OPENCODE_PASS сервер просто не запускаем.
 export OPENCODE_SERVER_PASSWORD="${OPENCODE_PASS:-}"
-export OPENCODE_SERVER_USERNAME="user"
+OCID=""
+OC_PORT="${OPENCODE_PORT:-8000}"
 
-log "Чистка telemetry из конфига OpenCode..."
-OPENCODE_CONFIG="/home/user/.config/opencode/opencode.jsonc"
-if [ -f "$OPENCODE_CONFIG" ]; then
-    sed -i '/"telemetry"/,+2d' "$OPENCODE_CONFIG" 2>/dev/null || true
+if [ -n "$OPENCODE_SERVER_PASSWORD" ]; then
+    log "Проверка порта OpenCode..."
+    check_port "$OC_PORT" "OpenCode"
+    cd /workspace
+    OC_CMD=(opencode serve --hostname 0.0.0.0 --port="$OC_PORT")
+
+    log "Запуск OpenCode..."
+    "${OC_CMD[@]}" > "$OPENCODE_LOG" 2>&1 &
+    OCID=$!
+    log "OpenCode запущен (PID: $OCID) — порт $OC_PORT — лог: $OPENCODE_LOG"
+else
+    log "OPENCODE_PASS не задан, OpenCode не запускается."
 fi
 
-log "Установка @ai-sdk/openai-compatible..."
-npm install -g @ai-sdk/openai-compatible 2>/dev/null || true
-
-OC_PORT="${OPENCODE_PORT:-8000}"
-log "Проверка порта OpenCode..."
-check_port "$OC_PORT" "OpenCode"
-cd /workspace
-OC_CMD=(opencode web --hostname 0.0.0.0 --port="$OC_PORT")
-
-log "Запуск OpenCode..."
-"${OC_CMD[@]}" > "$OPENCODE_LOG" 2>&1 &
-OCID=$!
-log "OpenCode запущен (PID: $OCID) — порт $OC_PORT — лог: $OPENCODE_LOG"
-
-log "Оба сервиса запущены. Мониторинг..."
 log "Jupyter Lab: http://localhost:${JUPYTER_PORT:-8888}"
-log "OpenCode:    http://localhost:$OC_PORT"
+if [ -n "$OCID" ]; then
+    log "OpenCode:    http://localhost:$OC_PORT"
+fi
+log "Мониторинг..."
 
 while true; do
     sleep 10
     JP_ALIVE=false; kill -0 "$JPID" 2>/dev/null && JP_ALIVE=true
-    OC_ALIVE=false; kill -0 "$OCID" 2>/dev/null && OC_ALIVE=true
-
-    if ! $JP_ALIVE && ! $OC_ALIVE; then
-        log "Оба процесса завершились. Выход."
-        break
-    fi
 
     if ! $JP_ALIVE; then
         log "⚠ Jupyter Lab (PID $JPID) завершился! Лог:"
         tail -5 "$JUPYTER_LOG" 2>/dev/null | sed 's/^/  /'
-        log "(OpenCode продолжает работу)"
+        if [ -n "$OCID" ]; then
+            log "(OpenCode продолжает работу)"
+        fi
         JPID=""
     fi
 
-    if ! $OC_ALIVE; then
-        log "⚠ OpenCode (PID $OCID) завершился! Лог:"
-        tail -5 "$OPENCODE_LOG" 2>/dev/null | sed 's/^/  /'
-        log "(Jupyter Lab продолжает работу)"
-        OCID=""
+    if [ -n "$OCID" ]; then
+        OC_ALIVE=false; kill -0 "$OCID" 2>/dev/null && OC_ALIVE=true
+        if ! $OC_ALIVE; then
+            log "⚠ OpenCode (PID $OCID) завершился! Лог:"
+            tail -5 "$OPENCODE_LOG" 2>/dev/null | sed 's/^/  /'
+            log "(Jupyter Lab продолжает работу)"
+            OCID=""
+        fi
+    fi
+
+    if [ -z "$JPID" ] && [ -z "$OCID" ]; then
+        log "Все процессы завершились. Выход."
+        break
     fi
 
     if [ -z "$JPID" ] || [ -z "$OCID" ]; then

@@ -171,11 +171,13 @@ graph RL;
 - **[`restart.sh`](docker/restart.sh "Перейти к файлу")**: Перезапуск контейнера
 - **[`run.sh`](docker/run.sh "Перейти к файлу")**: Запуск контейнера с использованием
   всех доступных GPU. Поддерживает переменные окружения:
-  - `OLLAMA_HOST` — адрес Ollama-сервера (по умолчанию `http://localhost:11434`)
-  - `OPENCODE_PASS` — пароль для OpenCode (по умолчанию `admin`)
+  - `OLLAMA_HOST` — адрес Ollama-сервера (например, `http://localhost:11434`);
+     если задан - провайдеры Ollama используются в конфигурации OpenCode и Jupyter-AI
+  - `OPENCODE_PASS` — пароль для OpenCode; если задан - вместе с контейнером
+     запускается сервер OpenCode (логин в веб-интерфейсе — `opencode`)
   - `OPENCODE_PORT` — порт OpenCode (по умолчанию `8000`)
   - `JUPYTER_PORT` — порт Jupyter Lab (по умолчанию `8888`)
-  - `JUPYTER_PASS` — пароль для Jupyter Lab (по умолчанию `admin`)
+  - `JUPYTER_PASS` — пароль для Jupyter Lab; если не задан - вход без пароля
 - **[`stop.sh`](docker/stop.sh "Перейти к файлу")**: Остановка контейнера
 - **[`open.sh`](docker/open.sh "Перейти к файлу")**: Вход в консоль контейнера
 - **[`openroot.sh`](docker/openroot.sh "Перейти к файлу")**: Вход в консоль контейнера
