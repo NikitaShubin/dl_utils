@@ -23,7 +23,7 @@ import cv2
 import pandas as pd
 import numpy as np
 from tqdm.auto import tqdm
-from segment_anything import SamAutomaticMaskGenerator, sam_model_registry
+from segment_anything_hq import SamAutomaticMaskGenerator, sam_model_registry
 from urllib.request import urlretrieve
 from pathlib import Path
 import inspect
@@ -34,15 +34,39 @@ from cv_utils import Mask
 from pt_utils import AutoDevice
 from ml_utils import model2home
 
+# Путь до моделей SAM-HQ на Hugging Face:
+sam_hq_url = 'https://huggingface.co/lkeab/hq-sam/resolve/main/'
+
+
+def download_sam(model_path: str | Path) -> Path:
+    """Скачивает модель SAM-HQ с Hugging Face, если её не оказалось на месте."""
+    # Если файл уже существует, то ничего делать не надо:
+    if os.path.exists(model_path):
+        return Path(model_path)
+
+    # Определяем имя и путь до файла-модели:
+    file_dir, file_name = os.path.split(model_path)
+
+    # Создаём папку, если её не было:
+    mkdirs(file_dir)
+
+    # Загрузка:
+    url = os.path.join(sam_hq_url, file_name)
+    prefix = f'Загрузка модели {url} в "{file_dir}" '
+    with AnnotateIt(prefix + '...', prefix + 'завершена!'):
+        urlretrieve(url, model_path)
+
+    return Path(model_path)
+
 
 class SAM:
     '''
-    Класс предварительной сегментации с помощью Segment Anything Model.
+    Класс предварительной сегментации с помощью Segment Anything Model HQ.
     '''
 
     def __init__(
         self,
-        model_path='sam_vit_h_4b8939.pth',
+        model_path='sam_hq_vit_h.pth',
         device='auto',
         use_tta=True,
         postprocess_filters=[]
@@ -66,23 +90,7 @@ class SAM:
                                len(model_paths) > 1 else None):
 
             # Качаем модель, если её не оказалось в указанном месте:
-            if not os.path.exists(model_path):
-
-                # Определяем имя и путь до файла-модели:
-                file_dir, file_name = os.path.split(model_path)
-
-                # Создаём папку, если её не было:
-                mkdirs(file_dir)
-
-                # Путь до модели в вебе:
-                url = os.path.join(
-                    'https://dl.fbaipublicfiles.com/segment_anything/',
-                    file_name)
-
-                # Загрузка:
-                prefix = f'Загрузка модели {url} в "{file_dir}" '
-                with AnnotateIt(prefix + '...', prefix + 'завершена!'):
-                    urlretrieve(url, model_path)
+            download_sam(model_path)
 
             # Определяем тип модели по имени файла:
             model_types = []
