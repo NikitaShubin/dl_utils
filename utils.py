@@ -1137,7 +1137,7 @@ class ImReadBuffer:
 ###############################
 
 
-def mkdirs(path):
+def mkdirs(path: str | Path) -> bool:
     '''
     Создаёт все нужные дирректории заданного пути.
     Возвращает False, если путь уже существовал.
@@ -1159,7 +1159,8 @@ def mkdirs(path):
     return False
 
 
-def rmpath(paths, desc=None):
+def rmpath(paths: str | Path | list[str | Path],
+           desc: str | None = None) -> bool | list[bool]:
     '''
     Удаляет файл(ы) или папку(и) вместе с её(их) содержимым.
     Возвращает False, если путь не существовал.
@@ -3252,7 +3253,8 @@ class TimeIt():
         self.time_spent = time.time() - self.start
         if self.title:
             print(
-                'На %s потрачено %.6s секунд.' % (self.title, self.time_spent))
+                'На %s потрачено %.6s секунд.' % (self.title, self.time_spent),
+                flush=True)
 
     def __call__(self):
         return self.time_spent
@@ -3298,11 +3300,11 @@ class AnnotateIt():
 
     def __enter__(self):
         if self.enable:
-            print(self.start_annotation, end='')
+            print(self.start_annotation, end='', flush=True)
 
     def __exit__(self, type, value, traceback):
         if self.enable:
-            print('\r' + self.end_annotation)
+            print('\r' + self.end_annotation, flush=True)
 
 
 class Beep:
