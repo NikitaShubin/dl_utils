@@ -40,7 +40,7 @@ IMAGE_NAME_AND_TAGS=(
     -t "$IMAGE_NAME:latest"
 )
 
-# Пытаемся собирать образ каждый раз заново:
+# Пытаемся собрать образ, переиспользуя кеш слоёв:
 # if ! docker build --progress=plain "${IMAGE_NAME_AND_TAGS[@]}" -f "${DOCKERFILE_DIR}"/Dockerfile "${DOCKERFILE_DIR}/..";
 if ! docker build "${IMAGE_NAME_AND_TAGS[@]}" -f "${DOCKERFILE_DIR}"/Dockerfile "${DOCKERFILE_DIR}/..";
 then
