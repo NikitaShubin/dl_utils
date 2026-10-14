@@ -12,7 +12,6 @@ import sam2
 from sam2.build_sam import build_sam2_video_predictor
 import warnings
 from contextlib import contextmanager, nullcontext
-from urllib.request import urlretrieve
 from pathlib import Path
 
 from pt_utils import AutoDevice
@@ -21,9 +20,28 @@ from cvat import (df_save, df_load, new_df, add_row2df, CVATPoints,
                   concat_dfs, ergonomic_draw_df_frame, subtask2preview,
                   hide_skipped_objects_in_df, subtask2xml, df_list2tuple,
                   df_tuple2list, task_fuse_multipoly)
-from utils import unflatten_list, mkdirs, color_float_hsv_to_uint8_rgb, AnnotateIt
+from utils import unflatten_list, mkdirs, rmpath, color_float_hsv_to_uint8_rgb
 from seg import fit_segments_in_df
 from ml_utils import model2home
+
+
+# Ошибку отсутствия modelscope вернём только если модуль действительно понадобится:
+try:
+    from modelscope.hub.file_download import (  # type: ignore[import-untyped]
+        model_file_download,
+    )
+
+    ModelscopeNotFoundError = None
+except ModuleNotFoundError as e:
+    ModelscopeNotFoundError = e
+
+# Контрольные имена моделей SAM2 на ModelScope:
+checkpoint_name2model_id = {
+    'sam2.1_hiera_tiny.pt': 'facebook/sam2.1-hiera-tiny',
+    'sam2.1_hiera_small.pt': 'facebook/sam2.1-hiera-small',
+    'sam2.1_hiera_base_plus.pt': 'facebook/sam2.1-hiera-base-plus',
+    'sam2.1_hiera_large.pt': 'facebook/sam2.1-hiera-large',
+}
 
 
 class Prompts:
@@ -522,25 +540,38 @@ class SAM2:
         return mask, box, points, labels
 
     def _download_model(self):
-        """Качает модель, если её не оказалось в указанном месте."""
-        if not os.path.exists(self.model_path):
+        """Качает модель через modelscope, если её не оказалось на месте."""
+        if os.path.exists(self.model_path):
+            return
 
-            # Определяем имя и путь до файла-модели:
-            file_dir, file_name = os.path.split(self.model_path)
+        # Определяем имя и путь до файла-модели:
+        file_dir, file_name = os.path.split(self.model_path)
 
-            # Создаём папку, если её не было:
-            mkdirs(file_dir)
+        # Создаём папку, если её не было:
+        mkdirs(file_dir)
 
-            # Путь до модели в вебе:
-            url = os.path.join(
-                'https://dl.fbaipublicfiles.com/segment_anything_2/092824/',
-                file_name,
-            )
+        # Если modelscope не установлен, а модели нет - возвращаем ошибку:
+        if ModelscopeNotFoundError is not None:
+            raise ModelscopeNotFoundError
 
-            # Загрузка:
-            prefix = f'Загрузка модели {url} в "{file_dir}" '
-            with AnnotateIt(prefix + '...', prefix + 'завершена!'):
-                urlretrieve(url, self.model_path)
+        # Модели, которой нет в зеркале, указать нечем:
+        model_id = checkpoint_name2model_id.get(file_name)
+        if not model_id:
+            raise ValueError(f'Неизвестная модель SAM2: "{file_name}"!')
+
+        # Качаем модель во временную папку:
+        tmp_dir = Path(file_dir) / '.temp_download'
+        mkdirs(tmp_dir)
+
+        temp_file = model_file_download(
+            model_id=model_id,
+            file_path=file_name,
+            local_dir=tmp_dir,
+        )
+
+        # Перемещаем файл на место и подчищаем за собой:
+        shutil.move(temp_file, self.model_path)
+        rmpath(tmp_dir)
 
     def __init__(self                                  ,
                  model_path   = 'sam2.1_hiera_large.pt',
