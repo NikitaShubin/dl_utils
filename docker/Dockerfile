@@ -196,9 +196,6 @@ com/PublicPackages/_packaging/onnxruntime-cuda-12/pypi/simple/           \
     # Segment Anything Model 2.1 (для сегментации видео):                \
     sam2 decord                                                          \
                                                                          \
-    # Segment Anything Model 3:                                          \
-    sam3                                                                 \
-                                                                         \
     # Китайский аналог huggingface без заморочек с правами:              \
     modelscope                                                           \
                                                                          \
