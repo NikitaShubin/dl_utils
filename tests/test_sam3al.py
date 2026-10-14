@@ -46,9 +46,9 @@ class TestDownloadSam3:
 
         with (
             patch.object(Path, 'exists', return_value=False) as mock_exists,
-            patch.object(Path, 'mkdir') as mock_mkdir,
+            patch('sam3al.mkdirs') as mock_mkdirs,
             patch('shutil.move') as mock_move,
-            patch('shutil.rmtree') as mock_rmtree,
+            patch('sam3al.rmpath') as mock_rmpath,
             patch.object(sam3al, 'ModelscopeNotFoundError', None),
             patch.object(sam3al, 'model_file_download', create=True) as mock_download,
         ):
@@ -62,12 +62,12 @@ class TestDownloadSam3:
             file_path='sam3.pt',
             local_dir=temp_dir,
         )
-        mock_mkdir.assert_called_once_with(parents=True, exist_ok=False)
+        mock_mkdirs.assert_called_once_with(temp_dir)
         mock_move.assert_called_once_with(
             str(fake_downloaded_file),
             expected_path,
         )
-        mock_rmtree.assert_called_once_with(temp_dir)
+        mock_rmpath.assert_called_once_with(temp_dir)
 
     def test_path_with_pt_suffix_exists(self) -> None:
         """Path заканчивается на .pt, файл существует -> возвращается path."""
@@ -86,9 +86,9 @@ class TestDownloadSam3:
 
         with (
             patch.object(Path, 'exists', return_value=False),
-            patch.object(Path, 'mkdir') as mock_mkdir,
+            patch('sam3al.mkdirs') as mock_mkdirs,
             patch('shutil.move') as mock_move,
-            patch('shutil.rmtree') as mock_rmtree,
+            patch('sam3al.rmpath') as mock_rmpath,
             patch.object(sam3al, 'ModelscopeNotFoundError', None),
             patch.object(sam3al, 'model_file_download', create=True) as mock_download,
         ):
@@ -101,12 +101,12 @@ class TestDownloadSam3:
             file_path='sam3.pt',
             local_dir=temp_dir,
         )
-        mock_mkdir.assert_called_once_with(parents=True, exist_ok=False)
+        mock_mkdirs.assert_called_once_with(temp_dir)
         mock_move.assert_called_once_with(
             str(fake_downloaded),
             path,
         )
-        mock_rmtree.assert_called_once_with(temp_dir)
+        mock_rmpath.assert_called_once_with(temp_dir)
 
     def test_path_without_pt_suffix_exists(self) -> None:
         """Path без .pt, файл существует -> возвращается path/sam3.pt."""
@@ -128,9 +128,9 @@ class TestDownloadSam3:
 
         with (
             patch.object(Path, 'exists', return_value=False),
-            patch.object(Path, 'mkdir') as mock_mkdir,
+            patch('sam3al.mkdirs') as mock_mkdirs,
             patch('shutil.move') as mock_move,
-            patch('shutil.rmtree') as mock_rmtree,
+            patch('sam3al.rmpath') as mock_rmpath,
             patch.object(sam3al, 'ModelscopeNotFoundError', None),
             patch.object(sam3al, 'model_file_download', create=True) as mock_download,
         ):
@@ -143,12 +143,12 @@ class TestDownloadSam3:
             file_path='sam3.pt',
             local_dir=temp_dir,
         )
-        mock_mkdir.assert_called_once_with(parents=True, exist_ok=False)
+        mock_mkdirs.assert_called_once_with(temp_dir)
         mock_move.assert_called_once_with(
             str(fake_downloaded),
             expected_path,
         )
-        mock_rmtree.assert_called_once_with(temp_dir)
+        mock_rmpath.assert_called_once_with(temp_dir)
 
     def test_path_as_string(self) -> None:
         """Path передаётся строкой -> корректно преобразуется в Path."""
@@ -167,16 +167,16 @@ class TestDownloadSam3:
 
         with (
             patch.object(Path, 'exists', return_value=False),
-            patch.object(Path, 'mkdir') as mock_mkdir,
+            patch('sam3al.mkdirs') as mock_mkdirs,
             patch('shutil.move'),
-            patch('shutil.rmtree'),
+            patch('sam3al.rmpath'),
             patch.object(sam3al, 'ModelscopeNotFoundError', None),
             patch.object(sam3al, 'model_file_download', create=True) as mock_download,
         ):
             mock_download.return_value = str(temp_dir / 'sam3.pt')
             download_sam3(path)
 
-        mock_mkdir.assert_called_once_with(parents=True, exist_ok=False)
+        mock_mkdirs.assert_called_once_with(temp_dir)
 
     def test_model_file_download_not_called_when_file_exists(self) -> None:
         """Проверяет, что при наличии файла скачивание не вызывается."""

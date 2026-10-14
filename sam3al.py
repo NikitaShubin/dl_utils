@@ -6,6 +6,8 @@ from pathlib import Path
 
 import clip  # type: ignore[import-untyped]
 
+from utils import mkdirs, rmpath
+
 # Путь к модели по умолчанию:
 default_model_path = Path.home() / 'models' / 'sam3.pt'
 
@@ -53,7 +55,7 @@ def download_sam3(path: str | Path | None = None) -> Path:
 
     # Создаём временную папку внутри целевой:
     tmp_dir = path.parent / '.temp_download'
-    tmp_dir.mkdir(parents=True, exist_ok=False)
+    mkdirs(tmp_dir)
     tmp_name = 'sam3.pt'
 
     # Скачиваем файл:
@@ -65,7 +67,7 @@ def download_sam3(path: str | Path | None = None) -> Path:
 
     # Перемещаем файл в нужное место и удаляем временные файлы:
     shutil.move(temp_file, path)
-    shutil.rmtree(tmp_dir)
+    rmpath(tmp_dir)
 
     return path
 
