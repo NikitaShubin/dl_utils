@@ -17,80 +17,40 @@ else
     export AGNOSTER_VENV_BG=cyan AGNOSTER_VENV_FG=black
 fi
 
-# ==== Баннер: таблица состояния системы и GPU =================================
-# Рисуется при каждом входе в интерактивную консоль (zsh выполняет .zshrc неинтерактивно).
+# ==== Баннер: таблица состояния =================================================
+# Рисует таблицу сам cmd.sh — он владеет и запуском сервисов, и их состоянием
+# (см. docker/cmd.sh). Здесь только канал "запрос-ответ": пара FIFO, готовые
+# строки печатаются дословно. Таймауты обязательны с обеих сторон: если cmd.sh
+# не отвечает, запись в FIFO блокируется.
+DL_CV_SVC_DIR="${DL_CV_SVC_DIR:-/tmp/dl_cv}"
 
-# Печатает одну строку таблицы с выравниванием правой границы.
-# Длина содержимого считается по чистому тексту (без ANSI-кодов),
-# поэтому цвет не ломает паддинг. "$1" — текст, "$2" — опциональный цвет.
-_banner_line() {
-    local content="$1" color="${2:-}" len pad
-    len=${#content}
-    pad=$((inner - len - 2))
-    ((pad < 0)) && pad=0
-    printf "${CYAN}║${NC} "
-    [[ -n "$color" ]] && printf "$color"
-    printf -- "%s" "$content"
-    [[ -n "$color" ]] && printf "$NC"
-    printf "%${pad}s ${CYAN}║${NC}\n" ""
+_dl_cv_ask() {  # $1 — запрос ("banner <ширина>"), ответ — в stdout
+    local req="$DL_CV_SVC_DIR/req" res="$DL_CV_SVC_DIR/res"
+    [[ -p $req && -p $res ]] || return 1
+    timeout 1 sh -c 'printf "%s\n" "$1" > "$2"' _ "$1" "$req" 2>/dev/null || return 1
+    timeout 2 cat "$res" 2>/dev/null
 }
 
-_print_banner() {
-    # Палитра (в духе dl_utils/utils.sh):
-    local CYAN='\033[0;36m' YELLOW='\033[1;33m' GRAY='\033[0;90m' NC='\033[0m'
-
-    local width inner
+# Печать таблицы состояния: $1 — что запрашиваем у cmd.sh ("banner" или
+# "services"); ширину терминала сообщаем запросом.
+_dl_cv_banner() {
+    local GRAY='\033[0;90m' NC='\033[0m'
+    local width out
     width=$(tput cols 2>/dev/null || echo 80)
-    inner=$((width - 2))
-
-    local line_top="" line_mid="" line_bot="" i
-    for ((i = 0; i < inner; i++)); do line_top+="═"; done
-    for ((i = 0; i < inner; i++)); do line_mid+="─"; done
-    for ((i = 0; i < inner; i++)); do line_bot+="═"; done
-
-    # --- Сбор данных ---
-    local hostname_="$(hostname)"
-    local date_="$(date '+%d.%m.%Y %H:%M')"
-    local mem_="n/a"
-    command -v free >/dev/null 2>&1 && mem_="$(free -h | awk '/Mem:/ {print $3 "/" $2}')"
-    local cpu_="n/a"
-    command -v nproc >/dev/null 2>&1 && cpu_="$(nproc) cores"
-    local uptime_="n/a"
-    command -v uptime >/dev/null 2>&1 && uptime_="$(uptime -p 2>/dev/null | sed 's/up //')"
-    local py_="n/a"
-    command -v python3 >/dev/null 2>&1 && py_="$(python3 --version 2>/dev/null)"
-    # CUDA (nvcc) — может отсутствовать или быть в другой версии:
-    local cuda_="$(nvcc --version 2>/dev/null | grep -o 'release [0-9.]*' | awk '{print $2}')"
-    [ -z "$cuda_" ] && cuda_="${CUDA_VERSION:-n/a}"
-
-    # --- Таблица ---
-    printf "${CYAN}╔${line_top}╗${NC}\n"
-    _banner_line "dl_cv  |  ${hostname_}  |  ${date_}"
-    printf "${CYAN}╠${line_mid}╣${NC}\n"
-    _banner_line "RAM ${mem_}   CPU ${cpu_}   Uptime: ${uptime_}"
-    _banner_line "${py_}   CUDA ${cuda_}"
-
-    # --- GPU (если доступен) ---
-    if command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi -L >/dev/null 2>&1; then
-        printf "${CYAN}╠${line_mid}╣${NC}\n"
-        local line
-        while IFS= read -r line; do
-            _banner_line "GPU ${line}" "$GRAY"
-        done < <(nvidia-smi --query-gpu=index,name,memory.used,memory.total,utilization.gpu --format=csv,noheader,nounits 2>/dev/null)
-    else
-        printf "${CYAN}╠${line_mid}╣${NC}\n"
-        _banner_line "GPU недоступен (nvidia-smi)" "$YELLOW"
+    out=$(_dl_cv_ask "${1:-banner} $width") || out=''
+    if [[ -z $out ]]; then
+        printf "${GRAY}dl_cv: cmd.sh не отвечает — таблица состояния недоступна${NC}\n\n"
+        return
     fi
-
-    printf "${CYAN}╚${line_bot}╝${NC}\n"
-    printf "\n"
+    print -r -- "$out"
+    print
 }
 
 # Показываем баннер только в интерактивной сессии и при первом появлении
 # (перемена директории/команды не перерисовывает его):
 if [[ -o interactive ]] && [[ -z "${_DL_BANNER_SHOWN:-}" ]]; then
     export _DL_BANNER_SHOWN=1
-    _print_banner
+    _dl_cv_banner
 fi
 
 # ==== Общие алиасы (одинаковые для user и root) ==============================
@@ -103,6 +63,8 @@ alias checkcrc='md5sum -c crc.md5'
 alias makecrc='find . -type f ! -name crc.md5 -exec md5sum {} + > crc.md5'
 # Редактирование и перезагрузка собственного .zshrc:
 alias brc='nano ~/.zshrc && source ~/.zshrc'
+# Перерисовать таблицу состояния (например, после падения сервиса):
+alias svc='_dl_cv_banner'
 
 # SSH-агент (если есть ключи):
 if command -v ssh-agent >/dev/null 2>&1 && command -v ssh-add >/dev/null 2>&1; then
