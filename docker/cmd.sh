@@ -77,6 +77,14 @@ export OPENCODE_SERVER_PASSWORD="${OPENCODE_PASS:-}"
 OCID=""
 OC_PORT="${OPENCODE_PORT:-8000}"
 
+# OpenCode работает в сетевом пространстве хоста (см. run.sh), поэтому
+# дефолтный порт его фонового сервиса вычисляется из идентификатора
+# пользователя и конфликтует с таким же сервисом на хосте. Фиксируем
+# порт в конфиге сервиса: тогда он подхватывается и при запуске CLI
+# без параметров, и после перезапуска сервиса:
+opencode service set port "${OPENCODE_SERVICE_PORT:-4097}" \
+    || log "Не удалось задать порт фонового сервиса OpenCode."
+
 if [ -n "$OPENCODE_SERVER_PASSWORD" ]; then
     log "Проверка порта OpenCode..."
     check_port "$OC_PORT" "OpenCode"
