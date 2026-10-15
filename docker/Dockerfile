@@ -88,7 +88,7 @@ RUN apt-get update                                            && \
     npm install -g @openai/codex openclaw@latest @opencode/cli
 
 # См. http://bugs.python.org/issue19846
-ENV LANG C.UTF-8
+ENV LANG=C.UTF-8
 
 # Устанавливаем необходимые python-библиотеки:
 #ARG PIPPARAMS="--root-user-action=ignore --no-cache-dir"

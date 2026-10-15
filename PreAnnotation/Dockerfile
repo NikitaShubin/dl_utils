@@ -29,7 +29,7 @@ RUN apt-get update                                           && \
 
 
 # See http://bugs.python.org/issue19846
-ENV LANG C.UTF-8
+ENV LANG=C.UTF-8
 
 
 # Устанавливаем необходимые python-библиотеки:
