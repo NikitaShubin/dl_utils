@@ -76,6 +76,27 @@ OPENCODE_AVAILABLE: bool = shutil.which('opencode') is not None
 # Имя переменной окружения, хранящей адрес Ollama-сервера:
 env_var_host: str = 'OLLAMA_HOST'
 
+# Схема и порт, подставляемые в адрес Ollama, если не указаны явно:
+DEFAULT_OLLAMA_SCHEME = 'http://'
+DEFAULT_OLLAMA_PORT = '11434'
+
+
+def normalize_host(host: str | None) -> str:
+    """Приводит адрес Ollama-сервера к полному виду."""
+    host = (host or '').strip().rstrip('/')
+    if not host:
+        return ''
+    if not host.startswith(('http://', 'https://')):
+        host = DEFAULT_OLLAMA_SCHEME + host
+    if not re.search(r':\d+$', host):
+        host = f'{host}:{DEFAULT_OLLAMA_PORT}'
+    return host
+
+
+# Адрес Ollama-сервера, прочитанный из окружения один раз при импорте.
+# Пустая строка означает, что сервер не задан:
+DEFAULT_OLLAMA_HOST = normalize_host(os.environ.get(env_var_host, ''))
+
 
 # Типы:
 Fields = dict[str, dict[str, str | float]]  # Описание моделей
@@ -206,6 +227,9 @@ def model_name2type(model_name: str) -> str:
 
 def host2models_info(host: str) -> list[dict]:
     """Получаем список описаний доступных на Ollama моделей."""
+    host = normalize_host(host)
+    if not host:
+        return []
     url = f'{host}/api/tags'
     return requests.get(url, timeout=10).json()['models']
 
@@ -220,9 +244,13 @@ def hosts2chat_embd_cmpl_models(
         - эмбеддинг-модели (embeddings);
         - модели дополнения (completions).
     """
-    # Если список не задан - пытаемся брать имя сервера из окружения:
+    # Не задан - берём из окружения, значение уже нормализовано:
     if hosts is None:
-        hosts = [os.environ[env_var_host]] if env_var_host in os.environ else []
+        hosts = [DEFAULT_OLLAMA_HOST] if DEFAULT_OLLAMA_HOST else []
+
+    # Задан явно - нормализуем и отбрасываем пустые:
+    else:
+        hosts = [host for host in map(normalize_host, hosts) if host]
 
     chat_models: Fields = {}
     embd_models: Fields = {}
@@ -603,11 +631,13 @@ class Chat:
                 (в сочетании с temperature=0 даёт какое-то подобие детерминированности)
 
         """
-        # Доопределяем и фиксируем адрес Ollama-сервера:
-        host = host or os.getenv(env_var_host, '')
-        if not host.startswith(('http://', 'https://')):
-            host = f'http://{host}'
-        self.host = host
+        # Адрес из окружения уже нормализован - трогаем лишь явно заданный:
+        self.host = normalize_host(host) if host else DEFAULT_OLLAMA_HOST
+
+        # Адрес не задан нигде - работать не с чем:
+        if not self.host:
+            msg = f'Адрес Ollama-сервера не задан в {env_var_host}!'
+            raise ValueError(msg)
 
         # Доопределяем и фиксируем используемую модель:
         if not model:
@@ -727,12 +757,14 @@ if __name__ == '__main__':
 
 
 __all__ = [
+    'DEFAULT_OLLAMA_HOST',
     'Chat',
     'env_var_host',
     'file2context',
     'host2models_info',
     'hosts2chat_embd_cmpl_models',
     'model_name2type',
+    'normalize_host',
     'set_jupyter_ai_settings',
     'set_opencode_settings',
 ]

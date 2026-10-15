@@ -31,6 +31,7 @@ from ollm_utils import (
     hosts2chat_embd_cmpl_models,
     model_name2type,
     model_name_to_v3,
+    normalize_host,
     set_jupyter_ai_settings,
     set_jupyter_ai_v2_settings,
     set_jupyter_ai_v3_settings,
@@ -299,10 +300,7 @@ class TestHosts2ChatEmbdCmplModels:
         }
 
         with (
-            patch.dict(
-                'ollm_utils.os.environ',
-                {'OLLAMA_HOST': 'http://localhost:11434'},
-            ),
+            patch('ollm_utils.DEFAULT_OLLAMA_HOST', 'http://localhost:11434'),
             patch('ollm_utils.host2models_info', return_value=models),
             patch(
                 'ollm_utils.model_name2type',
@@ -319,10 +317,7 @@ class TestHosts2ChatEmbdCmplModels:
     def test_hosts2chat_embd_cmpl_models_empty_hosts(self) -> None:
         """Тест с пустым списком хостов."""
         with (
-            patch.dict(
-                'ollm_utils.os.environ',
-                {'OLLAMA_HOST': 'http://localhost:11434'},
-            ),
+            patch('ollm_utils.DEFAULT_OLLAMA_HOST', 'http://localhost:11434'),
             patch('ollm_utils.host2models_info', return_value=[]),
         ):
             chat, embd, cmpl = hosts2chat_embd_cmpl_models([])
@@ -334,7 +329,7 @@ class TestHosts2ChatEmbdCmplModels:
     def test_hosts2chat_embd_cmpl_models_no_env_var(self) -> None:
         """Тест без переменной окружения и без хостов."""
         with (
-            patch.dict('ollm_utils.os.environ', {}, clear=True),
+            patch('ollm_utils.DEFAULT_OLLAMA_HOST', ''),
             patch('ollm_utils.host2models_info') as mock_host2models,
         ):
             chat, embd, cmpl = hosts2chat_embd_cmpl_models(None)
@@ -1048,10 +1043,7 @@ class TestChat:
     @pytest.fixture
     def chat_instance(self) -> Chat:
         """Создаёт экземпляр Chat для тестов."""
-        with patch.dict(
-            'ollm_utils.os.environ',
-            {'OLLAMA_HOST': 'http://localhost:11434'},
-        ):
+        with patch('ollm_utils.DEFAULT_OLLAMA_HOST', 'http://localhost:11434'):
             return Chat(host='http://localhost:11434', model='test-model')
 
     def test_chat_init_with_host_and_model(self) -> None:
@@ -1066,20 +1058,18 @@ class TestChat:
 
     def test_chat_init_without_host_uses_env_var(self) -> None:
         """Тест инициализации Chat без указания хоста (используется переменная окружения)."""  # noqa: E501
-        with patch.dict(
-            'ollm_utils.os.environ',
-            {'OLLAMA_HOST': 'http://localhost:11434'},
-        ):
+        with patch('ollm_utils.DEFAULT_OLLAMA_HOST', 'http://localhost:11434'):
             chat = Chat(model='test-model')
             assert chat.host == 'http://localhost:11434'
             assert chat.model == 'test-model'
 
     def test_chat_init_without_host_no_env_var(self) -> None:
         """Тест инициализации Chat без хоста и переменной окружения."""
-        with patch.dict('ollm_utils.os.environ', {}, clear=True):
-            chat = Chat(host='', model='test-model')
-            assert chat.host == 'http://'
-            assert chat.model == 'test-model'
+        with (
+            patch('ollm_utils.DEFAULT_OLLAMA_HOST', ''),
+            pytest.raises(ValueError, match='OLLAMA_HOST'),
+        ):
+            Chat(host='', model='test-model')
 
     def test_chat_init_with_host_without_protocol(self) -> None:
         """Тест инициализации Chat с хостом без протокола."""
@@ -1094,10 +1084,7 @@ class TestChat:
     def test_chat_init_without_model(self) -> None:
         """Тест инициализации Chat без указания модели."""
         with (
-            patch.dict(
-                'ollm_utils.os.environ',
-                {'OLLAMA_HOST': 'http://localhost:11434'},
-            ),
+            patch('ollm_utils.DEFAULT_OLLAMA_HOST', 'http://localhost:11434'),
             patch.object(Chat, 'get_models') as mock_get_models,
             patch('ollm_utils._first_model') as mock_first_model,
         ):
@@ -1110,10 +1097,7 @@ class TestChat:
     def test_chat_init_without_model_no_models_found(self) -> None:
         """Тест инициализации Chat без модели, когда нет доступных моделей."""
         with (
-            patch.dict(
-                'ollm_utils.os.environ',
-                {'OLLAMA_HOST': 'http://localhost:11434'},
-            ),
+            patch('ollm_utils.DEFAULT_OLLAMA_HOST', 'http://localhost:11434'),
             patch.object(Chat, 'get_models') as mock_get_models,
             patch('ollm_utils._first_model') as mock_first_model,
         ):
@@ -1324,6 +1308,120 @@ def test_module_import_with_jupyter_ai() -> None:
         importlib.reload(ollm_utils)
 
     assert ollm_utils.JUPYTER_AI_AVAILABLE is True
+
+
+class TestNormalizeHost:
+    """Тесты приведения адреса Ollama-сервера к полному виду."""
+
+    @pytest.mark.parametrize(
+        ('raw', 'expected'),
+        [
+            # Сервер не задан:
+            ('', ''),
+            (None, ''),
+            ('   ', ''),
+            # Не хватает схемы и порта:
+            ('127.0.0.1', 'http://127.0.0.1:11434'),
+            ('localhost', 'http://localhost:11434'),
+            # Не хватает порта:
+            ('http://127.0.0.1', 'http://127.0.0.1:11434'),
+            ('https://ollama.local', 'https://ollama.local:11434'),
+            # Уже полные - не меняются:
+            ('127.0.0.1:11434', 'http://127.0.0.1:11434'),
+            ('http://127.0.0.1:11434', 'http://127.0.0.1:11434'),
+            ('http://ollama.local:8080', 'http://ollama.local:8080'),
+            # Пробелы и слэш срезаются:
+            ('  127.0.0.1  ', 'http://127.0.0.1:11434'),
+            ('http://127.0.0.1/', 'http://127.0.0.1:11434'),
+        ],
+    )
+    def test_normalize_host(self, raw: str | None, expected: str) -> None:
+        """Разные формы адреса приводятся к полному виду."""
+        assert normalize_host(raw) == expected
+
+
+class TestDefaultOllamaHost:
+    """Проверка, что адрес читается из окружения один раз при импорте."""
+
+    def test_read_from_env_at_import(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Подменённое окружение подхватывается при перезагрузке модуля."""
+        try:
+            monkeypatch.setenv('OLLAMA_HOST', '127.0.0.1')
+            importlib.reload(ollm_utils)
+            assert ollm_utils.DEFAULT_OLLAMA_HOST == 'http://127.0.0.1:11434'
+        finally:
+            # Возвращаем реальное окружение:
+            monkeypatch.undo()
+            importlib.reload(ollm_utils)
+
+    def test_empty_env_gives_empty_host(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Пустое значение в окружении означает, что сервер не задан."""
+        try:
+            monkeypatch.setenv('OLLAMA_HOST', '')
+            importlib.reload(ollm_utils)
+            assert ollm_utils.DEFAULT_OLLAMA_HOST == ''
+        finally:
+            monkeypatch.undo()
+            importlib.reload(ollm_utils)
+
+
+class TestHostNormalizationInCallers:
+    """Нормализация должна работать и при подмене окружения, и при явном адресе."""
+
+    def test_chat_with_explicit_host(self) -> None:
+        """Chat дополняет неполный адрес, переданный явно."""
+        chat = ollm_utils.Chat(host='127.0.0.1', model='m')
+        assert chat.host == 'http://127.0.0.1:11434'
+
+    def test_chat_with_default_host(self) -> None:
+        """Chat берёт из окружения уже нормализованный адрес, как есть."""
+        with patch('ollm_utils.DEFAULT_OLLAMA_HOST', 'http://127.0.0.1:11434'):
+            assert (
+                ollm_utils.Chat(host='localhost', model='m').host
+                == 'http://localhost:11434'
+            )
+            assert ollm_utils.Chat(host='', model='m').host == 'http://127.0.0.1:11434'
+
+    def test_host2models_info_builds_full_url(self) -> None:
+        """В requests.get уходит нормализованный URL, даже для «голого» хоста."""
+        mock_response = Mock()
+        mock_response.json.return_value = {'models': []}
+        with patch('ollm_utils.requests.get', return_value=mock_response) as mock_get:
+            assert ollm_utils.host2models_info('localhost') == []
+            mock_get.assert_called_once_with(
+                'http://localhost:11434/api/tags',
+                timeout=10,
+            )
+
+    def test_host2models_info_without_host(self) -> None:
+        """Без адреса сервера запрос не выполняется."""
+        with patch('ollm_utils.requests.get') as mock_get:
+            assert ollm_utils.host2models_info('') == []
+            mock_get.assert_not_called()
+
+    def test_hosts2chat_embd_cmpl_models_empty_host(self) -> None:
+        """Пустой адрес из окружения - модели никуда не добавляем."""
+        with (
+            patch('ollm_utils.DEFAULT_OLLAMA_HOST', ''),
+            patch('ollm_utils.host2models_info') as mock_host2models,
+        ):
+            chat, embd, cmpl = ollm_utils.hosts2chat_embd_cmpl_models(None)
+
+            assert (chat, embd, cmpl) == ({}, {}, {})
+            mock_host2models.assert_not_called()
+
+    def test_hosts2chat_embd_cmpl_models_normalizes_explicit_host(self) -> None:
+        """Явно переданный неполный адрес нормализуется."""
+        with (
+            patch(
+                'ollm_utils.host2models_info',
+                return_value=[{'name': 'm'}],
+            ),
+            patch('ollm_utils.model_name2type', return_value='chat'),
+        ):
+            chat, _, _ = ollm_utils.hosts2chat_embd_cmpl_models(['127.0.0.1'])
+
+            assert chat == {'m': {'base_url': 'http://127.0.0.1:11434'}}
 
 
 if __name__ == '__main__':
