@@ -8,8 +8,16 @@ import clip  # type: ignore[import-untyped]
 
 from utils import mkdirs, rmpath
 
+# Контрольные имена моделей SAM3 на ModelScope:
+checkpoint_name2model_id = {
+    'sam3.1_multiplex.pt': 'facebook/sam3.1',
+}
+
+# Имя чекпоинта по умолчанию:
+default_checkpoint_name = 'sam3.1_multiplex.pt'
+
 # Путь к модели по умолчанию:
-default_model_path = Path.home() / 'models' / 'sam3.pt'
+default_model_path = Path.home() / 'models' / default_checkpoint_name
 
 # Путь к словарю для токенизатора BPE (Byte Pair Encoding):
 bpe_path = Path(clip.__file__).parent / 'bpe_simple_vocab_16e6.txt.gz'
@@ -27,13 +35,13 @@ except ModuleNotFoundError as e:
 
 
 def download_sam3(path: str | Path | None = None) -> Path:
-    """Использует modelscope для загрузки SAM3 в заданную папку, если надо.
+    """Использует modelscope для загрузки SAM 3.1 в заданную папку, если надо.
 
     Args:
         path: Путь для сохранения модели.
-              Если None - используется ~/models/sam3.pt.
+              Если None - используется ~/models/sam3.1_multiplex.pt.
               Если заканчивается на .pt - используется как есть.
-              Иначе - добавляется /sam3.pt к пути.
+              Иначе - добавляется /sam3.1_multiplex.pt к пути.
 
     Returns:
         Path: Путь к скачанному или существующему файлу модели.
@@ -42,7 +50,7 @@ def download_sam3(path: str | Path | None = None) -> Path:
     # Доопределяем путь до файла:
     path = Path(path or Path.home() / 'models')
     if path.suffix != '.pt':
-        path = path / 'sam3.pt'
+        path = path / default_checkpoint_name
     # Если заданный путь не имеет расширения pt, то считаем его папкой.
 
     # Если файл уже существует, то ничего делать не надо:
@@ -53,15 +61,20 @@ def download_sam3(path: str | Path | None = None) -> Path:
     if ModelscopeNotFoundError is not None:
         raise ModelscopeNotFoundError
 
+    # Модели, которой нет в зеркале, указать нечем:
+    model_id = checkpoint_name2model_id.get(path.name)
+    if not model_id:
+        msg = f'Неизвестная модель SAM3: "{path.name}"!'
+        raise ValueError(msg)
+
     # Создаём временную папку внутри целевой:
     tmp_dir = path.parent / '.temp_download'
     mkdirs(tmp_dir)
-    tmp_name = 'sam3.pt'
 
     # Скачиваем файл:
     temp_file = model_file_download(
-        model_id='facebook/sam3',
-        file_path=tmp_name,
+        model_id=model_id,
+        file_path=path.name,
         local_dir=tmp_dir,
     )
 
