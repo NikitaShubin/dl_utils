@@ -26,7 +26,7 @@ DL_CV_SVC_DIR="${DL_CV_SVC_DIR:-/tmp/dl_cv}"
 
 _dl_cv_ask() {  # $1 — запрос ("banner <ширина>"), ответ — в stdout
     local req="$DL_CV_SVC_DIR/req" res="$DL_CV_SVC_DIR/res"
-    [[ -p $req && -p $res ]] || return 1
+    [[ -p $req && -p $res ]] || return 2
     timeout 1 sh -c 'printf "%s\n" "$1" > "$2"' _ "$1" "$req" 2>/dev/null || return 1
     timeout 2 cat "$res" 2>/dev/null
 }
@@ -35,10 +35,17 @@ _dl_cv_ask() {  # $1 — запрос ("banner <ширина>"), ответ — 
 # "services"); ширину терминала сообщаем запросом.
 _dl_cv_banner() {
     local GRAY='\033[0;90m' NC='\033[0m'
-    local width out
+    local width out rc
     width=$(tput cols 2>/dev/null || echo 80)
-    out=$(_dl_cv_ask "${1:-banner} $width") || out=''
-    if [[ -z $out ]]; then
+    out=$(_dl_cv_ask "${1:-banner} $width")
+    rc=$?
+    # Канала нет — cmd.sh ещё не создал его, то есть контейнер поднимается;
+    # канал есть, но ответа нет — cmd.sh жив и не отвечает:
+    if [[ $rc -eq 2 ]]; then
+        printf "${GRAY}dl_cv: контейнер ещё запускается…${NC}\n\n"
+        return
+    fi
+    if [[ $rc -ne 0 || -z $out ]]; then
         printf "${GRAY}dl_cv: cmd.sh не отвечает — таблица состояния недоступна${NC}\n\n"
         return
     fi
@@ -64,7 +71,7 @@ alias makecrc='find . -type f ! -name crc.md5 -exec md5sum {} + > crc.md5'
 # Редактирование и перезагрузка собственного .zshrc:
 alias brc='nano ~/.zshrc && source ~/.zshrc'
 # Перерисовать таблицу состояния (например, после падения сервиса):
-alias svc='_dl_cv_banner'
+alias sl='_dl_cv_banner'
 
 # SSH-агент (если есть ключи):
 if command -v ssh-agent >/dev/null 2>&1 && command -v ssh-add >/dev/null 2>&1; then

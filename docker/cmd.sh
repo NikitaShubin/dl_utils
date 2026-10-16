@@ -11,7 +11,13 @@ if [ -n "$LOCAL_UID" ] && [ "$LOCAL_UID" != "0" ] && [ -z "${_USER_INIT_DONE:-}"
     sed -i "s/^user:[^:]*:[^:]*:/user:x:$LOCAL_GID:/" /etc/group
     # Меняем владельца только тех файлов, куда нужна запись:
     chown "$LOCAL_UID:$LOCAL_GID" /home/user
-    chown -R "$LOCAL_UID:$LOCAL_GID" /home/user/.jupyter /home/user/.config /home/user/.cache /home/user/.local /home/user/.npm /home/user/.gitconfig /home/user/.selected_editor /home/user/.bashrc /home/user/.profile /home/user/.zshrc /home/user/.oh-my-zsh 2>/dev/null || true
+    chown -R "$LOCAL_UID:$LOCAL_GID" /home/user/.jupyter /home/user/.config /home/user/.cache /home/user/.local /home/user/.npm /home/user/.gitconfig /home/user/.selected_editor /home/user/.bashrc /home/user/.profile /home/user/.zshrc 2>/dev/null || true
+    # ~/.oh-my-zsh - самый крупный каталог (1694 файла), и его chown на свежем
+    # контейнере занимает ~75 с: на столько же задерживается появление баннера.
+    # Владение им не требуется (Dockerfile делает каталог read-only для всех),
+    # поэтому меняем владельца в фоне и с минимальным приоритетом, не задерживая
+    # старт: процесс-потомок переживает exec gosu и заканчивает работу сам.
+    ionice -c 3 nice -n 19 chown -R "$LOCAL_UID:$LOCAL_GID" /home/user/.oh-my-zsh 2>/dev/null &
     set -e
     exec gosu user bash "$0" "$@"
 fi
@@ -41,9 +47,21 @@ cleanup() {
 }
 trap cleanup SIGTERM SIGINT SIGQUIT
 
+# Можно ли занять порт (проверка bind'ом: занятый порт даст ошибку):
+port_bindable() {
+    python -c "import socket; s=socket.socket(); s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1); s.bind(('0.0.0.0', $1)); s.close()" 2>/dev/null
+}
+
+# Отвечает ли кто-то на порту (проверка connect'ом - так сервис выглядит
+# снаружи; в отчёте это признак запущенного сервиса с неизвестным pid):
+port_listening() {
+    python -c "import socket, sys; s = socket.socket(); s.settimeout(1); sys.exit(s.connect_ex(('127.0.0.1', $1)))" 2>/dev/null
+}
+
+# Проверка порта перед запуском сервиса: занятый - фатальная ошибка.
 check_port() {
     local port=$1 name=$2
-    if python -c "import socket; s=socket.socket(); s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1); s.bind(('0.0.0.0', $port)); s.close()" 2>/dev/null; then
+    if port_bindable "$port"; then
         return 0
     fi
     log "ОШИБКА: $name: порт $port занят!" >&2
@@ -84,19 +102,19 @@ svc_add() {
     SVC_ORDER+=("$1")
 }
 
-# Отвечает ли кто-то на указанном порту (запасной признак запущенного сервиса):
-svc_port_alive() {
-    python -c "import socket, sys; s = socket.socket(); s.settimeout(1); sys.exit(s.connect_ex(('127.0.0.1', $1)))" 2>/dev/null
-}
-
-# Состояние сервиса на момент запроса: on, dead или off:
+# Состояние сервиса на момент запроса:
+#   on    - сервис запустили мы, его процесс жив;
+#   dead  - сервис запустили мы, но процесс завершился;
+#   probe - своего процесса нет (сервис поднимается лениво), но порт отвечает;
+#   off   - своего процесса нет и порт не отвечает.
 svc_state() {
     local id=$1 pid=${SVC_PID[$id]:-0} port=${SVC_PORT[$id]:-0}
     if [ "$pid" -gt 0 ]; then
         if kill -0 "$pid" 2>/dev/null; then echo on; else echo dead; fi
-    elif [ "$port" -gt 0 ] && svc_port_alive "$port"; then
-        # Pid неизвестен: сервис могли поднять вручную, судим по порту.
-        echo on
+    elif [ "$port" -gt 0 ] && port_listening "$port"; then
+        # Кто именно слушает порт, неизвестно: контейнер делит сетью с хостом,
+        # на том же порту может висеть и посторонний процесс.
+        echo probe
     else
         echo off
     fi
@@ -122,6 +140,23 @@ print(" ".join(addrs))
 ' 2>/dev/null
 }
 
+# Обрезка текста по ширине таблицы (срез bash считает символы, а не байты).
+# Вызывается для чистого текста - до раскраски, чтобы не разрезать управляющую
+# последовательность и не получить «потерянный» цвет:
+svc_fit() {
+    local n=$(( SVC_INNER - 2 ))
+    if [ "${#1}" -gt "$n" ]; then printf '%s' "${1:0:$n}"; else printf '%s' "$1"; fi
+}
+
+# Дополнение текста пробелами до заданной ширины в символах: printf считает
+# ширину поля в байтах, а нам нужна ширина в символах (кириллица), поэтому
+# паддинг отдаём отдельной строкой из пробелов, а не полем printf.
+svc_pad() {  # $1 — текст, $2 — ширина в символах
+    local n=$(( $2 - ${#1} ))
+    [ "$n" -gt 0 ] || n=0
+    printf "%s%*s" "$1" "$n" ''
+}
+
 # Строка таблицы: $1 — текст с управляющими последовательностями, $2 — длина
 # текста без них (выравнивание считаем по ней), $3 — 1, если строка в рамке.
 svc_row() {
@@ -144,39 +179,56 @@ svc_sep() {
 }
 
 # Секция контактов: адреса сетей и сервисы с портами и состоянием.
+# Состояние показывается маркером и расшифровкой в отдельной колонке; если в
+# терминале для колонки нет места, остаётся только маркер.
 # $1 — ширина таблицы, $2 — 1, если печатаем внутри рамки:
 svc_contacts() {
-    local width=$1 framed=${2:-0} i
+    local width=$1 framed=${2:-0}
     [ "$width" -ge 40 ] 2>/dev/null || width=80
     SVC_INNER=$(( width - 2 ))
-    # Ширины колонок: имя (обрезается по месту) и порт, состояние — маркером.
-    # Заголовка колонок нет: порт отмечен двоеточием в каждой строке.
-    local wn=12 wp=4 fill id st mark
+    # Ширины колонок: имя (обрезается по месту), порт и расшифровка состояния.
+    # Рамка отнимает по пробелу с каждой стороны, поэтому содержимое строки
+    # должно быть на 2 символа короче внутренней ширины таблицы:
+    local wn=12 wp=4 wa=13 fill tw id st mark note plain tail
     for id in "${SVC_ORDER[@]}"; do
         [ "${#SVC_NAME[$id]}" -gt "$wn" ] && wn=${#SVC_NAME[$id]}
     done
-    [ "$wn" -gt $(( SVC_INNER - wp - 12 )) ] && wn=$(( SVC_INNER - wp - 12 ))
+    [ "$(( SVC_INNER - wn - wp - wa - 11 ))" -lt 0 ] && wa=0
+    [ "$wn" -gt $(( SVC_INNER - wp - wa - 13 )) ] && wn=$(( SVC_INNER - wp - wa - 13 ))
     [ "$wn" -lt 4 ] && wn=4
-    fill=$(( SVC_INNER - wn - wp - 8 ))
+    tw=0
+    [ "$wa" -gt 0 ] && tw=$(( wa + 3 ))
+    fill=$(( SVC_INNER - 2 - ( 6 + wn + wp + tw ) ))
     [ "$fill" -ge 0 ] || fill=0
 
     # Адреса сетей — чтобы было видно, откуда сервисы доступны снаружи:
-    local ips plain
+    local ips
     ips="$(svc_lan_ips || true)"
+    ips="$(svc_fit "$ips")"
     if [ -n "$ips" ]; then
         plain="СЕТЬ  $ips"
         svc_row "${YELLOW}СЕТЬ${NC}  ${YELLOW}${ips}${NC}" "${#plain}" "$framed"
     fi
 
+    # Контейнер ещё на старте: говорим об этом строкой в таблице, а не пустотой:
+    if [ "${#SVC_ORDER[@]}" -eq 0 ]; then
+        plain="$(svc_fit "сервисы ещё не запущены — контейнер поднимается")"
+        svc_row "${GRAY}${plain}${NC}" "${#plain}" "$framed"
+        return
+    fi
+
     for id in "${SVC_ORDER[@]}"; do
         st="$(svc_state "$id")"
         case $st in
-            on) mark="${GREEN}●${NC}" ;;
-            dead) mark="${YELLOW}●${NC}" ;;
-            *) mark="${GRAY}○${NC}" ;;
+            on) mark="${GREEN}●${NC}"; note="свой процесс" ;;
+            dead) mark="${YELLOW}●${NC}"; note="процесс упал" ;;
+            probe) mark="${YELLOW}◐${NC}"; note="порт отвечает" ;;
+            *) mark="${GRAY}○${NC}"; note="не отвечает" ;;
         esac
-        svc_row "$mark $(printf "%-${wn}s  " "${SVC_NAME[$id]}")${GRAY}:${NC} ${YELLOW}$(printf "%-${wp}s" "${SVC_PORT[$id]}")${NC}$(printf "%${fill}s" '')" \
-            "$(( 2 + wn + 2 + 2 + wp + fill ))" "$framed"
+        tail=""
+        [ "$wa" -gt 0 ] && tail="   ${GRAY}$(svc_pad "$note" "$wa")${NC}"
+        svc_row "$mark $(svc_pad "${SVC_NAME[$id]}" "$(( wn + 2 ))")${GRAY}:${NC} ${YELLOW}$(svc_pad "${SVC_PORT[$id]}" "$wp")${NC}${tail}$(printf "%${fill}s" '')" \
+            "$(( 6 + wn + wp + tw + fill ))" "$framed"
     done
 }
 
@@ -197,7 +249,7 @@ svc_banner() {
     # shellcheck disable=SC2059
     printf "${CYAN}╔%s╗${NC}\n" "$top"
     local txt
-    txt="dl_cv  |  $(hostname)  |  $(date '+%d.%m.%Y %H:%M')"
+    txt="$(svc_fit "dl_cv  |  $(hostname)  |  $(date '+%d.%m.%Y %H:%M')")"
     svc_row "$txt" "${#txt}" 1
     svc_sep "$mid"
 
@@ -206,23 +258,24 @@ svc_banner() {
 
     local cores
     cores="$(nproc 2>/dev/null || echo n/a)"
-    txt="RAM $(free -h 2>/dev/null | awk '/Mem:/ {print $3 "/" $2}')   CPU $cores cores   Uptime: $(uptime -p 2>/dev/null | sed 's/up //')"
+    txt="$(svc_fit "RAM $(free -h 2>/dev/null | awk '/Mem:/ {print $3 "/" $2}')   CPU $cores cores   Uptime: $(uptime -p 2>/dev/null | sed 's/up //')")"
     svc_row "$txt" "${#txt}" 1
     local cuda
     cuda="$(nvcc --version 2>/dev/null | grep -o 'release [0-9.]*' | awk '{print $2}')"
     [ -z "$cuda" ] && cuda="${CUDA_VERSION:-n/a}"
-    txt="$(python3 --version 2>/dev/null || echo "Python n/a")   CUDA $cuda"
+    txt="$(svc_fit "$(python3 --version 2>/dev/null || echo "Python n/a")   CUDA $cuda")"
     svc_row "$txt" "${#txt}" 1
     svc_sep "$mid"
 
     # GPU (если nvidia-smi доступен и отвечает):
     if command -v nvidia-smi > /dev/null 2>&1 && nvidia-smi -L > /dev/null 2>&1; then
         while IFS= read -r txt; do
-            svc_row "${GRAY}GPU ${txt}${NC}" "$(( 4 + ${#txt} ))" 1
+            txt="$(svc_fit "GPU ${txt}")"
+            svc_row "${GRAY}${txt}${NC}" "${#txt}" 1
         done < <(nvidia-smi --query-gpu=index,name,memory.used,memory.total,utilization.gpu \
             --format=csv,noheader,nounits 2>/dev/null)
     else
-        txt="GPU недоступен (nvidia-smi)"
+        txt="$(svc_fit "GPU недоступен (nvidia-smi)")"
         svc_row "${YELLOW}${txt}${NC}" "${#txt}" 1
     fi
 
@@ -244,6 +297,23 @@ svc_serve() {
         printf '%s\n' "$answer" | timeout 5 tee "$SVC_RES" > /dev/null || :
     done
 }
+
+# Сервер запросов получает копию массивов сервисов на момент своего старта
+# (это отдельный процесс), поэтому после регистрации сервисов его нужно
+# перезапустить — иначе он так и будет рисовать пустую таблицу.
+svc_serve_start() {
+    svc_serve < /dev/null &
+    SVC_SRV_PID=$!
+}
+
+# Канал "запрос-ответ" с баннером поднимаем сразу, до запуска сервисов: тогда
+# баннер отвечает и во время старта, показывая, что сервисов ещё нет.
+if mkdir -p "$SVC_DIR" && rm -f "$SVC_REQ" "$SVC_RES" && mkfifo -m 666 "$SVC_REQ" "$SVC_RES"; then
+    svc_serve_start
+    log "Баннер запрашивает состояние сервисов через $SVC_REQ"
+else
+    log "⚠ Не удалось создать канал запросов в $SVC_DIR — баннер покажет заглушку." >&2
+fi
 
 log "Запуск ollm_utils.py..."
 T0=$SECONDS
@@ -268,44 +338,51 @@ svc_add jupyter "Jupyter Lab" "${JUPYTER_PORT:-8888}" "$JPID"
 log "Jupyter Lab запущен (PID: $JPID) — порт ${JUPYTER_PORT:-8888} — лог: $JUPYTER_LOG"
 
 # OpenCode v2 без заданного пароля сгенерирует случайный и напечатает его
-# в лог, поэтому без OPENCODE_PASS сервер просто не запускаем.
-export OPENCODE_SERVER_PASSWORD="${OPENCODE_PASS:-}"
+# в лог, поэтому без OPENCODE_WEB_PASS сервер просто не запускаем.
+export OPENCODE_SERVER_PASSWORD="${OPENCODE_WEB_PASS:-}"
 OCID=""
-OC_PORT="${OPENCODE_PORT:-8000}"
+OC_PORT="${OPENCODE_WEB_PORT:-8000}"
 
-# OpenCode работает в сетевом пространстве хоста (см. run.sh), поэтому
-# дефолтный порт его фонового сервиса вычисляется из идентификатора
-# пользователя и конфликтует с таким же сервисом на хосте. Фиксируем
-# порт в конфиге сервиса: тогда он подхватывается и при запуске CLI
-# без параметров, и после перезапуска сервиса:
-opencode service set port "${OPENCODE_SERVICE_PORT:-4097}" \
+# Порт фонового сервиса OpenCode: к нему подключаются TUI/CLI-клиенты.
+# Контейнер делит сетевое пространство с хостом (см. run.sh), поэтому порт
+# задаётся заранее на хосте (OPENCODE_CLI_PORT в ~/.zshenv) и не должен
+# совпадать с портом такого же сервиса на хосте или в другой копии контейнера.
+# OpenCode читает порт из service.json, поэтому он сохраняется и после
+# перезапуска сервиса, и при запуске CLI без параметров:
+OC_CLI_PORT="${OPENCODE_CLI_PORT:-4097}"
+opencode service set port "$OC_CLI_PORT" \
     || log "Не удалось задать порт фонового сервиса OpenCode."
+svc_add opencode-cli "OpenCode TUI" "$OC_CLI_PORT" 0
+
+# Занятый порт фонового сервиса контейнеру не мешает, но помешает запуску
+# TUI - предупреждаем сразу, не дожидаясь ошибки от самого OpenCode:
+if ! port_bindable "$OC_CLI_PORT"; then
+    log "⚠ Порт $OC_CLI_PORT занят: TUI не сможет запустить свой сервис. Задайте OPENCODE_CLI_PORT в ~/.zshenv." >&2
+fi
 
 if [ -n "$OPENCODE_SERVER_PASSWORD" ]; then
-    log "Проверка порта OpenCode..."
-    check_port "$OC_PORT" "OpenCode"
+    log "Проверка порта OpenCode Web..."
+    check_port "$OC_PORT" "OpenCode Web"
     cd /workspace
     OC_CMD=(opencode serve --hostname 0.0.0.0 --port="$OC_PORT")
 
-    log "Запуск OpenCode..."
+    log "Запуск OpenCode Web..."
     "${OC_CMD[@]}" > "$OPENCODE_LOG" 2>&1 &
     OCID=$!
     svc_add opencode "OpenCode Web" "$OC_PORT" "$OCID"
-    log "OpenCode запущен (PID: $OCID) — порт $OC_PORT — лог: $OPENCODE_LOG"
+    log "OpenCode Web запущен (PID: $OCID) — порт $OC_PORT — лог: $OPENCODE_LOG"
 else
     svc_add opencode "OpenCode Web" "$OC_PORT" 0
-    log "OPENCODE_PASS не задан, OpenCode не запускается."
+    log "OPENCODE_WEB_PASS не задан, OpenCode Web не запускается (проверьте, что переменная экспортирована в оболочке, из которой запущен контейнер, - см. ~/.zshenv)."
 fi
+
+# Все сервисы зарегистрированы - перезапускаем сервер запросов, чтобы он
+# увидел их состояние (см. svc_serve_start):
+kill "$SVC_SRV_PID" 2>/dev/null || :
+svc_serve_start
 
 # Отчёт о состоянии печатается в лог контейнера и отдаётся баннеру по запросу:
 svc_banner "${DL_CV_BANNER_WIDTH:-80}"
-
-if mkdir -p "$SVC_DIR" && rm -f "$SVC_REQ" "$SVC_RES" && mkfifo -m 666 "$SVC_REQ" "$SVC_RES"; then
-    svc_serve < /dev/null &
-    log "Баннер запрашивает состояние сервисов через $SVC_REQ"
-else
-    log "⚠ Не удалось создать канал запросов в $SVC_DIR — баннер покажет заглушку." >&2
-fi
 
 log "Мониторинг..."
 

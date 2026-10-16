@@ -410,6 +410,7 @@ COPY --chown=root:root docker/cmd.sh /usr/local/bin/cmd.sh
 
 # Запуск скрипта, запускающего JupyterLab и OpenCode:
 CMD ["bash", "/usr/local/bin/cmd.sh"]
-# Если заданы переменные окружения JUPYTER_PORT, JUPYTER_PASS, OPENCODE_PORT, OPENCODE_PASS —
-# они используются как параметры запуска соответствующих сервисов.
+# Если заданы переменные окружения JUPYTER_PORT, JUPYTER_PASS, OPENCODE_WEB_PORT,
+# OPENCODE_WEB_PASS, OPENCODE_CLI_PORT — они используются как параметры запуска
+# соответствующих сервисов: Jupyter, OpenCode Web и фоновый сервис для TUI/CLI.
 # ollm_utils автоматически конфигурирует jupyter-ai и OpenCode.

@@ -129,9 +129,11 @@ RUNPARAMS=(
     -e JUPYTER_PORT
     # Адрес Ollama-сервера в локальной сети:
     -e OLLAMA_HOST
-    # Пароль и порт для OpenCode:
-    -e OPENCODE_PASS
-    -e OPENCODE_PORT
+    # Пароль и порт для OpenCode Web (то, что открывается в браузере)
+    # и для его фонового сервиса, к которому подключаются TUI/CLI:
+    -e OPENCODE_WEB_PASS
+    -e OPENCODE_WEB_PORT
+    -e OPENCODE_CLI_PORT
     # Берутся из внешних переменных окружения.
     # Рекомендуется добавить строки вроде
     # ```
