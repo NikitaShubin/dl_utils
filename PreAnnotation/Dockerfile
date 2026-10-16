@@ -53,7 +53,7 @@ ARG PYTHONMODULES="                                                      \
     Jupyter-Beeper                                                       \
                                                                          \
     # Базовые модули:                                                    \
-    opencv-python scikit-learn pandas numba scikit-image                 \
+    opencv-python scikit-learn pandas numba scikit-image av              \
                                                                          \
     # Для конвертации меток:                                             \
     treelib openpyxl                                                     \
