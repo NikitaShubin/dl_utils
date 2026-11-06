@@ -1,6 +1,9 @@
 import os
+import json
+import time
 import numpy as np
 import shutil
+import urllib3
 from PIL import Image
 from cvat_sdk import make_client, core, api_client
 from getpass import getpass
@@ -12,14 +15,146 @@ from cvat import (
     add_row2df, concat_dfs, ergonomic_draw_df_frame, cvat_backups2raw_tasks,
     cvat_backup_task_dir2task, get_related_files, df2annotations, new_df,
     interpolate_df, split_df_by_visibility, hide_skipped_objects_in_df,
-    CVATLabels, dir2unlabeled_tasks, check_df
+    CVATLabels, dir2unlabeled_tasks, check_df,
 )
 from utils import (
     mkdirs, rmpath, mpmap, get_n_colors, unzip_dir, AnnotateIt, cv2_exts, cv2_vid_exts,
     cv2_img_exts, get_file_list, json2obj, get_empty_dir, Zipper, obj2json,
-    get_video_info, split_dir_name_ext, invert_index_vector
+    get_video_info, split_dir_name_ext, invert_index_vector,
 )
 from video_utils import VideoGenerator
+
+
+# Разбирает ответ 409 и возвращает rq_id уже выполняющейся задачи:
+def _get_conflict_rq_id(error):
+    '''
+    Возвращает rq_id из ответа сервера 409 Conflict, если он там есть.
+
+    CVAT возвращает 409, когда фоновая задача с таким же rq_id уже
+    выполняется (STARTED, QUEUED или DEFERRED). В теле ответа лежит
+    rq_id этой задачи, к которой можно подключиться.
+    '''
+    # Нас интересует только конфликт:
+    if getattr(error, 'status', None) != 409:
+        return None
+
+    # Достаём и декодируем тело ответа:
+    body = getattr(error, 'body', None)
+    if not body:
+        return None
+    if isinstance(body, bytes):
+        body = body.decode('utf-8', errors='replace')
+
+    # Пытаемся разобрать JSON:
+    try:
+        data = json.loads(body)
+    except (TypeError, ValueError):
+        return None
+
+    # В теле должен лежать словарь с rq_id:
+    if isinstance(data, dict):
+        return data.get('rq_id')
+
+    return None
+
+
+# Экспорт в CVAT (бекапы, датасеты, разметка) идёт через
+# Downloader.prepare_file. Перехватываем здесь 409, чтобы подключаться к уже
+# запущенной задаче, а не пытаться запустить её повторно:
+if not getattr(core.downloading.Downloader.prepare_file, '_cvat_srv_patched', False):
+    # Запоминаем оригинальный метод:
+    _downloader_prepare_file = core.downloading.Downloader.prepare_file
+
+    def _prepare_file_with_attach(self, endpoint, **kwargs):
+        # Признак того, что подключение уже было:
+        attached = False
+
+        # Пробуем запустить экспорт или подключиться к существующему:
+        while True:
+            # Пытаемся выполнить обычный экспорт:
+            try:
+                return _downloader_prepare_file(self, endpoint, **kwargs)
+            except api_client.exceptions.ApiException as error:
+                rq_id = _get_conflict_rq_id(error)
+
+                # Если это не наш случай - пробрасываем ошибку:
+                if rq_id is None or attached:
+                    raise
+
+                # Запоминаем, что подключение уже было:
+                attached = True
+
+                # Сообщаем пользователю:
+                print(f'Экспорт уже выполняется, подключаюсь к задаче "{rq_id}"')
+
+                # Ждём завершения существующей задачи:
+                try:
+                    request, _ = self._client.wait_for_completion(rq_id)
+                except core.exceptions.BackgroundRequestException as error:
+                    print(f'Существующий экспорт завершился ошибкой: {error}')
+                    print('Запускаю новый экспорт...')
+                    continue
+
+                # Возвращаем результат существующей задачи:
+                return request
+
+    # Помечаем метод, чтобы не патчить повторно:
+    _prepare_file_with_attach._cvat_srv_patched = True
+
+    # Подменяем метод у класса:
+    core.downloading.Downloader.prepare_file = _prepare_file_with_attach
+
+
+# У импорта rq_id не содержит имени файла, поэтому подключаться к уже
+# запущенной задаче нельзя: она может импортировать другой файл. Ждём её
+# завершения и повторяем загрузку своего файла:
+def _upload_with_wait_retry(upload_file_and_wait):
+    # Возвращаем обёрнутую функцию:
+    def wrapper(self, *args, **kwargs):
+        # Пытаемся загрузить файл обычным образом:
+        try:
+            return upload_file_and_wait(self, *args, **kwargs)
+        except api_client.exceptions.ApiException as error:
+            rq_id = _get_conflict_rq_id(error)
+
+            # Если это не наш случай - пробрасываем ошибку:
+            if rq_id is None:
+                raise
+
+            # Сообщаем пользователю:
+            print(f'Импорт уже выполняется (задача "{rq_id}"). '
+                  f'Жду завершения...')
+
+            # Ждём завершения существующей задачи:
+            try:
+                self._client.wait_for_completion(rq_id)
+            except core.exceptions.BackgroundRequestException as e:
+                print(f'Существующий импорт завершился ошибкой: {e}')
+
+            # Повторяем загрузку своего файла:
+            print('Повторяю импорт...')
+            return upload_file_and_wait(self, *args, **kwargs)
+
+    # Помечаем обёртку, чтобы не патчить повторно:
+    wrapper._cvat_srv_patched = True
+
+    # Возвращаем обёртку:
+    return wrapper
+
+
+# Патчим загрузчики аннотаций и датасетов:
+for _uploader_class in (
+    core.uploading.AnnotationUploader,
+    core.uploading.DatasetUploader
+):
+    # Запоминаем оригинальный метод:
+    _upload_file_and_wait = _uploader_class.upload_file_and_wait
+
+    # Патчим только один раз:
+    if not getattr(_upload_file_and_wait, '_cvat_srv_patched', False):
+        _uploader_class.upload_file_and_wait = _upload_with_wait_retry(
+            _upload_file_and_wait,
+        )
 
 
 # Множество ключей, приемлемыз для описания конкретного класса:
@@ -246,16 +381,22 @@ class Client:
         # Выполняем бекап:
         pbar = AccurateProgressReporter(desc) if desc else None
         max_attempts = 5
+        error = None
         for attempt in range(max_attempts):
             try:
                 cvat_obj.obj.download_backup(path, pbar=pbar)
                 break
-            except IncompleteRead:
-                pass
+            except IncompleteRead as e:
+                error = e
+                print(f'Обрыв загрузки бекапа, повтор '
+                      f'({attempt + 1}/{max_attempts})...')
             except Exception as e:
+                error = e
                 print(e)
                 print(f'Перезапуск бекапа "{path}"')
-                error = e
+
+            if attempt + 1 < max_attempts:
+                time.sleep(min(2 ** attempt, 10))
         else:
             print('Попытки исчерпаны!')
             raise error
@@ -292,19 +433,36 @@ class Client:
         # Выполняем восстановление:
         pbar = AccurateProgressReporter(desc) if desc else None
         max_attempts = 5
+        error = None
         for attempt in range(max_attempts):
             try:
                 cvat_obj = create_from_backup(
                     filename=path,
-                    pbar=pbar
+                    pbar=pbar,
                 )
                 break
-            except Exception as e:
+
+            except core.exceptions.BackgroundRequestException:
+                raise
+            except api_client.exceptions.ApiException as e:
+                if e.status is None or e.status < 500:
+                    raise
+                error = e
                 print(e)
                 print(f'Перезапуск восстановления "{path}"')
+            except (IncompleteRead, urllib3.exceptions.HTTPError,
+                    ConnectionError, TimeoutError) as e:
+                error = e
+                print(e)
+                print(f'Перезапуск восстановления "{path}"')
+            except Exception:
+                raise
+
+            if attempt + 1 < max_attempts:
+                time.sleep(min(2 ** attempt, 10))
         else:
             print('Попытки исчерпаны!')
-            raise e
+            raise error
 
         # Если указан ID датасета, к которому задачу надо присовокупить:
         if parent_id is not None:
