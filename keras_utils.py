@@ -15,12 +15,13 @@ else: raise ValueError(f'Неожиданное значение перемен�
 
 import signal
 import contextlib
+import cv2
 import numpy as np
 import pandas as pd
 import tensorboard as tb
 from matplotlib import pyplot as plt
 
-from utils import a2hw, obj2yaml
+from utils import a2hw, mpmap, obj2yaml, yaml2obj
 
 layers       = keras.layers
 losses       = keras.losses
@@ -220,7 +221,7 @@ class SegDataLoader(keras.utils.Sequence):
         sample_id = sample_id % len(self.inps)
 
         # Загружаем изображения:
-        inp = cv2.imread(self.inps[sample_iCustomImaged],
+        inp = cv2.imread(self.inps[sample_id],
                          cv2.IMREAD_COLOR)
         out = cv2.imread(self.outs[sample_id],
                          cv2.IMREAD_GRAYSCALE)
@@ -1096,12 +1097,12 @@ def Deeplabv3Plus(backbone         : 'Базовая модель для изв�
     elif activation and activation.lower() == 'argmax':
 
         # Argmax для прода, если каналов несколько:
-        if outputs.shape[-1] > 1:
-            outputs = K.argmax(outputs, axis=-1)
+        if out.shape[-1] > 1:
+            outputs = K.argmax(out, axis=-1)
 
         # Пороговая обработка для прода, если канал всего один:
         else:
-            outputs = K.cast(outputs > 0, 'int64')
+            outputs = K.cast(out > 0, 'int64')
 
     else:
         raise ValueError(f'Неожиданная ф-ия активации: {activation}!')

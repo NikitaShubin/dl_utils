@@ -12,8 +12,9 @@
 * фильтров, чтение и запись видео          *
 * (ViRead/ViSave), генерацию кадров        *
 * (VideoGenerator), перепаковку битых      *
-* записей (clean_remux) и работу с         *
-* оптическим потоком (OptFlow).            *
+* записей (clean_remux), работу с          *
+* оптическим потоком (OptFlow) и           *
+* многоразовые искажения (ImDistort).      *
 *                                          *
 ********************************************
 .
@@ -74,7 +75,7 @@ def recomp2mp4(
     source_file: str | Path,
     target_file: str | Path,
     *,
-    rm_soruce: bool = True,
+    rm_source: bool = True,
     quiet: bool = True,
 ) -> None:
     """Пересжимает исходный файл в mp4.
@@ -125,7 +126,7 @@ def recomp2mp4(
 
     # Если целевой файл создан, а исходный надо удалить, то удаляем:
     if Path(target_file).is_file():
-        if rm_soruce:
+        if rm_source:
             rmpath(source_file)
 
     else:
@@ -2073,6 +2074,110 @@ def _resolve_cvals(
             raise ValueError(msg)
         return list(cval)
     return [cval] * channels
+
+
+class ImDistort:
+    """Многоразовое геометрическое искажение изображения.
+
+    Хранит координатную сетку и применяет её к изображениям или маскам.
+    """
+
+    def __init__(
+        self,
+        meshgrid: np.ndarray | tuple[int, int] | None = None,
+    ) -> None:
+        """Сохраняет координатную сетку или создаёт её по размеру."""
+        if meshgrid is None:
+            self.meshgrid: np.ndarray | None = None
+            return
+
+        meshgrid = np.asarray(meshgrid)
+        if meshgrid.ndim == 1:
+            if meshgrid.size != 2:  # noqa: PLR2004
+                msg = f'Неожиданный размер координатной сетки: {meshgrid.shape}!'
+                raise ValueError(msg)
+            self.meshgrid = self.create_meshgrid(
+                (int(meshgrid[0]), int(meshgrid[1])),
+            )
+        elif meshgrid.ndim == 3 and meshgrid.shape[-1] == 2:  # noqa: PLR2004
+            self.meshgrid = meshgrid
+        else:
+            msg = f'Неожиданный размер координатной сетки: {meshgrid.shape}!'
+            raise ValueError(msg)
+
+    @staticmethod
+    def create_meshgrid(shape: tuple[int, int]) -> np.ndarray:
+        """Строит недеформированную координатную сетку."""
+        y = np.arange(shape[0], dtype=float)
+        x = np.arange(shape[1], dtype=float)
+        xv, yv = np.meshgrid(x, y)
+        return np.dstack([xv, yv])
+
+    @classmethod
+    def from_opt_flow(cls, flow: np.ndarray) -> ImDistort:
+        """Создаёт искажение, повторяющее оптический поток."""
+        meshgrid = cls.create_meshgrid(flow.shape[:2])
+        return cls(meshgrid - flow)
+
+    @classmethod
+    def from_example(cls, source: np.ndarray, target: np.ndarray) -> ImDistort:
+        """Оценивает искажение между двумя изображениями."""
+        return cls.from_opt_flow(OptFlow()(source, target))
+
+    def __call__(
+        self,
+        img: np.ndarray,
+        *,
+        mask_mode: bool = False,
+        order: int = 3,
+        mode: _MAP_MODE = 'constant',
+        cval: float = 0.0,
+        prefilter: bool = True,
+    ) -> np.ndarray:
+        """Применяет искажение к изображению или маске."""
+        meshgrid = self.meshgrid
+        if meshgrid is None:
+            msg = 'Координатная сетка не задана!'
+            raise ValueError(msg)
+
+        if mask_mode:
+            meshgrid = np.round(meshgrid)
+        coords = [meshgrid[..., 1], meshgrid[..., 0]]
+
+        if img.ndim == 2:  # noqa: PLR2004
+            return scipy.ndimage.map_coordinates(
+                img,
+                coords,
+                order=order,
+                mode=mode,
+                cval=cval,
+                prefilter=prefilter,
+            )
+
+        if img.ndim == 3:  # noqa: PLR2004
+            return np.dstack(
+                [
+                    scipy.ndimage.map_coordinates(
+                        img[..., ch],
+                        coords,
+                        order=order,
+                        mode=mode,
+                        cval=cval,
+                        prefilter=prefilter,
+                    )
+                    for ch in range(img.shape[2])
+                ],
+            )
+
+        msg = f'Неожиданное число измерений изображения: {img.ndim}!'
+        raise ValueError(msg)
+
+    def __add__(self, other: ImDistort) -> ImDistort:
+        """Объединяет два искажения (некоммутативно)."""
+        if self.meshgrid is None:
+            msg = 'Координатная сетка не задана!'
+            raise ValueError(msg)
+        return type(self)(other(self.meshgrid))
 
 
 class OptFlow:

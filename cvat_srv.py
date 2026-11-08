@@ -1800,7 +1800,7 @@ class _CVATBase:
 
         # Для подзадач вызывается сам метод:
         elif hasattr(self, method):
-            self.method(*args, **kwargs)
+            getattr(self, method)(*args, **kwargs)
 
         else:
             raise NotImplementedError('Метод {method} не объявлен!')
@@ -2023,8 +2023,7 @@ class CVATProject(_CVATBase):
                     else:
                         msg = (
                             'Интерфейсный параметр "cvat_srv_obj" должен быть '
-                            'экземпляром классов '
-                            f'{CVATSRVBase._hier_lvl2class[lvl] for lvl in range(2)}. '
+                            'экземпляром классов CVATSRV или CVATSRVProject. '
                             f'Получен объект типа "{type(self.cvat_srv_obj)}"!'
                         )
                         raise ValueError(msg)

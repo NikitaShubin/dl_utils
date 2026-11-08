@@ -1198,7 +1198,7 @@ class NMS:
     '''
 
     def __init__(self, minIoU=0.5):
-        self.minIoU = 0.5
+        self.minIoU = minIoU
 
     def __call__(self, objs):
         # Список из менее двух объектов оставляем без изменения:

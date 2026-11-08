@@ -362,21 +362,21 @@ class TestRecomp2Mp4(unittest.TestCase):
     """Тесты пересжатия видео в mp4."""
 
     def test_recompress_keeps_source(self) -> None:
-        """recomp2mp4 не удаляет исходник при rm_soruce=False."""
+        """recomp2mp4 не удаляет исходник при rm_source=False."""
         with tempfile.TemporaryDirectory() as temp_dir:
             source = _make_video(Path(temp_dir) / 'src.avi')
             target = Path(temp_dir) / 'dst.mp4'
-            recomp2mp4(source, str(target), rm_soruce=False)
+            recomp2mp4(source, str(target), rm_source=False)
             assert target.is_file()
             assert Path(source).is_file()
             assert target.stat().st_size > 0
 
     def test_recompress_removes_source(self) -> None:
-        """recomp2mp4 удаляет исходник при rm_soruce=True."""
+        """recomp2mp4 удаляет исходник при rm_source=True."""
         with tempfile.TemporaryDirectory() as temp_dir:
             source = _make_video(Path(temp_dir) / 'src.avi')
             target = Path(temp_dir) / 'dst.mp4'
-            recomp2mp4(source, str(target), rm_soruce=True)
+            recomp2mp4(source, str(target), rm_source=True)
             assert target.is_file()
             assert not Path(source).exists()
 
