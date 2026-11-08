@@ -17,9 +17,10 @@ docker/restart.sh
 
 После запуска доступны:
 
-- JupyterLab — `http://<host>:8888/`;
-- OpenCode Web — `http://<host>:8000/`;
-- фоновый OpenCode для TUI — порт `4097`.
+- JupyterLab — `http://<host>:8888/` (порт `JUPYTER_PORT`);
+- OpenCode Web — `http://<host>:8000/` (порт `OPENCODE_WEB_PORT`, только при
+  заданном `OPENCODE_WEB_PASS`);
+- фоновый OpenCode для TUI — порт `4097` (`OPENCODE_CLI_PORT`).
 
 TensorBoard и Voila автоматически не стартуют; их запускают вручную внутри
 контейнера.
@@ -44,8 +45,9 @@ docker/stop.sh experiment_1
 ```
 
 `open.sh` ждёт до 90 секунд, пока `cmd.sh` подготовит окружение и напечатает
-строку «Мониторинг». Если контейнер не успел — консоль всё равно откроется,
-но возможны ошибки прав.
+строку «Мониторинг». Если контейнер не запущен или остановился, скрипт
+завершается с ошибкой; если контейнер жив, но не сообщил о готовности за 90
+секунд, консоль всё равно откроется, но возможны ошибки прав.
 
 ## Переменные окружения
 
@@ -64,7 +66,8 @@ export OLLAMA_HOST='http://localhost:11434'
 - `JUPYTER_PORT` — порт JupyterLab.
 - `OPENCODE_WEB_PASS` — пароль OpenCode Web; без него веб-сервер не
   запускается.
-- `OPENCODE_WEB_PORT`, `OPENCODE_CLI_PORT` — порты OpenCode.
+- `OPENCODE_WEB_PORT`, `OPENCODE_CLI_PORT` — порт веб-сервера и порт фонового
+  сервиса для TUI.
 - `OLLAMA_HOST` — адрес Ollama; при заданном значении `ollm_utils`
   настраивает провайдеры для Jupyter-AI и OpenCode.
 

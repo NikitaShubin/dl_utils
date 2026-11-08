@@ -24,8 +24,9 @@ JupyterLab будет доступен на порту `573`, пароль — `
 `PreAnnotation/project/` монтируется в `/workspace/project`, поэтому входные
 файлы и результаты удобно держать в ней.
 
-Оба Docker-образа уже содержат SAM 2, SAM 3, `decord` и веса моделей. Вне
-Docker зависимости и путь к весам настраиваются вручную: для SAM 2 это
+Оба Docker-образа уже содержат SAM 2, SAM 3, `decord` и веса SAM 2, SAM 3 и
+Grounding DINO; в образе `PreAnnotation` также заранее скачаны YOLO и ReID.
+Вне Docker зависимости и путь к весам настраиваются вручную: для SAM 2 это
 описано в [sam2al](modules/sam2al.md), для SAM 3 — в
 [sam3al](modules/sam3al.md).
 
@@ -41,24 +42,34 @@ Docker зависимости и путь к весам настраиваютс
 Типовой поток:
 
 ```python
-from cvat import dir2unlabeled_tasks, tasks_auto_annottation
+from cvat import (
+    autofix_subtask,
+    dir2unlabeled_tasks,
+    hide_skipped_objects_in_subtask,
+    tasks_auto_annottation,
+)
 from ul_utils import UltralyticsModel
 
 tasks = dir2unlabeled_tasks('./project/people.mp4', desc='Индексация')
 
-img2df = UltralyticsModel('yolo26x.pt', tracker='bytetrack.yaml')
+img2df = UltralyticsModel(
+    model='yolo26x.pt',
+    tracker='botsort.yaml',
+    mode='preannotation',
+)
+
 tasks = tasks_auto_annottation(
     tasks,
-    img2df.img2df,
-    label='person',
-    desc='Предразметка',
+    img2df,
+    label='undefined',
+    postprocess_filters=[autofix_subtask, hide_skipped_objects_in_subtask],
 )
 ```
 
-Дальше ноутбук строит превью через `tasks2preview`, при необходимости
-применяет `autofix_subtask` и `hide_skipped_objects_in_subtask`, затем
-выгружает XML в проект CVAT через [`CVATSRV`](modules/cvat_srv/README.md).
-Функции работы с задачами описаны в [cvat](modules/cvat/README.md).
+`postprocess_filters` применяются в ходе авторазметки. Затем ноутбук строит
+превью через `tasks2preview` и выгружает XML в проект CVAT через
+[`CVATSRV`](modules/cvat_srv/README.md). Функции работы с задачами описаны в
+[cvat](modules/cvat/README.md).
 
 ## Segmentation.ipynb
 

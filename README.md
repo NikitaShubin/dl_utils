@@ -112,7 +112,7 @@ docker/restart.sh
   загрузка весов SAM 3.1
 - **[gdinoal.py](docs/modules/gdinoal.md "Перейти к документации")**:
   открытая детекция по текстовым запросам с
-  [Grounding DINO](https://github.com/IDEA-Research/GroundingDINO "Перейти к репозиторию")
+  [Grounding DINO](https://github.com/IDEA-Research/GroundingDINO "Репозиторий")
 
 ### 🏷️ Работа с CVAT
 
@@ -247,11 +247,12 @@ draw_repo_dependency_graph()
 - **[`repo2context.sh`](repo2context.sh "Перейти к файлу")**: сборка контекста
   для LLM из заданной папки с текстовыми файлами
 - **[check-py.sh](docs/check-py.md "Перейти к документации")**: проверка
-  качества Python-кода любого проекта (ruff format, ruff check, mypy, pytest);
-  правила берутся из `dl_utils`
+  качества Python-кода любого проекта (pytest с покрытием, ruff format/check
+  и mypy); правила берутся из `dl_utils`
 - **[check-infra.sh](docs/check-infra.md "Перейти к документации")**: линтинг
   инфраструктурных файлов любого проекта: docker-compose (dclint),
-  Dockerfile (hadolint), shell-скрипты (shellcheck), Markdown (markdownlint)
+  `Dockerfile`/`*.Dockerfile` (hadolint), shell-скрипты (shellcheck),
+  Markdown (markdownlint)
 - **[check.sh](docs/check.md "Перейти к документации")**: комбинированная
   проверка (check-py.sh + check-infra.sh); аргументы передаются обоим скриптам
 

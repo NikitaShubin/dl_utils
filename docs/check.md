@@ -1,8 +1,9 @@
 # Проверка кода: check.sh
 
 Комбинированная проверка Python и инфраструктуры: `check-py.sh` и
-`check-infra.sh` подряд. Конфиги линтеров всегда берутся из `dl_utils`,
-поэтому скрипт работает и в чужих проектах.
+`check-infra.sh` подряд. Конфиги `ruff`, `mypy`, `dclint`, `hadolint` и
+`markdownlint` берутся из `dl_utils`, поэтому скрипт работает и в чужих
+проектах; `shellcheck` ищет `.shellcheckrc` вверх по дереву от файла.
 
 ## Проверить свой проект
 
@@ -27,7 +28,8 @@
 файлов:
 
 - `.py`, `.ipynb` → `check-py.sh`;
-- `Dockerfile`, `docker-compose*.yml`, `compose*.yml`, `*.sh`, `*.md` →
+- `Dockerfile`, `*.Dockerfile`, `docker-compose*.yml`,
+  `docker-compose*.yaml`, `compose*.yml`, `compose*.yaml`, `*.sh`, `*.md` →
   `check-infra.sh`.
 
 Если ни один подскрипт не нашёл подходящих файлов, выводится предупреждение
@@ -50,12 +52,12 @@
 ## Результат
 
 - `0` — ошибок нет;
-- `1` — хотя бы один чекер нашёл проблемы;
-- `2` — неизвестный флаг или ошибка аргументов.
+- `1` — хотя бы один чекер нашёл проблемы или путь не существует;
+- `2` — неизвестный флаг.
 
 Этапы идут последовательно: сначала Python, затем инфраструктура. Падение
 одного этапа не отменяет второй, но итоговый код будет `1`. Python-часть
-выполняет [check-py.sh](check-py.md) (ruff, mypy, pytest и покрытие),
+выполняет [check-py.sh](check-py.md) (pytest с покрытием, ruff, mypy),
 инфраструктурную — [check-infra.sh](check-infra.md) (Docker, shell и Markdown).
 
 ## Ограничения

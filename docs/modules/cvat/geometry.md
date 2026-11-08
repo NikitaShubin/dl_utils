@@ -20,7 +20,8 @@ polygon = CVATPoints.from_yoloseg(
 ```
 
 Также доступны `CVATPoints(points, type_='polygon')` и
-`CVATPoints.from_bbox(box, imsize, format='xyxy')`.
+`CVATPoints.from_bbox(box, imsize, format='xyxy')`. По умолчанию `from_bbox`
+ожидает формат `'xywh'`, поэтому формат нужно указывать явно.
 
 ## Преобразовать тип
 
@@ -36,13 +37,14 @@ polygon = rectangle.aspolygon()
 
 ```python
 shifted = rectangle.shift([100, 50])
-scaled = rectangle.scale(0.5)
+scaled = rectangle.scale([0.5, 0.5])
 rotated = rectangle.rot90(1)
 flipped = rectangle.fliplr(height=1080, width=1920)
 ```
 
-Все методы возвращают новый объект. `rot90` принимает число поворотов на
-90 градусов, `flip` — ось (`0` или `1`).
+Все методы возвращают новый объект. `shift` и `scale` принимают пару
+`(по x, по y)`; `scale` пропорционально меняет и `imsize`. `rot90` принимает
+число поворотов на 90 градусов, `flip` — ось (`0` или `1`).
 
 ## Обрезать
 

@@ -26,7 +26,7 @@ check-infra.sh (Docker/shell/Markdown). Аргументы передаются 
 
 Позиционные аргументы - проверяемые файлы или папки; файл автоматически
 направляется только подходящему по типу чекеру (.py/.ipynb -> check-py.sh,
-Dockerfile/compose/*.sh/*.md -> check-infra.sh).
+Dockerfile/*.Dockerfile/compose/*.sh/*.md -> check-infra.sh).
 Без путей: из корня dl_utils — белый список py + текущая папка infra,
 из любой другой папки — её содержимое.
 

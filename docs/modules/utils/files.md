@@ -66,13 +66,14 @@ unzipped_dirs = unzip_dir('backups', 'unzipped', desc='Распаковка бе
 ```python
 from utils import str2filename, filename2str, split_dir_name_ext
 
-safe = str2filename('Проект: задача №1')  # 'Proekt_zadacha_1' (пример)
-original = filename2str(safe)
+safe = str2filename('Project 1: task/2')  # 'f_Project%201%3A%20task%2F2'
+original = filename2str(safe)             # 'Project 1: task/2'
 path, name, ext = split_dir_name_ext('data/video.mp4')
 ```
 
-`str2filename` заменяет недопустимые символы и сохраняет возможность обратного
-преобразования через `filename2str`.
+`str2filename` оставляет без изменений только латинские буквы, цифры, `-` и
+`_`, а всё остальное кодирует в процентах с префиксом `f_`. `filename2str`
+восстанавливает исходную строку.
 
 ## Временные и пустые папки
 

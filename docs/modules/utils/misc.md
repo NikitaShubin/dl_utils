@@ -39,7 +39,8 @@ from utils import flatten_list, unflatten_list
 
 nested = [[1, 2], [3, [4, 5]]]
 flat = flatten_list(nested)              # [1, 2, 3, 4, 5]
-same = unflatten_list(flat, shape=[2, -1])
+same = unflatten_list(flat, shape=[5])   # тот же плоский список
+grid = unflatten_list(flat[:4], shape=[2, 2])
 ```
 
 `flatten_list` принимает глубину: `depth=1` убирает только один уровень

@@ -206,7 +206,7 @@ class SAM:
         return masks
 
     # Постобработка списка масок:
-    def postprocess(self, masks):
+    def postprocess(self, masks, img=None):
 
         # Последовательное применение к списку сегментов каждого из фильтров:
         if len(self.postprocess_filters):
@@ -242,7 +242,7 @@ class SAM:
         masks = self.tta(img, desc=None) if self.use_tta else self.inference(img)
 
         # Постобработка масок:
-        return self.postprocess(masks)
+        return self.postprocess(masks, img)
 
     # Конвертация масок в датафрейм формата cvat-задач:
     @staticmethod

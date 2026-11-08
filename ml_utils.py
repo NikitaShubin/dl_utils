@@ -51,7 +51,7 @@ def is_channel_first(shape):
 
     if shape[0] < min(shape[1:]) and shape[0] in num_channels:
         return True  # (B)CHW
-    elif shape[-1] < min(shape[:-1]) and shape[0] in num_channels:
+    elif shape[-1] < min(shape[:-1]) and shape[-1] in num_channels:
         return False  # (B)HWC
     else:
         raise ValueError('Невозможно определить измерение канала ' +

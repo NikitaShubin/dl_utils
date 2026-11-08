@@ -10,9 +10,9 @@ SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 source "$SCRIPT_DIR/utils.sh"
 
 # Код возврата при отсутствии файлов подходящего типа
-# (Dockerfile/compose/shell/markdown): возвращается только в режиме тишины
-# (-q); в CI это честный nonzero, чтобы покровная проверка не давала ложный
-# «зелёный» по пустому списку файлов:
+# (Dockerfile/*.Dockerfile/compose/shell/markdown): возвращается только в
+# режиме тишины (-q); в CI это честный nonzero, чтобы покровная проверка не
+# давала ложный «зелёный» по пустому списку файлов:
 NO_FILES=3
 
 usage() {
@@ -20,7 +20,7 @@ usage() {
 Использование: $(basename "$0") [-f|--fix] [-g|--git-only] [-c|--clean-cache] [-q] [-H] [путь...]
 
 Позиционные аргументы - проверяемые файлы или папки
-(Dockerfile, docker-compose, shell, markdown).
+(Dockerfile, *.Dockerfile, docker-compose, shell, markdown).
 Без путей проверяется текущая директория.
 
 -f, --fix       разрешить автофиксы (умеют dclint и markdownlint);
@@ -254,7 +254,7 @@ if [ "$TOTAL_FILES" -eq 0 ]; then
     if [ "$QUIET" -eq 1 ]; then
         exit $NO_FILES
     fi
-    print_warning "Нет файлов подходящего типа (Dockerfile, compose, shell, markdown)"
+    print_warning "Нет файлов подходящего типа (Dockerfile/*.Dockerfile, compose, shell, markdown)"
     exit 0
 fi
 
@@ -279,8 +279,8 @@ run_check "🐙 docker-compose файлы" FILES_COMPOSE "$cfg" dclint -c "$cfg"
 cfg="$SCRIPT_DIR/.hadolint.yaml"
 run_check "🐋 Dockerfile" FILES_DOCKER "$cfg" hadolint --config "$cfg"
 
-# Проверка shell-скриптов; у shellcheck нет опции конфига: он сам ищет
-# .shellcheckrc вверх по дереву от файла, поэтому вне дерева dl_utils
+# Проверка shell-скриптов; check-infra не задаёт конфиг shellcheck: он сам
+# ищет .shellcheckrc вверх по дереву от файла, поэтому вне дерева dl_utils
 # могут применяться правила самого проекта:
 run_check "🐚 shell-скрипты" FILES_SH '' shellcheck
 

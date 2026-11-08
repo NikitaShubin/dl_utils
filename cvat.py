@@ -2714,7 +2714,7 @@ class CVATLabels:
         # Подметки тоже сортируем, если есть:
         for label in copy.labels:
             if label.sublabels:
-                label.sublabels.sort()
+                label.sublabels = label.sublabels.sort()
 
         return copy
 

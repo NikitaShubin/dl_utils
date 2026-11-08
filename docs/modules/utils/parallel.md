@@ -11,8 +11,13 @@ from utils import mpmap
 
 files = ['frame_01.jpg', 'frame_02.jpg', 'frame_03.jpg']
 
+
+def file_size(path):
+    return Path(path).stat().st_size
+
+
 sizes = mpmap(
-    lambda path: Path(path).stat().st_size,
+    file_size,
     files,
     num_procs=4,
     desc='Размеры файлов',
@@ -96,8 +101,8 @@ names, scores = reorder_lists(order, names, scores)
 
 ## Ограничения
 
-- Аргументы и результаты `mpmap` должны быть сериализуемы `pickle`: лямбды
-  работают, а замыкания на несериализуемые объекты — нет.
+- Аргументы и результаты `mpmap` должны быть сериализуемы `pickle`: лямбды и
+  локальные функции не подойдут, нужна функция верхнего уровня.
 - Побочные эффекты в дочерних процессах не возвращаются в родительский;
   результат передавайте только через возвращаемое значение.
 - `mpmap` не управляет памятью GPU: внутри процесса каждый воркер загрузит

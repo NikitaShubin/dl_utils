@@ -14,9 +14,14 @@
 from pathlib import Path
 from utils import TimeIt, get_file_list, mpmap
 
+
+def file_size(path):
+    return Path(path).stat().st_size
+
+
 with TimeIt('поиск и обработку') as timer:
     files = get_file_list('data', '.jpg')
-    sizes = mpmap(lambda path: Path(path).stat().st_size, files, desc='Размеры')
+    sizes = mpmap(file_size, files, desc='Размеры')
 
 print(len(files), sum(sizes), timer())
 ```
