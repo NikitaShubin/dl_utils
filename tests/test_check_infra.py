@@ -332,6 +332,11 @@ def test_check_sh_propagates_project_config(tmp_path: Path) -> None:
         check=False,
     )
     assert result.returncode == 0, result.stdout
+    assert 'ИТОГ: PYTHON' in result.stdout
+    assert 'Проверки Python завершены успешно' in result.stdout
+    assert 'ИТОГ: ИНФРАСТРУКТУРА' in result.stdout
+    assert 'Проверки инфраструктуры завершены успешно' in result.stdout
+    assert 'все запущенные проверки пройдены успешно' in result.stdout
 
     for name in ('ruff', 'mypy'):
         for cwd, args in _calls(Path(f'{log}.{name}')):

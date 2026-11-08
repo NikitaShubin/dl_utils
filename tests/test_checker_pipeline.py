@@ -563,6 +563,8 @@ def test_main_success(
     out = capsys.readouterr().out
     assert 'Проверка основных файлов' in out
     assert 'строки 100%' in out
+    assert 'Проверки Python завершены успешно' in out
+    assert 'Все проверки завершены успешно' not in out
 
 
 def test_main_failure(

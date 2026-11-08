@@ -460,14 +460,14 @@ def clean_caches(ctx: Ctx, roots: list[Path]) -> None:
 def _final_verdict(ctx: Ctx) -> int:
     """Финальный вердикт и код возврата по проваленным этапам."""
     reporter = ctx.reporter
-    reporter.separator('ИТОГ')
     if reporter.failures:
+        reporter.separator('ИТОГ: PYTHON')
         reporter.error(f'Проваленных этапов: {len(reporter.failures)}')
         for stage in reporter.failures:
             reporter.error(f'  - {stage}')
         return 1
-    reporter.separator('ВСЕ ПРОВЕРКИ ПРОЙДЕНЫ УСПЕШНО!', GREEN)
-    reporter.success('Все проверки завершены успешно!')
+    reporter.separator('ИТОГ: PYTHON', GREEN)
+    reporter.success('Проверки Python завершены успешно!')
     return 0
 
 

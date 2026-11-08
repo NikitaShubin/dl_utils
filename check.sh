@@ -96,12 +96,12 @@ run_sub check-py.sh
 run_sub check-infra.sh
 
 if [ "$FAILED" -eq 1 ]; then
-    print_box "✗ ИТОГ: ошибки в одном или обоих подскриптах" "$RED"
+    print_box "✗ ИТОГ: проверки завершены с ошибками" "$RED"
     exit 1
 fi
 
 if [ "$FOUND_ANY" -eq 1 ]; then
-    print_box "✓ ИТОГ: все проверки пройдены успешно" "$GREEN"
+    print_box "✓ ИТОГ: все запущенные проверки пройдены успешно" "$GREEN"
     exit 0
 fi
 

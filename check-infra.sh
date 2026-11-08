@@ -348,9 +348,9 @@ run_check "🐚 shell-скрипты" FILES_SH '' "${SHELLCHECK_CMD[@]}"
 run_check "📖 Markdown файлы" FILES_MD "$MDLINT_CFG" "${MDLINT_CMD[@]}"
 
 # Финальный вердикт: скрипт успешен только при отсутствии ошибок:
-print_separator "ВСЕ ПРОВЕРКИ ЗАВЕРШЕНЫ"
+print_separator "ИТОГ: ИНФРАСТРУКТУРА"
 if [ "$TOTAL_FAILED" -gt 0 ]; then
     print_error "Всего проблемных файлов: $TOTAL_FAILED"
     exit 1
 fi
-print_success "Все проверки прошли успешно!"
+print_success "Проверки инфраструктуры завершены успешно!"
