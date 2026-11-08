@@ -99,7 +99,9 @@ omit = ["tests/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = ["-v", "--strict-markers", "--strict-config"]
+# Плагин dash регистрируется как pytest11 и падает на новых pytest
+# с PytestRemovedIn10Warning; тесты dash в dl_utils не используются:
+addopts = ["-v", "--strict-markers", "--strict-config", "-p", "no:dash"]
 pythonpath = ["."]
 markers = [
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",
