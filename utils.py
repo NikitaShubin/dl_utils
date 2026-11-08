@@ -2095,115 +2095,243 @@ class ImportVisitor(ast.NodeVisitor):
 
         return {node: i for i, node in enumerate(sorted_nodes)}
 
+    @staticmethod
+    def _dependency_levels(graph):
+        """Возвращает уровень модуля: 0 — без внутренних зависимостей."""
+        levels = {}
+        visiting = set()
+
+        def visit(node):
+            if node in levels:
+                return levels[node]
+            if node in visiting:
+                # Циклические импорты не должны ломать построение графа:
+                return 0
+            visiting.add(node)
+            deps = graph[node]['unconditional'] | graph[node]['conditional']
+            levels[node] = 1 + max((visit(dep) for dep in deps), default=-1)
+            visiting.remove(node)
+            return levels[node]
+
+        for node in sorted(graph):
+            visit(node)
+
+        return levels
+
+    def _order_nodes_by_levels(self, graph, levels):
+        """Раскладывает узлы по уровням в порядке важности.
+
+        Внутри уровня сохраняется порядок из `_reorder_nodes_by_importance`,
+        чтобы связанные модули стояли рядом.
+        """
+        node_order = self._reorder_nodes_by_importance(graph, None)
+        by_level = defaultdict(list)
+        for node in sorted(graph, key=lambda node: node_order[node]):
+            by_level[levels[node]].append(node)
+
+        max_level = max(levels.values(), default=0)
+        return [by_level[level] for level in range(max_level + 1)]
+
     def to_mermaid(self, graph, filename=None, sort=False):
         """
         Конвертирует граф в формат Mermaid.
 
+        Узлы перечисляются по уровням зависимостей: уровень 0 — модули без
+        внутренних зависимостей. Направление `RL`: базовые модули слева,
+        прикладные справа.
+
         Параметры:
             graph (dict): Граф зависимостей
             filename (str, optional): Файл для сохранения
-            sort (bool | callable): 
+            sort (bool | callable):
                 - False: не сортировать
                 - True: использовать встроенную сортировку
                 - callable: внешняя функция сортировки, которая принимает граф
                   и возвращает (ordered_nodes, ordered_edges)
         """
-        # Обрабатываем разные варианты параметра sort
+        levels = self._dependency_levels(graph)
+        max_level = max(levels.values(), default=0)
+        edges = None
+        use_external_sort = False
+
+        # Обрабатываем разные варианты параметра sort:
         if callable(sort):
-            # Внешняя функция сортировки
             try:
-                ordered_nodes, ordered_edges = sort(graph)
-                # Используем упорядоченные узлы от внешнего алгоритма
-                sorted_nodes = ordered_nodes
-                edges = ordered_edges
+                ordered_nodes, edges = sort(graph)
                 use_external_sort = True
-            except Exception as e:
-                print(f"Ошибка во внешнем алгоритме сортировки: {e}")
-                # Возвращаемся к стандартному порядку
-                sorted_nodes = sorted(graph.keys())
-                edges = []
-                use_external_sort = False
+            except Exception as error:  # noqa: BLE001 - внешний алгоритм
+                print(f'Ошибка во внешнем алгоритме сортировки: {error}')
+                ordered_nodes = None
+
+            if ordered_nodes is not None:
+                by_level = defaultdict(list)
+                for node in ordered_nodes:
+                    if node in levels:
+                        by_level[levels[node]].append(node)
+                for level in range(max_level + 1):
+                    by_level[level].extend(
+                        node
+                        for node in sorted(graph)
+                        if levels[node] == level and node not in by_level[level]
+                    )
+                nodes_by_level = [by_level[level] for level in range(max_level + 1)]
+            else:
+                nodes_by_level = self._order_nodes_by_levels(graph, levels)
+
         elif sort:
-            # Встроенная сортировка
-            # Получаем порядок узлов по важности
-            node_order = self._reorder_nodes_by_importance(graph, None)
-            sorted_nodes = sorted(graph.keys(), key=lambda x: node_order[x])
-            edges = []
-            use_external_sort = False
+            nodes_by_level = self._order_nodes_by_levels(graph, levels)
+
         else:
-            # Без сортировки
-            sorted_nodes = sorted(graph.keys())
-            edges = []
-            use_external_sort = False
+            by_level = defaultdict(list)
+            for node in sorted(graph):
+                by_level[levels[node]].append(node)
+            nodes_by_level = [by_level[level] for level in range(max_level + 1)]
 
-        # Генерация безопасных имён узлов
+        # Уровень 0 идёт первым, чтобы оказаться слева:
         safe_names = {}
-        for i, node in enumerate(sorted_nodes):
-            safe_names[node] = f"node_{i}"
+        for level in range(max_level + 1):
+            for node in nodes_by_level[level]:
+                safe_names[node] = f'node_{len(safe_names)}'
 
-        lines = ["graph RL;"]
+        # Старый стиль Mermaid: направление справа налево, базовые модули слева.
+        # ELK даёт более чистую раскладку, чем dagre:
+        lines = [
+            '%%{init: {"flowchart": {"defaultRenderer": "elk", "curve": "basis"}}}%%',
+            'graph RL',
+        ]
 
-        # Определение стоков (модулей без исходящих зависимостей)
-        all_nodes = set(graph.keys())
-        sink_nodes = set()
-        for node in all_nodes:
-            if not graph[node]['unconditional'] and not graph[node]['conditional']:
-                sink_nodes.add(node)
+        # Перечисляем узлы по уровням, чтобы Mermaid начинал раскладку с них:
+        for level in range(max_level + 1):
+            for node in nodes_by_level[level]:
+                lines.append(f'    {safe_names[node]}[{node}];')
 
-        # Создаем множество безусловных рёбер для проверки
-        unconditional_set = set()
-        for source, data in graph.items():
-            for target in data['unconditional']:
-                unconditional_set.add((source, target))
-
-        # Если не использовался внешний алгоритм, собираем рёбра стандартным способом
+        # Если внешняя сортировка не дала рёбер, собираем их сами:
         if not use_external_sort:
-            # Собираем все рёбра
+            edges = []
+            unconditional_set = {
+                (source, target)
+                for source, data in graph.items()
+                for target in data['unconditional']
+            }
             for source, data in graph.items():
-                # Безусловные зависимости
-                for target in data['unconditional']:
+                for target in sorted(data['unconditional']):
                     if target in safe_names:
                         edges.append(('-->', source, target))
 
-                # Условные зависимости (только если нет безусловной)
-                for target in data['conditional']:
-                    if target in safe_names:
-                        if (source, target) in unconditional_set:
-                            continue
+                for target in sorted(data['conditional']):
+                    if (
+                        target in safe_names
+                        and (source, target) not in unconditional_set
+                    ):
                         edges.append(('-.->', source, target))
 
-            # Если включена встроенная сортировка рёбер
-            if sort and callable(sort) is False:
+            if sort:
+                sink_nodes = {
+                    node
+                    for node in graph
+                    if not graph[node]['unconditional']
+                    and not graph[node]['conditional']
+                }
                 edges = self._sort_edges_for_minimal_crossings(
                     edges, safe_names, sink_nodes, graph
                 )
 
-        # Добавление всех узлов
-        for node in sorted_nodes:
-            lines.append(f"    {safe_names[node]}[{node}];")
-
-        # Создание подграфа для стоков (горизонтальное выравнивание)
-        if sink_nodes:
-            lines.append("    %% Выравнивание стоков на одном уровне")
-            lines.append("    subgraph SinkGroup [ ]")
-            lines.append("        direction LR")
-            for node in sink_nodes:
-                lines.append(f"        {safe_names[node]}")
-            lines.append("    end")
-            lines.append("    style SinkGroup fill:none,stroke:none;")
-
-        # Добавление рёбер
+        lines.append('')
+        lines.append('    %% A --> B: модуль A использует модуль B')
         for edge_type, source, target in edges:
-            lines.append(f"    {safe_names[source]} {edge_type} {safe_names[target]};")
+            if source in safe_names and target in safe_names:
+                lines.append(
+                    f'    {safe_names[source]} {edge_type} {safe_names[target]};'
+                )
 
-        mermaid_content = "\n".join(lines)
+        mermaid_content = '\n'.join(lines)
 
-        # Сохранение в файл или возврат строки
+        # Сохранение в файл или возврат строки:
         if filename:
             with open(filename, 'w', encoding='utf-8') as f:
                 f.write(mermaid_content)
         else:
             return mermaid_content
+
+    def to_dot(self, graph, filename=None, sort=False):
+        """Конвертирует граф в формат Graphviz DOT.
+
+        Параметры:
+            graph (dict): Граф зависимостей
+            filename (str, optional): Файл для сохранения
+            sort (bool): Сортировать узлы и рёбра по важности
+        """
+        node_order = self._reorder_nodes_by_importance(graph, None)
+        sorted_nodes = (
+            sorted(graph, key=lambda node: node_order[node])
+            if sort
+            else sorted(graph)
+        )
+        safe_names = {node: f'node_{i}' for i, node in enumerate(sorted_nodes)}
+
+        sink_nodes = {
+            node
+            for node in graph
+            if not graph[node]['unconditional'] and not graph[node]['conditional']
+        }
+
+        unconditional_set = {
+            (source, target)
+            for source, data in graph.items()
+            for target in data['unconditional']
+        }
+
+        edges = []
+        for source, data in graph.items():
+            for target in sorted(data['unconditional']):
+                if target in graph:
+                    edges.append(('-->', source, target))
+            for target in sorted(data['conditional']):
+                if (
+                    target in graph
+                    and (source, target) not in unconditional_set
+                ):
+                    edges.append(('-.->', source, target))
+
+        if sort:
+            edges = self._sort_edges_for_minimal_crossings(
+                edges, safe_names, sink_nodes, graph
+            )
+
+        lines = [
+            'digraph dependencies {',
+            '    graph [rankdir=LR, newrank=true, splines=curved,',
+            '           concentrate=true, nodesep=0.5, ranksep=1.1,',
+            '           pad=0.2];',
+            '    node [shape=box, style="filled", fillcolor="#ffffff",',
+            '          color="#222222", fontname="DejaVu Sans", fontsize=12,',
+            '          margin="0.12,0.06"];',
+            '    edge [color="#222222", arrowsize=0.7, penwidth=1.2];',
+            '',
+        ]
+
+        if sink_nodes:
+            same_rank = '; '.join(f'"{node}"' for node in sorted(sink_nodes))
+            lines.append(f'    {{ rank=same; {same_rank}; }}')
+            lines.append('')
+
+        for node in sorted_nodes:
+            lines.append(f'    "{node}";')
+
+        lines.append('')
+        for edge_type, source, target in edges:
+            attributes = ' [style=dashed]' if edge_type == '-.->' else ''
+            lines.append(f'    "{source}" -> "{target}"{attributes};')
+
+        lines.append('}')
+        dot_content = '\n'.join(lines)
+
+        # Сохранение в файл или возврат строки:
+        if filename:
+            with open(filename, 'w', encoding='utf-8') as f:
+                f.write(dot_content)
+        else:
+            return dot_content
 
     def draw_dependency_in_mermaid(self, files, filter_short_paths=False,
                                    output_file=None, sort=True):
@@ -2222,6 +2350,24 @@ class ImportVisitor(ast.NodeVisitor):
             graph = self.filter_longest_paths(graph)
 
         return self.to_mermaid(graph, filename=output_file, sort=sort)
+
+    def draw_dependency_in_dot(self, files, filter_short_paths=False,
+                               output_file=None, sort=True):
+        """
+        Строит граф зависимостей модулей в формате Graphviz DOT.
+
+        Параметры:
+            files (list): Список .py файлов
+            filter_short_paths (bool): Флаг фильтрации коротких путей
+            output_file (str, optional): Файл для сохранения результата
+            sort (bool): Сортировать узлы и рёбра
+        """
+        graph = self.build_dependency_graph(files)
+
+        if filter_short_paths:
+            graph = self.filter_longest_paths(graph)
+
+        return self.to_dot(graph, filename=output_file, sort=sort)
 
 
 def draw_repo_dependency_graph(
@@ -2246,6 +2392,32 @@ def draw_repo_dependency_graph(
 
     iv = ImportVisitor()
     iv.draw_dependency_in_mermaid(py_files, True, filename, sort)
+
+    return filename
+
+
+def draw_repo_dependency_graph_dot(
+    dirname: str = '',
+    sort: bool = True,
+) -> str:
+    '''
+    Строит DOT-граф зависимостей Python-модулей в заданной папке.
+
+    Параметры:
+        dirname (str): Путь к папке с проектом
+        sort (bool): Сортировать узлы и рёбра по важности
+    '''
+    # Полный список модулей библиотеки:
+    dirname = dirname or os.path.dirname(__file__)
+    filename = os.path.join(dirname, 'dependency_graph.dot')
+    py_files = sorted(get_file_list(dirname, '.py', False))
+
+    # Выкидываем все файлы, начинающиеся с '_':
+    py_files = [py_file for py_file in py_files
+                if os.path.basename(py_file)[0] != '_']
+
+    iv = ImportVisitor()
+    iv.draw_dependency_in_dot(py_files, True, filename, sort)
 
     return filename
 
