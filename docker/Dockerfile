@@ -110,7 +110,7 @@ ARG PYTHONMODULES_BASE="                                                 \
     albumentations scikit-learn scikit-image                             \
                                                                          \
     # Работа с облаком точек и картой глубины:                           \
-    open3d                                                               \
+    # open3d                                                             \
                                                                          \
     # YOLO и трекинг в ней + Roboflow:                                   \
     ultralytics lapx supervision onnxslim                                \
@@ -139,8 +139,7 @@ ARG PYTHONMODULES_BASE="                                                 \
                                                                          \
                                                                          \
     # IDE (JupyterLab\Jupyverse и PyCharm):                              \
-    jupyterlab voila xeus-python                                         \
-    jupyter-collaboration                                                \
+    jupyterlab xeus-python jupyter-collaboration                         \
     # jupyterlab_autoscrollcelloutput                                    \
     # pydevd-pycharm jupyverse[jupyterlab,auth]                          \
     jupyterlab_nvdashboard jupyter-resource-usage                        \
@@ -185,7 +184,7 @@ com/PublicPackages/_packaging/onnxruntime-cuda-12/pypi/simple/           \
     numba                                                                \
                                                                          \
     # Остальные ML-утилиты:                                              \
-    clearml 'ray[data,train,tune,serve]' optuna                          \
+    clearml ray[data,train,tune,serve] optuna                            \
                                                                          \
                                                                          \
     #                    Фундаментальные модели:                         \
