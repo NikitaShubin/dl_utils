@@ -249,21 +249,32 @@ def test_shellcheck_cli_matches_rc(tmp_path: Path) -> None:
     reason='shellcheck не установлен',
 )
 def test_real_shellcheck_rc_matches_cli(tmp_path: Path) -> None:
-    """Реальный ShellCheck ведёт себя одинаково с rc-файлом и CLI-флагами."""
+    """Реальный ShellCheck ведёт себя одинаково с rc-файлом и CLI-флагами.
+
+    .shellcheckrc кладётся рядом со скриптом: --rcfile появился только в
+    ShellCheck 0.10, а автообнаружение работает и в старых версиях.
+    """
     shellcheck = shutil.which('shellcheck')
     assert shellcheck is not None
-    probe = tmp_path / 'probe.sh'
-    probe.write_text(
-        '#!/bin/sh\n[[ -n "${x:-}" ]] && echo ok\n',
-        encoding='utf-8',
-    )
-    base = tmp_path / '.shellcheckrc'
-    base.write_text('shell=sh\n', encoding='utf-8')
+    script = '#!/bin/sh\n[[ -n "${x:-}" ]] && echo ok\n'
 
-    def run(*args: str) -> subprocess.CompletedProcess[str]:
+    def make(name: str, rc: str) -> Path:
+        directory = tmp_path / name
+        directory.mkdir()
+        (directory / 'probe.sh').write_text(script, encoding='utf-8')
+        (directory / '.shellcheckrc').write_text(rc, encoding='utf-8')
+        return directory
+
+    plain = make('plain', 'shell=sh\n')
+    ours = make('ours', SHELLCHECK_RC.read_text(encoding='utf-8'))
+    env = os.environ.copy()
+    env.pop('SHELLCHECK_OPTS', None)
+
+    def run(directory: Path, *args: str) -> subprocess.CompletedProcess[str]:
         return subprocess.run(  # noqa: S603 - путь проверен через which
-            [shellcheck, *args, str(probe)],
-            cwd=tmp_path,
+            [shellcheck, *args, 'probe.sh'],
+            cwd=directory,
+            env=env,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
@@ -272,11 +283,11 @@ def test_real_shellcheck_rc_matches_cli(tmp_path: Path) -> None:
             check=False,
         )
 
-    default = run('--rcfile', str(base))
+    default = run(plain)
     assert default.returncode != 0
-    assert 'SC3010' in default.stdout
-    with_rc = run('--rcfile', str(SHELLCHECK_RC))
-    with_cli = run('--norc', *_rc_to_cli(_parse_rc(SHELLCHECK_RC)))
+    assert any(code in default.stdout for code in ('SC2039', 'SC3010'))
+    with_rc = run(ours)
+    with_cli = run(plain, '--norc', *_rc_to_cli(_parse_rc(SHELLCHECK_RC)))
     assert with_rc.returncode == with_cli.returncode == 0
     assert with_rc.stdout == with_cli.stdout
 
