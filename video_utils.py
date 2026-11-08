@@ -58,7 +58,7 @@ if TYPE_CHECKING:
 _NUM_CHANNELS = 3
 _GRAY_NDIM = 2
 
-# Режимы интерполяции scipy.ndimage.map_coordinates:
+# Режимы и порядок интерполяции scipy.ndimage.map_coordinates:
 _MAP_MODE = Literal[
     'reflect',
     'grid-mirror',
@@ -69,6 +69,7 @@ _MAP_MODE = Literal[
     'wrap',
     'grid-wrap',
 ]
+_MAP_ORDER = Literal[0, 1, 2, 3, 4, 5]
 
 
 def recomp2mp4(
@@ -2084,14 +2085,19 @@ class ImDistort:
 
     def __init__(
         self,
-        meshgrid: np.ndarray | tuple[int, int] | None = None,
+        meshgrid: np.ndarray | tuple[int, int] | list[int] | None = None,
     ) -> None:
         """Сохраняет координатную сетку или создаёт её по размеру."""
         if meshgrid is None:
             self.meshgrid: np.ndarray | None = None
             return
 
-        meshgrid = np.asarray(meshgrid)
+        if isinstance(meshgrid, (tuple, list)):
+            self.meshgrid = self.create_meshgrid(
+                (int(meshgrid[0]), int(meshgrid[1])),
+            )
+            return
+
         if meshgrid.ndim == 1:
             if meshgrid.size != 2:  # noqa: PLR2004
                 msg = f'Неожиданный размер координатной сетки: {meshgrid.shape}!'
@@ -2108,8 +2114,10 @@ class ImDistort:
     @staticmethod
     def create_meshgrid(shape: tuple[int, int]) -> np.ndarray:
         """Строит недеформированную координатную сетку."""
-        y = np.arange(shape[0], dtype=float)
-        x = np.arange(shape[1], dtype=float)
+        y: np.ndarray = np.arange(shape[0], dtype=float)
+        x: np.ndarray = np.arange(shape[1], dtype=float)
+        xv: np.ndarray
+        yv: np.ndarray
         xv, yv = np.meshgrid(x, y)
         return np.dstack([xv, yv])
 
@@ -2124,12 +2132,12 @@ class ImDistort:
         """Оценивает искажение между двумя изображениями."""
         return cls.from_opt_flow(OptFlow()(source, target))
 
-    def __call__(
+    def __call__(  # noqa: PLR0913 - параметры как у map_coordinates
         self,
         img: np.ndarray,
         *,
         mask_mode: bool = False,
-        order: int = 3,
+        order: _MAP_ORDER = 3,
         mode: _MAP_MODE = 'constant',
         cval: float = 0.0,
         prefilter: bool = True,
@@ -2142,7 +2150,7 @@ class ImDistort:
 
         if mask_mode:
             meshgrid = np.round(meshgrid)
-        coords = [meshgrid[..., 1], meshgrid[..., 0]]
+        coords = (meshgrid[..., 1], meshgrid[..., 0])
 
         if img.ndim == 2:  # noqa: PLR2004
             return scipy.ndimage.map_coordinates(
