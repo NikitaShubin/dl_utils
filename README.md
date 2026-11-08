@@ -9,17 +9,38 @@
 Подключите репозиторий как подмодуль основного проекта:
 
 ```bash
-git submodule add <URL репозитория> 3rdparty/dl_utils
+git submodule add git@github.com:NikitaShubin/dl_utils.git 3rdparty/dl_utils
 ```
 
-Добавьте корень `dl_utils` в `sys.path` или `PYTHONPATH`. В ноутбуке это
-делает первая ячейка [`Template.ipynb`](Template.ipynb "Перейти к файлу"):
+Добавьте корень `dl_utils` в `sys.path` или `PYTHONPATH`. В корне основного
+проекта это выглядит так:
 
 ```python
 import sys
 
 sys.path.append('3rdparty/dl_utils')
 ```
+
+Для ноутбука путь зависит от рабочей директории Jupyter: из папки
+`notebooks/` это `../3rdparty/dl_utils`, из корня проекта —
+`3rdparty/dl_utils`.
+
+Для скрипта надёжнее считать путь от файла, а не от текущей директории:
+
+```python
+# scripts/experiment.py
+from pathlib import Path
+import sys
+
+root = Path(__file__).resolve().parents[1]
+sys.path.append(str(root / '3rdparty' / 'dl_utils'))
+```
+
+[`Template.ipynb`](Template.ipynb "Перейти к файлу") делает это
+автоматически: ищет `3rdparty/dl_utils` вверх по дереву от текущей папки,
+поэтому работает и из корня проекта, и из вложенных папок. Он также
+выставляет переменные окружения для CUDA, ONNX и Keras. Скопируйте его в
+рабочий ноутбук или перенесите одну ячейку.
 
 Проверьте, что модуль импортируется:
 
@@ -30,8 +51,21 @@ with ViRead('data/video.mp4', colorspace='rgb') as frames:
     print(next(frames).shape)
 ```
 
-`Template.ipynb` также выставляет переменные окружения для CUDA, ONNX и
-Keras. Скопируйте его в рабочий ноутбук или перенесите одну ячейку.
+### 🐳 Готовое окружение
+
+Все зависимости уже собраны в Docker-образе с GPU, JupyterLab и OpenCode.
+Из корня `dl_utils` запустите:
+
+```bash
+docker/restart.sh
+```
+
+`restart.sh` пересобирает образ и открывает консоль от пользователя хоста.
+Войти под root можно через `docker/openroot.sh`, повторно открыть обычную
+консоль — через `docker/open.sh`. Корень основного проекта монтируется в
+`/workspace`, поэтому пути внутри контейнера совпадают с путями на хосте.
+
+Подробнее — в [docs/docker.md](docs/docker.md).
 
 ## 🧩 Основные модули
 
