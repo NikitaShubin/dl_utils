@@ -51,7 +51,7 @@ with ViRead('data/video.mp4', colorspace='rgb') as frames:
     print(next(frames).shape)
 ```
 
-### 🐳 Готовое окружение
+### 🐳 [Готовое окружение](docs/docker.md)
 
 Все зависимости уже собраны в Docker-образе с GPU, JupyterLab и OpenCode.
 Из корня `dl_utils` запустите:
@@ -64,8 +64,6 @@ docker/restart.sh
 Войти под root можно через `docker/openroot.sh`, повторно открыть обычную
 консоль — через `docker/open.sh`. Корень основного проекта монтируется в
 `/workspace`, поэтому пути внутри контейнера совпадают с путями на хосте.
-
-Подробнее — в [docs/docker.md](docs/docker.md).
 
 ## 🧩 Основные модули
 
@@ -259,7 +257,7 @@ draw_repo_dependency_graph()
 
 ---
 
-## 🐋 Docker окружение
+## 🐋 [Docker окружение](docs/docker.md)
 
 Проект включает [`Dockerfile`](docker/Dockerfile "Перейти к файлу") со всеми
 зависимостями.
@@ -296,11 +294,10 @@ draw_repo_dependency_graph()
   `*` — папка для подмодулей (например, `3rdparty`)
 - Контейнер монтирует корень главного проекта `main_project/` в `/workspace`
 - Пути в коде рассчитываются относительно расположения `dl_utils`
-- Подробности — в [docs/docker.md](docs/docker.md)
 
 ---
 
-## ✨ Предразметка (PreAnnotation)
+## ✨ [Предразметка (PreAnnotation)](docs/preannotation.md)
 
 Автоматизированная генерация масок и обрамляющих прямоугольников объектов.
 
@@ -314,8 +311,8 @@ draw_repo_dependency_graph()
 
 **Особенности использования:**
 
-- Поддержка GPU-ускорения.
-- Выгрузка результатов в CVAT через API.
+- Поддержка GPU-ускорения
+- Выгрузка результатов в CVAT через API
 
 **Компоненты Docker-контейнера:**
 
@@ -327,16 +324,17 @@ draw_repo_dependency_graph()
   **[`voila.sh`](PreAnnotation/voila.sh "Перейти к файлу")**:
   запуск, остановка, перезапуск и запуск Voila
 
-Подробнее — в [docs/preannotation.md](docs/preannotation.md).
-
 ## 📚 Документация
 
-- [docs/about.md](docs/about.md) — идеология репозитория и правила расширения.
-- [docs/development.md](docs/development.md) — стиль кода, проверки и
-  добавление модуля.
-- [docs/check.md](docs/check.md) — как устроены проверки.
-- [docs/docker.md](docs/docker.md) — Docker-окружение.
-- [docs/preannotation.md](docs/preannotation.md) — сценарии предразметки.
+- [Идеология репозитория](docs/about.md): устройство модулей и принципы
+  расширения
+- [Добавление модуля](docs/development.md): стиль кода, проверки и граф
+  зависимостей
+- [Проверки](docs/check.md): запуск и флаги `check.sh`, `check-py.sh` и
+  `check-infra.sh`
+- [Docker-окружение](docs/docker.md): запуск контейнера, вход и переменные
+  окружения
+- [Предразметка](docs/preannotation.md): сценарии Detection и Segmentation
 
 Страницы модулей перечислены выше; этот файл — единственная точка входа.
 

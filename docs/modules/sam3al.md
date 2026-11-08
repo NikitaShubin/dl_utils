@@ -1,7 +1,7 @@
 # sam3al.py — загрузка SAM 3.1
 
 Пока модуль отвечает только за скачивание весов SAM 3.1 с ModelScope.
-Инференс SAM3 живёт в [`PreAnnotation/SAM3.ipynb`](../../PreAnnotation/SAM3.ipynb)
+Инференс SAM3 живёт в ноутбуке [SAM3.ipynb](../../PreAnnotation/SAM3.ipynb)
 и использует Ultralytics; обёртка в этом модуле появится позже.
 
 **Зависимости:** `modelscope` (опционально), `clip`, `utils.py`.

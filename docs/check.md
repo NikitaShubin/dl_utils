@@ -54,12 +54,9 @@
 - `2` — неизвестный флаг или ошибка аргументов.
 
 Этапы идут последовательно: сначала Python, затем инфраструктура. Падение
-одного этапа не отменяет второй, но итоговый код будет `1`.
-
-## Подробнее
-
-- [check-py.sh](check-py.md) — ruff, mypy, pytest и покрытие.
-- [check-infra.sh](check-infra.md) — Docker, shell и Markdown.
+одного этапа не отменяет второй, но итоговый код будет `1`. Python-часть
+выполняет [check-py.sh](check-py.md) (ruff, mypy, pytest и покрытие),
+инфраструктурную — [check-infra.sh](check-infra.md) (Docker, shell и Markdown).
 
 ## Ограничения
 

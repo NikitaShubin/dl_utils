@@ -24,16 +24,16 @@ print(len(files), sum(sizes), timer())
 ## Разделы
 
 - [Изображения и видео](media.md) — чтение кадров, паддинг, превью, плёнка,
-  контрастный текст.
+  контрастный текст
 - [Файлы и архивы](files.md) — `mkdirs`, `rmpath`, `get_file_list`, `Zipper`,
-  распаковка.
-- [Параллельная обработка](parallel.md) — `mpmap`, матрицы, батчи, `invzip`.
-- [Сериализация](serialization.md) — YAML/JSON, `ManyToOne`.
+  распаковка
+- [Параллельная обработка](parallel.md) — `mpmap`, матрицы, батчи, `invzip`
+- [Сериализация](serialization.md) — YAML/JSON, `ManyToOne`
 - [Ноутбуки и тайминг](notebook.md) — `TimeIt`, `AnnotateIt`, `Beep`,
-  `DelayedInit`, `Retry`.
+  `DelayedInit`, `Retry`
 - [Диагностика и граф](diagnostics.md) — `ImportVisitor`,
-  `draw_repo_dependency_graph`, `draw_repo_dependency_graph_dot`, `obj_diff`.
-- [Разное](misc.md) — римские числа, индексы, случайные зёрна, `CircleInd`.
+  `draw_repo_dependency_graph`, `draw_repo_dependency_graph_dot`, `obj_diff`
+- [Разное](misc.md) — римские числа, индексы, случайные зёрна, `CircleInd`
 
 ## Как устроено
 

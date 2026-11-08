@@ -155,9 +155,8 @@ job; у задачи может быть несколько job, остальн�
 Если нужно добавить разметку к существующей задаче, а не заменить её,
 сложите старый и новый датафреймы через `concat_dfs(..., smart=True)` и
 отправьте XML через `task.set_annotations` — так поступает
-`Segmentation.ipynb`. Подробнее о серверных объектах — в
-[cvat_srv](cvat_srv/README.md); готовый сценарий с ноутбуком — в
-[PreAnnotation](../preannotation.md).
+`Segmentation.ipynb`. Серверные объекты описаны в [cvat_srv](cvat_srv/README.md),
+готовый сценарий — в [предразметке](../preannotation.md).
 
 ## Сохранить XML
 
