@@ -248,11 +248,11 @@ draw_repo_dependency_graph()
   для LLM из заданной папки с текстовыми файлами
 - **[check-py.sh](docs/check-py.md "Перейти к документации")**: проверка
   качества Python-кода любого проекта (pytest с покрытием, ruff format/check
-  и mypy); правила берутся из `dl_utils`
+  и mypy); по умолчанию правила берутся из `dl_utils`, `-p` — из проекта
 - **[check-infra.sh](docs/check-infra.md "Перейти к документации")**: линтинг
   инфраструктурных файлов любого проекта: docker-compose (dclint),
   `Dockerfile`/`*.Dockerfile` (hadolint), shell-скрипты (shellcheck),
-  Markdown (markdownlint)
+  Markdown (markdownlint); `-p` включает правила проекта
 - **[check.sh](docs/check.md "Перейти к документации")**: комбинированная
   проверка (check-py.sh + check-infra.sh); аргументы передаются обоим скриптам
 

@@ -69,6 +69,7 @@ class Settings:
     quiet: bool
     header: bool
     clean_cache: bool
+    project_config: bool = False
 
 
 class Targets:

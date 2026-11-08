@@ -39,9 +39,12 @@ from checker.report import GREEN, YELLOW, Reporter, tool_color
 # покровная проверка не давала ложный «зелёный» по пустому списку файлов:
 NO_FILES = 3
 
+# Код pytest «тесты не собраны»: для чекера это штатный пропуск, а не ошибка:
+PYTEST_NO_TESTS = 5
+
 USAGE = (
     'Использование: check-py.sh [-f|--fix] [-g|--git-only] '
-    '[-c|--clean-cache] [-q] [-H] [путь...]\n'
+    '[-c|--clean-cache] [-p|--project-config] [-q] [-H] [путь...]\n'
     '\n'
     'Позиционные аргументы - проверяемые файлы или папки (.py, .ipynb).\n'
     'Без путей: запуск из корня dl_utils проверяет белый список,\n'
@@ -53,6 +56,9 @@ USAGE = (
     '-c, --clean-cache  удалить кеши инструментов (mypy/ruff/pytest) в корнях целей\n'
     '                перед прогоном - на случай «фантомных» ошибок после смены\n'
     '                версий инструментов или окружения\n'
+    '-p, --project-config  проверять по нативным правилам проекта: ruff и mypy\n'
+    '                запускаются из текущей папки и сами находят конфиги;\n'
+    '                по умолчанию используются конфиги dl_utils\n'
     '-q, --quiet-no-files  в режиме тишины (для главного check.sh): при отсутствии\n'
     '                файлов подходящего типа ничего не печатать и выйти с кодом 3;\n'
     '                иначе вывести сообщение об отсутствии и выйти с кодом 0\n'
@@ -63,18 +69,20 @@ USAGE = (
 
 @dataclass(frozen=True)
 class Ctx:
-    """Общий контекст прогона: вывод, инструменты, конфиг линтеров."""
+    """Общий контекст прогона: вывод, инструменты, конфиг и рабочий каталог."""
 
     reporter: Reporter
     colors: dict[str, str]
     tools: dict[str, str | None]
     cfg: Path
+    cwd: Path
     fix: bool
+    project_config: bool
 
 
 def parse_flags(argv: list[str]) -> tuple[Settings, list[str]]:
     """Разбор флагов и целей, как в bash-версии; help/ошибка - SystemExit."""
-    fix = git_only = quiet = header = clean_cache = False
+    fix = git_only = quiet = header = clean_cache = project_config = False
     targets: list[str] = []
     for arg in argv:
         if arg in ('-f', '--fix'):
@@ -83,6 +91,8 @@ def parse_flags(argv: list[str]) -> tuple[Settings, list[str]]:
             git_only = True
         elif arg in ('-c', '--clean-cache'):
             clean_cache = True
+        elif arg in ('-p', '--project-config'):
+            project_config = True
         elif arg in ('-q', '--quiet-no-files'):
             quiet = True
         elif arg in ('-H', '--print-header'):
@@ -96,7 +106,10 @@ def parse_flags(argv: list[str]) -> tuple[Settings, list[str]]:
             raise SystemExit(2)
         else:
             targets.append(arg)
-    return Settings(fix, git_only, quiet, header, clean_cache), targets
+    return (
+        Settings(fix, git_only, quiet, header, clean_cache, project_config),
+        targets,
+    )
 
 
 def run_process(cmd: list[str], cwd: Path) -> subprocess.CompletedProcess[str]:
@@ -156,30 +169,44 @@ def check_one_file(
     suffix = coverage.suffix(root, rel) if annotate and coverage is not None else None
     ctx.reporter.file_line(display, suffix)
 
-    # Точка запуска инструментов - каталог используемого pyproject.toml (корень
-    # dl_utils). Так first-party в isort определяется единообразно (по структуре
-    # каталога конфига, а не корня цели): иначе при проверке из подкаталога
-    # modules корня цели не попадают в first-party и сортировка импортов "пляшет".
-    cfg = str(ctx.cfg)
-    tool_cwd = ctx.cfg.parent
+    # Точка запуска инструментов: в стандартном режиме - каталог конфига
+    # dl_utils (first-party в isort считается от структуры конфига), в
+    # проектном - каталог вызова чекера, как при отдельном запуске инструмента.
+    cfg = os.fspath(ctx.cfg)
+    tool_cwd = ctx.cwd
     cmd_rel = os.path.relpath(root / rel, tool_cwd)
     color = ctx.colors['ruff']
+
+    # Стандартный режим навязывает конфиг dl_utils и не даёт проекту ослабить
+    # проверку через .gitignore; проектный режим оставляет инструменту его
+    # нативное обнаружение конфигов и ignore-файлов.
+    ruff_config: list[str] = []
+    mypy_config: list[str] = []
+    if not ctx.project_config:
+        ruff_config = ['--config', cfg, '--no-respect-gitignore']
+        mypy_config = ['--config-file', cfg]
+
     if ctx.fix:
-        format_cmd = [_require(ctx, 'ruff'), 'format', '--config', cfg, color, cmd_rel]
+        format_cmd = [
+            _require(ctx, 'ruff'),
+            'format',
+            *ruff_config,
+            color,
+            cmd_rel,
+        ]
     else:
         format_cmd = [
             _require(ctx, 'ruff'),
             'format',
             '--check',
             '--diff',
-            '--config',
-            cfg,
+            *ruff_config,
             color,
             cmd_rel,
         ]
     run_linter(ctx, 'ruff format', display, format_cmd, tool_cwd)
 
-    check_args = ['check', '--config', cfg, color]
+    check_args = ['check', *ruff_config, color]
     if ctx.fix:
         check_args += ['--fix', '--unsafe-fixes']
     run_linter(
@@ -191,23 +218,29 @@ def check_one_file(
     )
 
     # Mypy: для .ipynb используется обёртка nbqa, т.к. mypy не понимает
-    # формат notebook нативно. Ноутбукам передаётся тот же конфиг, что и .py,
-    # а --ignore-missing-imports глушит импорты сторонних/внутренних модулей
-    # без stubs (utils, labels, torch, ...) - проверка кода ноутбука при этом
-    # остаётся. Не убирать флаги: без них ноутбуки сыплются на import-not-found
+    # формат notebook нативно. Ноутбукам передаётся конфиг dl_utils в
+    # стандартном режиме, а --ignore-missing-imports глушит импорты
+    # сторонних/внутренних модулей без stubs (utils, labels, torch, ...) -
+    # проверка кода ноутбука при этом остаётся. Не убирать флаги: без них
+    # ноутбуки сыплются на import-not-found. В стандартном режиме команда -
+    # обёртка с другим именем: [tool.nbqa] чужого проекта не подмешивает
+    # свои addopts к mypy; в проектном режиме nbqa работает нативно.
     if cmd_rel.endswith('.ipynb'):
-        mypy_cmd = [
-            _require(ctx, 'nbqa'),
-            'mypy',
-            cmd_rel,
-            f'--config-file={cfg}',
-            '--ignore-missing-imports',
-        ]
+        if ctx.project_config:
+            mypy_cmd = [_require(ctx, 'nbqa'), 'mypy', cmd_rel]
+        else:
+            mypy_cmd = [
+                _require(ctx, 'nbqa'),
+                'checker/mypy_standard.sh',
+                cmd_rel,
+                '--nbqa-shell',
+                f'--config-file={cfg}',
+            ]
+        mypy_cmd.append('--ignore-missing-imports')
     else:
         mypy_cmd = [
             _require(ctx, 'mypy'),
-            '--config-file',
-            cfg,
+            *mypy_config,
             ctx.colors['mypy'],
             cmd_rel,
         ]
@@ -243,6 +276,50 @@ def run_stage(
         )
 
 
+def _run_tests_for_root(
+    ctx: Ctx,
+    root: Path,
+    test_files: list[str],
+    *,
+    coverage_enabled: bool,
+) -> Coverage:
+    """Pytest для одного корня: вывод, метрики покрытия и временный JSON."""
+    # В проектном режиме pytest запускается из каталога вызова, как при
+    # отдельном запуске; в стандартном - из корня цели, чтобы тесты проекта
+    # видели его конфигурацию независимо от места вызова.
+    run_cwd = ctx.cwd if ctx.project_config else root
+    json_path = (root / COVERAGE_JSON).resolve()
+    cmd = [_require(ctx, 'pytest'), '-q', '--tb=short', ctx.colors['pytest']]
+    if coverage_enabled:
+        cmd += cov_args(json_path)
+    cmd += [os.path.relpath(root / rel, run_cwd) for rel in test_files]
+    # Вывод pytest захватывается и печатается только при неудаче, чтобы
+    # в норме не было шума из имён тестов:
+    result = run_process(cmd, run_cwd)
+    if result.returncode == 0:
+        ctx.reporter.success(f'Тесты прошли: {root}')
+    elif result.returncode == PYTEST_NO_TESTS:
+        ctx.reporter.info(f'pytest: тесты не собраны - пропуск: {root}')
+    else:
+        if result.stdout:
+            sys.stdout.write(
+                result.stdout + ('\n' if not result.stdout.endswith('\n') else ''),
+            )
+        ctx.reporter.mark_failure(f'pytest: {root}')
+
+    root_coverage = Coverage()
+    if coverage_enabled and json_path.exists():
+        if result.returncode != PYTEST_NO_TESTS:
+            with suppress(OSError, json.JSONDecodeError):
+                root_coverage = read_coverage(root, json_path)
+            if result.returncode == 0:
+                root_line = root_coverage.totals_line()
+                if root_line:
+                    ctx.reporter.info(f'Покрытие тестами: {root_line}')
+        json_path.unlink(missing_ok=True)
+    return root_coverage
+
+
 def run_tests(ctx: Ctx, targets: Targets) -> Coverage:
     """Прогон pytest в каждой цели с замером покрытия и сбором метрик."""
     coverage_data = Coverage()
@@ -251,38 +328,41 @@ def run_tests(ctx: Ctx, targets: Targets) -> Coverage:
         return coverage_data
     ctx.reporter.separator('Запуск тестов', YELLOW)
     enabled = coverage_available()
-    pytest = _require(ctx, 'pytest')
     for root in targets.target_dirs:
         test_files = targets.test_of.get(root, [])
         if not test_files:
             continue
-        json_path = root / COVERAGE_JSON
-        cmd = [pytest, '-q', '--tb=short', ctx.colors['pytest']]
-        if enabled:
-            cmd += cov_args(json_path)
-        cmd += test_files
-        # Вывод pytest захватывается и печатается только при неудаче, чтобы
-        # в норме не было шума из имён тестов:
-        result = run_process(cmd, root)
-        if result.returncode == 0:
-            ctx.reporter.success(f'Тесты прошли: {root}')
-        else:
-            if result.stdout:
-                sys.stdout.write(
-                    result.stdout + ('\n' if not result.stdout.endswith('\n') else ''),
-                )
-            ctx.reporter.mark_failure(f'pytest: {root}')
-        if enabled and json_path.exists():
-            root_coverage = Coverage()
-            with suppress(OSError, json.JSONDecodeError):
-                root_coverage = read_coverage(root, json_path)
-            coverage_data.merge(root_coverage)
-            json_path.unlink(missing_ok=True)
-            if result.returncode == 0:
-                root_line = root_coverage.totals_line()
-                if root_line:
-                    ctx.reporter.info(f'Покрытие тестами: {root_line}')
+        coverage_data.merge(
+            _run_tests_for_root(
+                ctx,
+                root,
+                test_files,
+                coverage_enabled=enabled,
+            ),
+        )
     return coverage_data
+
+
+def _strip_own_pythonpath() -> None:
+    """Убрать корень dl_utils из PYTHONPATH дочерних инструментов."""
+    raw = os.environ.get('PYTHONPATH')
+    if not raw:
+        return
+    own = dl_root().resolve()
+    kept: list[str] = []
+    for item in raw.split(os.pathsep):
+        if not item:
+            continue
+        try:
+            same = Path(item).resolve() == own
+        except OSError:
+            same = False
+        if not same:
+            kept.append(item)
+    if kept:
+        os.environ['PYTHONPATH'] = os.pathsep.join(kept)
+    else:
+        os.environ.pop('PYTHONPATH', None)
 
 
 def _tool_version(bin_path: str | None) -> str:
@@ -318,6 +398,10 @@ def print_header(ctx: Ctx, mode: str, display_targets: list[str]) -> None:
         versions.append('pytest-cov: нет (покрытие не считается)')
     reporter.step('Инструменты: ' + ', '.join(versions))
 
+    if ctx.project_config:
+        reporter.step('Конфиги: проекта (нативное обнаружение)')
+    else:
+        reporter.step('Конфиги: dl_utils')
     if ctx.fix:
         reporter.step('Режим правки (-f): автофиксы разрешены')
     else:
@@ -389,13 +473,24 @@ def _final_verdict(ctx: Ctx) -> int:
 
 def main(argv: list[str]) -> int:
     """Основной поток py-конвейера; возвращает код возврата."""
+    _strip_own_pythonpath()
     settings, targets = parse_flags(argv)
     reporter = Reporter()
     colors = {name: tool_color(name) for name in ('ruff', 'mypy', 'pytest')}
     tools = {
         name: shutil.which(name) for name in ('ruff', 'mypy', 'nbqa', 'pytest', 'git')
     }
-    ctx = Ctx(reporter, colors, tools, dl_root() / 'pyproject.toml', settings.fix)
+    cfg = dl_root() / 'pyproject.toml'
+    tool_cwd = Path.cwd() if settings.project_config else cfg.parent
+    ctx = Ctx(
+        reporter,
+        colors,
+        tools,
+        cfg,
+        tool_cwd,
+        settings.fix,
+        settings.project_config,
+    )
     mode = detect_mode(targets, dl_root())
     if mode == TARGETS_MODE and not targets:
         targets = [str(Path.cwd())]

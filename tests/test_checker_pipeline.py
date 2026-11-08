@@ -11,10 +11,11 @@ from typing import TYPE_CHECKING
 import pytest
 
 from checker import coverage as covmod
-from checker.common import LEGACY, ROOT_FILES, Targets
+from checker.common import LEGACY, ROOT_FILES, Targets, dl_root
 from checker.pycheck import (
     NO_FILES,
     Ctx,
+    _strip_own_pythonpath,
     check_one_file,
     main,
     print_header,
@@ -43,31 +44,42 @@ def _make_bins(tmp_path: Path, proj: Path, *, with_json: bool = True) -> Path:
     _script(
         bins,
         'ruff',
-        """#!/usr/bin/env bash
+        f"""#!/usr/bin/env bash
 set -u
-[[ "${1:-}" == --version ]] && { echo "ruff fake 1.0"; exit 0; }
-last="${@: -1}"
-[[ -f "$last" ]] && grep -qs FAIL "$last" && { echo "ruf fail: $last"; exit 1; }
+[[ "${{1:-}}" == --version ]] && {{ echo "ruff fake 1.0"; exit 0; }}
+{{
+  printf 'CWD\\t%s\\n' "$PWD"
+  for a in "$@"; do printf 'ARG\\t%s\\n' "$a"; done
+}} >> {proj}/ruff_args.log
+last="${{@: -1}}"
+[[ -f "$last" ]] && grep -qs FAIL "$last" && {{ echo "ruf fail: $last"; exit 1; }}
 exit 0
 """,
     )
     _script(
         bins,
         'mypy',
-        """#!/usr/bin/env bash
+        f"""#!/usr/bin/env bash
 set -u
-[[ "${1:-}" == --version ]] && { echo "mypy fake 1.0"; exit 0; }
-last="${@: -1}"
-[[ -f "$last" ]] && grep -qs FAIL "$last" && { echo "mypy fail: $last"; exit 1; }
+[[ "${{1:-}}" == --version ]] && {{ echo "mypy fake 1.0"; exit 0; }}
+{{
+  printf 'CWD\\t%s\\n' "$PWD"
+  for a in "$@"; do printf 'ARG\\t%s\\n' "$a"; done
+}} >> {proj}/mypy_args.log
+last="${{@: -1}}"
+[[ -f "$last" ]] && grep -qs FAIL "$last" && {{ echo "mypy fail: $last"; exit 1; }}
 exit 0
 """,
     )
     _script(
         bins,
         'nbqa',
-        '#!/usr/bin/env bash\nshift\n'
-        f'printf "%s\\n" "$@" >> {proj}/nbqa_args.log\n'
-        f'exec {bins}/mypy "$@"\n',
+        f"""#!/usr/bin/env bash
+printf 'CMD\\t%s\\n' "$1" >> {proj}/nbqa_args.log
+shift
+printf '%s\\n' "$@" >> {proj}/nbqa_args.log
+exec {bins}/mypy "$@"
+""",
     )
     if with_json:
         doc = json.dumps(
@@ -94,6 +106,7 @@ exit 0
             'pytest',
             f"""#!/usr/bin/env bash
 set -u
+printf 'CWD\\t%s\\n' "$PWD" >> {proj}/pytest_cwd.log
 out=""
 fail=""
 for a in "$@"; do
@@ -108,16 +121,23 @@ echo "pytest-output"
 """,
         )
     else:
-        _script(bins, 'pytest', '#!/usr/bin/env bash\necho "pytest-output"\nexit 0\n')
+        _script(
+            bins,
+            'pytest',
+            f'#!/usr/bin/env bash\nprintf \'CWD\\t%s\\n\' "$PWD" '
+            f'>> {proj}/pytest_cwd.log\necho "pytest-output"\nexit 0\n',
+        )
     return bins
 
 
-def _ctx(
+def _ctx(  # noqa: PLR0913 - тестовый конструктор контекста
     bins: Path,
     cfg: Path,
     *,
     fix: bool = False,
     tools: dict[str, str | None] | None = None,
+    cwd: Path | None = None,
+    project_config: bool = False,
 ) -> Ctx:
     """Контекст конвейера на наборе фейковых инструментов."""
     present: dict[str, str | None] = {
@@ -126,7 +146,15 @@ def _ctx(
     if tools:
         present.update(tools)
     colors = {name: tool_color(name) for name in ('ruff', 'mypy', 'pytest')}
-    return Ctx(Reporter(), colors, present, cfg, fix)
+    return Ctx(
+        Reporter(),
+        colors,
+        present,
+        cfg,
+        cwd if cwd is not None else cfg.parent,
+        fix,
+        project_config,
+    )
 
 
 def _make_proj(tmp_path: Path, *, failing: bool = False) -> Path:
@@ -178,6 +206,28 @@ def _git(repo: Path) -> None:
 def _patch_path(monkeypatch: pytest.MonkeyPatch, bins: Path) -> None:
     """Префикс PATH каталогом фейковых инструментов."""
     monkeypatch.setenv('PATH', f'{bins}{os.pathsep}{os.environ.get("PATH", "")}')
+
+
+def _read_log(path: Path) -> tuple[str, list[str]]:
+    """Последний cwd и все аргументы из журнала фейкового инструмента."""
+    cwd = ''
+    args: list[str] = []
+    for line in path.read_text(encoding='utf-8').splitlines():
+        key, _, value = line.partition('\t')
+        if key == 'CWD':
+            cwd = value
+        elif key == 'ARG':
+            args.append(value)
+    return cwd, args
+
+
+def _logged_cwds(path: Path) -> list[str]:
+    """Все cwd запусков из журнала фейкового инструмента."""
+    return [
+        line.partition('\t')[2]
+        for line in path.read_text(encoding='utf-8').splitlines()
+        if line.startswith('CWD\t')
+    ]
 
 
 def test_run_process_captures_output(tmp_path: Path) -> None:
@@ -396,6 +446,59 @@ def test_run_tests_missing_json(
     assert cov.totals_line() is None
 
 
+def test_run_tests_exit_5_is_skip(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Код pytest 5 - штатный пропуск, а не провал, JSON удаляется."""
+    proj = _make_proj(tmp_path)
+    bins = _make_bins(tmp_path, proj)
+    json_name = covmod.COVERAGE_JSON
+    _script(
+        bins,
+        'pytest',
+        f"""#!/usr/bin/env bash
+printf '{{}}' > "{proj}/{json_name}"
+exit 5
+""",
+    )
+    targets = Targets()
+    targets.add_root(proj)
+    targets.add_file(proj, 'tests/test_mod.py', 'test')
+    ctx = _ctx(bins, proj / 'pyproject.toml')
+    cov = run_tests(ctx, targets)
+    assert ctx.reporter.failures == []
+    assert 'тесты не собраны - пропуск' in capsys.readouterr().out
+    assert not (proj / json_name).exists()
+    assert cov.totals_line() is None
+
+
+def test_run_tests_cwd_by_mode(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Стандартный pytest идёт из корня цели, проектный - из каталога вызова."""
+    proj = _make_proj(tmp_path)
+    nested = proj / 'nested'
+    nested.mkdir()
+    bins = _make_bins(tmp_path, proj)
+    targets = Targets()
+    targets.add_root(proj)
+    targets.add_file(proj, 'tests/test_mod.py', 'test')
+    run_tests(_ctx(bins, proj / 'pyproject.toml'), targets)
+    run_tests(
+        _ctx(
+            bins,
+            proj / 'pyproject.toml',
+            cwd=nested,
+            project_config=True,
+        ),
+        targets,
+    )
+    assert _logged_cwds(proj / 'pytest_cwd.log') == [str(proj), str(nested)]
+    assert 'Тесты прошли' in capsys.readouterr().out
+
+
 def test_print_header_versions_modes(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
@@ -488,6 +591,23 @@ def test_main_header_flag(
     _patch_path(monkeypatch, bins)
     assert main(['-H', str(proj)]) == 0
     assert 'Инструменты' in capsys.readouterr().out
+
+
+def test_main_project_config_header(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Флаг -p включает проектные конфиги и сообщает об этом в шапке."""
+    proj = _make_proj(tmp_path)
+    bins = _make_bins(tmp_path, proj)
+    _patch_path(monkeypatch, bins)
+    monkeypatch.chdir(proj)
+    assert main(['-p', '-H', '-q']) == 0
+    out = capsys.readouterr().out
+    assert 'Конфиги: проекта' in out
+    _, ruff_args = _read_log(proj / 'ruff_args.log')
+    assert '--config' not in ruff_args
 
 
 def test_main_clean_cache(
@@ -617,19 +737,95 @@ def test_run_linter_failure_silent(tmp_path: Path) -> None:
     assert ctx.reporter.failures == ['ruff check: mod.py']
 
 
-def test_check_one_file_ipynb_uses_nbqa(tmp_path: Path) -> None:
-    """Для .ipynb mypy запускается через обёртку nbqa с конфигом и этим флагом."""
+def test_check_one_file_ipynb_standard_mode_wraps_nbqa(tmp_path: Path) -> None:
+    """В стандартном режиме nbqa запускает обёртку, а не mypy проекта."""
     proj = _make_proj(tmp_path)
     (proj / 'src' / 'mod.ipynb').write_text('{"cells": []}', encoding='utf-8')
     bins = _make_bins(tmp_path, proj)
-    ctx = _ctx(bins, proj / 'pyproject.toml')
+    cfg = dl_root() / 'pyproject.toml'
+    ctx = _ctx(bins, cfg)
     check_one_file(ctx, proj, 'src/mod.ipynb', None, annotate=False)
     assert ctx.reporter.failures == []
-    args = (proj / 'nbqa_args.log').read_text(encoding='utf-8').splitlines()
-    assert 'src/mod.ipynb' in args
-    cfg = str(proj / 'pyproject.toml')
-    assert f'--config-file={cfg}' in args
-    assert '--ignore-missing-imports' in args
+    lines = (proj / 'nbqa_args.log').read_text(encoding='utf-8').splitlines()
+    assert 'CMD\tchecker/mypy_standard.sh' in lines
+    assert '--nbqa-shell' in lines
+    assert f'--config-file={cfg}' in lines
+    assert '--ignore-missing-imports' in lines
+
+
+def test_nbqa_wrapper_is_executable() -> None:
+    """Обёртка nbqa существует и исполняема: иначе nbqa не найдёт команду."""
+    wrapper = dl_root() / 'checker' / 'mypy_standard.sh'
+    assert wrapper.is_file()
+    assert os.access(wrapper, os.X_OK)
+
+
+def test_check_one_file_standard_mode_imposes_dl_config(tmp_path: Path) -> None:
+    """Стандартный режим передаёт конфиг и не даёт gitignore ослабить линт."""
+    proj = _make_proj(tmp_path)
+    bins = _make_bins(tmp_path, proj)
+    cfg = dl_root() / 'pyproject.toml'
+    ctx = _ctx(bins, cfg)
+    check_one_file(ctx, proj, 'src/mod.py', None, annotate=False)
+    assert ctx.reporter.failures == []
+    cwd, ruff_args = _read_log(proj / 'ruff_args.log')
+    assert cwd == str(dl_root())
+    assert '--config' in ruff_args
+    assert str(cfg) in ruff_args
+    assert '--no-respect-gitignore' in ruff_args
+    _, mypy_args = _read_log(proj / 'mypy_args.log')
+    assert '--config-file' in mypy_args
+    assert str(cfg) in mypy_args
+
+
+def test_check_one_file_project_mode_uses_native_rules(tmp_path: Path) -> None:
+    """Проектный режим не навязывает конфиги и работает из каталога вызова."""
+    proj = _make_proj(tmp_path)
+    nested = proj / 'nested'
+    nested.mkdir()
+    bins = _make_bins(tmp_path, proj)
+    ctx = _ctx(
+        bins,
+        proj / 'pyproject.toml',
+        cwd=nested,
+        project_config=True,
+    )
+    check_one_file(ctx, proj, 'src/mod.py', None, annotate=False)
+    assert ctx.reporter.failures == []
+    cwd, ruff_args = _read_log(proj / 'ruff_args.log')
+    assert cwd == str(nested)
+    assert '--config' not in ruff_args
+    assert '--no-respect-gitignore' not in ruff_args
+    assert '../src/mod.py' in ruff_args
+    _, mypy_args = _read_log(proj / 'mypy_args.log')
+    assert '--config-file' not in mypy_args
+    assert '../src/mod.py' in mypy_args
+
+
+def test_check_one_file_ipynb_project_mode_without_config(tmp_path: Path) -> None:
+    """В проектном режиме nbqa запускает mypy нативно, без обёртки и конфига."""
+    proj = _make_proj(tmp_path)
+    (proj / 'src' / 'mod.ipynb').write_text('{"cells": []}', encoding='utf-8')
+    bins = _make_bins(tmp_path, proj)
+    ctx = _ctx(bins, proj / 'pyproject.toml', project_config=True)
+    check_one_file(ctx, proj, 'src/mod.ipynb', None, annotate=False)
+    assert ctx.reporter.failures == []
+    lines = (proj / 'nbqa_args.log').read_text(encoding='utf-8').splitlines()
+    assert 'CMD\tmypy' in lines
+    assert '--nbqa-shell' not in lines
+    assert not any(arg.startswith('--config-file=') for arg in lines)
+    assert '--ignore-missing-imports' in lines
+
+
+def test_strip_own_pythonpath(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Корень dl_utils убирается из PYTHONPATH, остальные пути остаются."""
+    own = str(dl_root())
+    monkeypatch.setenv('PYTHONPATH', os.pathsep.join([own, '/keep']))
+    _strip_own_pythonpath()
+    assert os.environ['PYTHONPATH'] == '/keep'
+    monkeypatch.setenv('PYTHONPATH', own)
+    _strip_own_pythonpath()
+    assert 'PYTHONPATH' not in os.environ
 
 
 def test_run_tests_skips_root_without_tests(

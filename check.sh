@@ -2,7 +2,7 @@
 
 set -e
 
-# Абсолютный путь к директории скрипта; подскрипты всегда берут конфиги
+# Абсолютный путь к директории скрипта; подскрипты берут стандартные конфиги
 # отсюда, чтобы проверка работала одинаково из любой точки файловой системы:
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 
@@ -11,7 +11,7 @@ source "$SCRIPT_DIR/utils.sh"
 
 usage() {
     cat <<EOF
-Использование: $(basename "$0") [-f|--fix] [-g|--git-only] [-c|--clean-cache] [путь...]
+Использование: $(basename "$0") [-f|--fix] [-g|--git-only] [-c|--clean-cache] [-p|--project-config] [путь...]
 
 Комбинированная проверка: сначала check-py.sh (Python), затем
 check-infra.sh (Docker/shell/Markdown). Аргументы передаются обоим
@@ -35,6 +35,9 @@ Dockerfile/*.Dockerfile/compose/*.sh/*.md -> check-infra.sh).
 -g, --git-only  проверять только файлы, закоммиченные в git (удобно для CI)
 -c, --clean-cache  удалить кеши инструментов (mypy/ruff/pytest) в корнях целей
                 перед прогоном py-чекера; infra-проверки флаг игнорируют
+-p, --project-config  проверять по нативным правилам проекта: ruff, mypy и
+                infra-линтеры запускаются из текущей папки и сами находят
+                конфиги; по умолчанию используются конфиги dl_utils
 EOF
 }
 
@@ -42,12 +45,14 @@ EOF
 FIX=0
 GIT_ONLY=0
 CLEAN_CACHE=0
+PROJECT_CONFIG=0
 TARGETS=()
 for arg in "$@"; do
     case $arg in
         -f | --fix) FIX=1 ;;
         -g | --git-only) GIT_ONLY=1 ;;
         -c | --clean-cache) CLEAN_CACHE=1 ;;
+        -p | --project-config) PROJECT_CONFIG=1 ;;
         -h | --help) usage; exit 0 ;;
         -*)
             echo "Неизвестный флаг: $arg" >&2
@@ -68,6 +73,7 @@ SCRIPT_ARGS=()
 [ "$FIX" -eq 1 ] && SCRIPT_ARGS+=("-f")
 [ "$GIT_ONLY" -eq 1 ] && SCRIPT_ARGS+=("-g")
 [ "$CLEAN_CACHE" -eq 1 ] && SCRIPT_ARGS+=("-c")
+[ "$PROJECT_CONFIG" -eq 1 ] && SCRIPT_ARGS+=("-p")
 SCRIPT_ARGS+=("-q")
 SCRIPT_ARGS+=("-H")
 SCRIPT_ARGS+=("${TARGETS[@]}")

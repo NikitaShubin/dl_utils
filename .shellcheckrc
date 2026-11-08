@@ -1,3 +1,4 @@
 # Базовые настройки для shellcheck
+# При изменении обновите аргументы ShellCheck в check-infra.sh;
+# эквивалентность проверяется тестами, см. docs/check-infra.md
 shell=bash
-severity=style

@@ -2,9 +2,13 @@
 
 set -e
 
-# Абсолютный путь к директории скрипта: конфиги линтеров всегда берутся отсюда,
-# чтобы проверка работала одинаково из любой точки файловой системы:
+# Абсолютный путь к директории скрипта: стандартные конфиги линтеров берутся
+# отсюда, чтобы проверка работала одинаково из любой точки файловой системы:
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+
+# Каталог вызова: в проектном режиме инструменты работают ровно так, как если
+# бы их запустили отсюда вручную:
+CALL_PWD="$PWD"
 
 # shellcheck disable=SC1091
 source "$SCRIPT_DIR/utils.sh"
@@ -17,7 +21,7 @@ NO_FILES=3
 
 usage() {
     cat <<EOF
-Использование: $(basename "$0") [-f|--fix] [-g|--git-only] [-c|--clean-cache] [-q] [-H] [путь...]
+Использование: $(basename "$0") [-f|--fix] [-g|--git-only] [-c|--clean-cache] [-p|--project-config] [-q] [-H] [путь...]
 
 Позиционные аргументы - проверяемые файлы или папки
 (Dockerfile, *.Dockerfile, docker-compose, shell, markdown).
@@ -28,6 +32,9 @@ usage() {
 -g, --git-only  проверять только файлы, закоммиченные в git (удобно для CI)
 -c, --clean-cache  не влияет на infra-проверки; принимается для совместимости
                 с комбинированным check.sh (очистка кешей - в py-чеке)
+-p, --project-config  проверять по нативным правилам проекта: инструменты
+                запускаются из текущей папки и сами находят конфиги и
+                ignore-файлы; по умолчанию используются конфиги dl_utils
 -q, --quiet-no-files  в режиме тишины (для главного check.sh): при отсутствии
                 файлов подходящего типа ничего не печатать и выйти с кодом 3;
                 иначе вывести сообщение об отсутствии и выйти с кодом 0
@@ -41,12 +48,14 @@ FIX=0
 GIT_ONLY=0
 QUIET=0
 PRINT_HEADER=0
+PROJECT_CONFIG=0
 TARGETS=()
 for arg in "$@"; do
     case $arg in
         -f | --fix) FIX=1 ;;
         -g | --git-only) GIT_ONLY=1 ;;
         -c | --clean-cache) ;;  # no-op: кеши очищает только py-чекер
+        -p | --project-config) PROJECT_CONFIG=1 ;;
         -q | --quiet-no-files) QUIET=1 ;;
         -H | --print-header) PRINT_HEADER=1 ;;
         -h | --help) usage; exit 0 ;;
@@ -178,8 +187,9 @@ gather() {
     return 0
 }
 
-# Прогон одной категории: каждый файл проверяется из своей директории,
-# неудача не останавливает остальные; счётчик проблемных файлов общий:
+# Прогон одной категории: в стандартном режиме каждый файл проверяется из
+# своей директории, в проектном - из каталога вызова; неудача не останавливает
+# остальные, счётчик проблемных файлов общий:
 run_check() {
     local desc=$1 arr=$2 cfg=$3
     shift 3
@@ -203,12 +213,24 @@ run_check() {
         echo
     fi
 
-    local count=0 file
+    local count=0 file run_dir file_arg display
     for file in "${files[@]}"; do
         count=$((count + 1))
-        echo -e "${CYAN}▸ ${MAGENTA}${file#"$PWD"/}${NC}"
+        if [ "$PROJECT_CONFIG" -eq 1 ]; then
+            # Проектный режим: инструмент видит тот же cwd и путь, что и при
+            # ручном запуске из каталога вызова.
+            run_dir="$CALL_PWD"
+            file_arg="$(realpath --relative-to="$CALL_PWD" "$file")"
+            display="$file_arg"
+        else
+            # Стандартный режим: каждый файл проверяется из своей директории.
+            run_dir="$(dirname "$file")"
+            file_arg="$(basename "$file")"
+            display="${file#"$CALL_PWD"/}"
+        fi
+        echo -e "${CYAN}▸ ${MAGENTA}${display}${NC}"
 
-        if (cd "$(dirname "$file")" && "${cmd[@]}" "$(basename "$file")"); then
+        if (cd "$run_dir" && "${cmd[@]}" "$file_arg"); then
             :
         else
             print_error "Ошибка проверки: $file"
@@ -240,6 +262,18 @@ if [ "$FIX" -eq 1 ]; then
     MDLINT_EXTRA+=(--fix)
 fi
 
+# Стандартный режим повторяет настройки .shellcheckrc явными аргументами:
+# --rcfile не отключает .editorconfig проекта, а --norc отключает и его, и
+# .shellcheckrc. Аргументы должны совпадать с .shellcheckrc - эквивалентность
+# проверяется тестами; при изменении конфига обновите и этот блок:
+SHELLCHECK_EXTRA=()
+if [ "$PROJECT_CONFIG" -eq 0 ]; then
+    SHELLCHECK_EXTRA=(--norc --shell=bash)
+    # SHELLCHECK_OPTS подмешивается раньше явных флагов и может ослабить
+    # стандартную проверку; в проектном режиме окружение остаётся нативным:
+    unset SHELLCHECK_OPTS
+fi
+
 # Сбор файлов по категориям:
 gather FILES_COMPOSE is_compose 'docker-compose*.yml' 'docker-compose*.yaml' 'compose*.yml' 'compose*.yaml'
 gather FILES_DOCKER is_dockerfile 'Dockerfile' '*.Dockerfile'
@@ -263,6 +297,11 @@ fi
 if [ "$PRINT_HEADER" -eq 1 ]; then
     print_box "▶ check-infra.sh"
     print_step "Целевые пути: ${ABS_TARGETS[*]}"
+    if [ "$PROJECT_CONFIG" -eq 1 ]; then
+        print_info "Конфиги: проекта (нативное обнаружение)"
+    else
+        print_info "Конфиги: dl_utils"
+    fi
     if [ "$FIX" -eq 1 ]; then
         print_info "Режим правки (-f): автофиксы разрешены"
     else
@@ -271,22 +310,42 @@ if [ "$PRINT_HEADER" -eq 1 ]; then
     echo
 fi
 
+# Команды и отображаемые конфиги: в стандартном режиме - явные файлы dl_utils
+# без ignore-файлов проекта; в проектном - голые инструменты, которые сами
+# находят конфиги от каталога вызова:
+DCLINT_CFG=''
+HADOLINT_CFG=''
+MDLINT_CFG=''
+DCLINT_CMD=(dclint "${DCLINT_EXTRA[@]}")
+HADOLINT_CMD=(hadolint)
+SHELLCHECK_CMD=(shellcheck)
+MDLINT_CMD=(markdownlint "${MDLINT_EXTRA[@]}")
+if [ "$PROJECT_CONFIG" -eq 0 ]; then
+    DCLINT_CFG="$SCRIPT_DIR/.dclintrc"
+    HADOLINT_CFG="$SCRIPT_DIR/.hadolint.yaml"
+    MDLINT_CFG="$SCRIPT_DIR/.markdownlint.yaml"
+    DCLINT_CMD=(dclint -c "$DCLINT_CFG" "${DCLINT_EXTRA[@]}")
+    HADOLINT_CMD=(hadolint --config "$HADOLINT_CFG")
+    SHELLCHECK_CMD=(shellcheck "${SHELLCHECK_EXTRA[@]}")
+    # --ignore-path /dev/null отключает .markdownlintignore проверяемого
+    # проекта, чтобы он не мог ослабить стандартную проверку:
+    MDLINT_CMD=(
+        markdownlint --config "$MDLINT_CFG" --ignore-path /dev/null
+        "${MDLINT_EXTRA[@]}"
+    )
+fi
+
 # Проверка docker-compose файлов:
-cfg="$SCRIPT_DIR/.dclintrc"
-run_check "🐙 docker-compose файлы" FILES_COMPOSE "$cfg" dclint -c "$cfg" "${DCLINT_EXTRA[@]}"
+run_check "🐙 docker-compose файлы" FILES_COMPOSE "$DCLINT_CFG" "${DCLINT_CMD[@]}"
 
 # Проверка Dockerfile:
-cfg="$SCRIPT_DIR/.hadolint.yaml"
-run_check "🐋 Dockerfile" FILES_DOCKER "$cfg" hadolint --config "$cfg"
+run_check "🐋 Dockerfile" FILES_DOCKER "$HADOLINT_CFG" "${HADOLINT_CMD[@]}"
 
-# Проверка shell-скриптов; check-infra не задаёт конфиг shellcheck: он сам
-# ищет .shellcheckrc вверх по дереву от файла, поэтому вне дерева dl_utils
-# могут применяться правила самого проекта:
-run_check "🐚 shell-скрипты" FILES_SH '' shellcheck
+# Проверка shell-скриптов:
+run_check "🐚 shell-скрипты" FILES_SH '' "${SHELLCHECK_CMD[@]}"
 
 # Проверка Markdown файлов:
-cfg="$SCRIPT_DIR/.markdownlint.yaml"
-run_check "📖 Markdown файлы" FILES_MD "$cfg" markdownlint --config "$cfg" "${MDLINT_EXTRA[@]}"
+run_check "📖 Markdown файлы" FILES_MD "$MDLINT_CFG" "${MDLINT_CMD[@]}"
 
 # Финальный вердикт: скрипт успешен только при отсутствии ошибок:
 print_separator "ВСЕ ПРОВЕРКИ ЗАВЕРШЕНЫ"

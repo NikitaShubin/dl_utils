@@ -53,6 +53,15 @@ def test_parse_flags_clean_cache() -> None:
     assert targets == []
 
 
+def test_parse_flags_project_config() -> None:
+    """Короткий и длинный флаги проектных конфигов разбираются на месте."""
+    for flag in ('-p', '--project-config'):
+        settings, targets = parse_flags([flag])
+        assert settings.project_config
+        assert not settings.fix
+        assert targets == []
+
+
 def test_parse_flags_unknown_flag(capsys: pytest.CaptureFixture[str]) -> None:
     """Неизвестный флаг - сообщение в stderr и код 2."""
     with pytest.raises(SystemExit) as exc_info:
@@ -309,14 +318,20 @@ def test_iter_py_targets_prunes_and_filters(tmp_path: Path) -> None:
     assert found == {'a.py', 'sub/b.ipynb'}
 
 
-def _settings(*, quiet: bool = False, git_only: bool = False) -> Settings:
-    """Настройки: флаги тишины и git-only по умолчанию выключены."""
+def _settings(
+    *,
+    quiet: bool = False,
+    git_only: bool = False,
+    project_config: bool = False,
+) -> Settings:
+    """Настройки: флаги тишины, git-only и проектных конфигов выключены."""
     return Settings(
         fix=False,
         git_only=git_only,
         quiet=quiet,
         header=False,
         clean_cache=False,
+        project_config=project_config,
     )
 
 

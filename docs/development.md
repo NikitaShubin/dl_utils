@@ -113,6 +113,9 @@ dot -Tsvg dependency_graph.dot -o dependency_graph.svg
 
 ## Ограничения
 
+- Чекер не фиксирует версии инструментов: `ruff`, `mypy`, `pytest` и линтеры
+  берутся из окружения. Для воспроизводимости запускайте проверки в
+  Docker-образе; свежие версии — в актуальном образе.
 - Полные проверки требуют `ruff`, `mypy`, `pytest`, `dclint`, `hadolint`,
   `shellcheck`, `markdownlint`. В минимальном окружении используйте
   Docker-образ.
