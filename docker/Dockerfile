@@ -46,8 +46,19 @@ ARG APPLICATIONS="                                    \
     # Пакеты для работы manim:                        \
     python3-dev libcairo2-dev libpango1.0-dev         \
                                                       \
-    # LaTeX-компилятор:                               \
-    texlive-full                                      \
+    # LaTeX: базовые пакеты и утилиты:                \
+    texlive-latex-base texlive-latex-recommended      \
+    texlive-latex-extra texlive-plain-generic         \
+                                                      \
+    # LaTeX: шрифты и кириллица:                      \
+    texlive-fonts-recommended texlive-fonts-extra     \
+    texlive-lang-cyrillic cm-super                    \
+    fonts-cmu fontconfig                              \
+                                                      \
+    # LaTeX: движки, библиография и minted:           \
+    texlive-xetex texlive-luatex                      \
+    texlive-bibtex-extra biber latexmk                \
+    python3-pygments ttf-mscorefonts-installer        \
                                                       \
     # Дополнительные консольные утилиты:              \
     bsdmainutils pv net-tools psmisc iputils-ping     \
@@ -67,10 +78,22 @@ ARG APPLICATIONS="                                    \
 # bsdmainutils - для работы команды col
 # iputils-ping - для работы команды ping
 # coreutils    - для работы команды wc
+# texlive-*    - LaTeX-компиляция: pdflatex, xelatex, lualatex, bibtex/biber;
+#                набор коллекций вместо texlive-full: ~3 ГБ вместо ~9 ГБ
+# fonts-cmu    - CMU Serif/Sans/Typewriter для XeLaTeX-версии ГОСТ 7.32
+#                scalable-cyrfonts-tex не включён: конфликтует с
+#                texlive-fonts-extra; G7-32 собирается с CM-шрифтами
+# ttf-mscorefonts-installer - Times New Roman/Arial/Courier New для шаблона
+#                диссертации (XeLaTeX/LuaLaTeX)
+# python3-pygments - подсветка кода для minted в старых TeX Live
 ARG HADOLINTURL="https://github.com/hadolint/hadolint/releases/latest/download/hadolint-Linux-x86_64"
 RUN apt-get update                                            && \
     # Удаление python3-blinker необходимо для нормальной установки open3d:
     apt-get purge -y python3-blinker                          && \
+    # Принимаем EULA Microsoft Core Fonts (Times New Roman/Arial/Courier New):
+    echo "ttf-mscorefonts-installer msttcorefonts/accepted-mscorefonts-eula select true" | \
+        debconf-set-selections                                && \
+    export DEBIAN_FRONTEND=noninteractive                     && \
     apt-get install -y --no-install-recommends $APPLICATIONS  && \
     apt-get upgrade -y --fix-missing                          && \
     apt-get purge -y --autoremove                             && \
