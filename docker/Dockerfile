@@ -10,6 +10,7 @@ ARG WORKSPACE='/workspace'       # Рабочая папка
 ARG USERNAME='user'              # Имя пользователя
 ARG HOMEDIR="/home/${USERNAME}"  # Домашняя папка пользователя
 ARG SHELL_PATH='/usr/bin/zsh'    # Путь к интерпретатору оболочки
+ARG APTDIR='/tmp/apt'            # Временная папка для .deb-пакетов
 
 
 # Меняем sh на bash:
@@ -18,6 +19,14 @@ SHELL ["/bin/bash", "-l", "-o", "pipefail", "-c"]
 # Чтобы apt-get не ждал ввода часового пояса:
 #ENV DEBIAN_FRONTEND=noninteractive
 # В данном случае не нужно, т.к. выбранный прообраз лишён этого недостатка.
+
+# Дополнительные .deb-пакеты, которых нет в репозиториях Ubuntu
+# (URL через пробел; скачиваются в $APTDIR и ставятся вместе с $APPLICATIONS):
+ARG DEBURLS="                                         \
+    # Шрифты Microsoft:                               \
+    https://deb.debian.org/debian/pool/contrib/m/msttc\
+orefonts/ttf-mscorefonts-installer_3.8.1_all.deb      \
+"
 
 # Устанавливаем доп. приложения:
 ARG APPLICATIONS="                                    \
@@ -46,19 +55,17 @@ ARG APPLICATIONS="                                    \
     # Пакеты для работы manim:                        \
     python3-dev libcairo2-dev libpango1.0-dev         \
                                                       \
-    # LaTeX: базовые пакеты и утилиты:                \
+    # LaTeX-компилятор и шрифты к нему:               \
     texlive-latex-base texlive-latex-recommended      \
     texlive-latex-extra texlive-plain-generic         \
-                                                      \
-    # LaTeX: шрифты и кириллица:                      \
+    # Базовые пакеты и утилиты.                       \
+    texlive-xetex texlive-luatex                      \
+    texlive-bibtex-extra biber latexmk                \
+    # Движки и библиография.                          \
     texlive-fonts-recommended texlive-fonts-extra     \
     texlive-lang-cyrillic cm-super                    \
     fonts-cmu fontconfig                              \
-                                                      \
-    # LaTeX: движки, библиография и minted:           \
-    texlive-xetex texlive-luatex                      \
-    texlive-bibtex-extra biber latexmk                \
-    python3-pygments ttf-mscorefonts-installer        \
+    # Шрифты и кириллица.                             \
                                                       \
     # Дополнительные консольные утилиты:              \
     bsdmainutils pv net-tools psmisc iputils-ping     \
@@ -78,37 +85,38 @@ ARG APPLICATIONS="                                    \
 # bsdmainutils - для работы команды col
 # iputils-ping - для работы команды ping
 # coreutils    - для работы команды wc
-# texlive-*    - LaTeX-компиляция: pdflatex, xelatex, lualatex, bibtex/biber;
-#                набор коллекций вместо texlive-full: ~3 ГБ вместо ~9 ГБ
-# fonts-cmu    - CMU Serif/Sans/Typewriter для XeLaTeX-версии ГОСТ 7.32
-#                scalable-cyrfonts-tex не включён: конфликтует с
-#                texlive-fonts-extra; G7-32 собирается с CM-шрифтами
-# ttf-mscorefonts-installer - Times New Roman/Arial/Courier New для шаблона
-#                диссертации (XeLaTeX/LuaLaTeX)
-# python3-pygments - подсветка кода для minted в старых TeX Live
 ARG HADOLINTURL="https://github.com/hadolint/hadolint/releases/latest/download/hadolint-Linux-x86_64"
-RUN apt-get update                                            && \
+RUN apt-get update                                             && \
     # Удаление python3-blinker необходимо для нормальной установки open3d:
-    apt-get purge -y python3-blinker                          && \
-    # Принимаем EULA Microsoft Core Fonts (Times New Roman/Arial/Courier New):
-    echo "ttf-mscorefonts-installer msttcorefonts/accepted-mscorefonts-eula select true" | \
-        debconf-set-selections                                && \
-    export DEBIAN_FRONTEND=noninteractive                     && \
-    apt-get install -y --no-install-recommends $APPLICATIONS  && \
-    apt-get upgrade -y --fix-missing                          && \
-    apt-get purge -y --autoremove                             && \
-    apt-get autoclean                                         && \
-    rm -rf /var/lib/apt/lists/*                               && \
+    apt-get purge -y python3-blinker                           && \
+    # Скачиваем дополнительные .deb-пакеты в отдельную папку:
+    mkdir -p "$APTDIR"                                         && \
+    curl --fail-early -fsSL --remote-name-all                     \
+    --output-dir "$APTDIR" $DEBURLS                            && \
+    # Ставим их вместе с основными приложениями одним вызовом:
+    apt-get install -y --no-install-recommends $APPLICATIONS      \
+    "$APTDIR"/*.deb                                            && \
+    apt-get upgrade -y --fix-missing                           && \
+    apt-get purge -y --autoremove                              && \
+    apt-get autoclean                                          && \
+    rm -rf /var/lib/apt/lists/* "$APTDIR"                      && \
+    # Обновляем кэш шрифтов (в т.ч. для установленных выше MS Core Fonts):
+    fc-cache -f                                                && \
     # Установка Hadolint и markdownlint-cli:
-    wget --progress=dot:giga -O /bin/hadolint $HADOLINTURL    && \
-    chmod +x /bin/hadolint                                    && \
+    curl -fsSL -o /bin/hadolint $HADOLINTURL                   && \
+    chmod +x /bin/hadolint                                     && \
     # Установка Node.js из NodeSource (вместо старых версий из репозитория):
-    wget -qO- https://deb.nodesource.com/setup_lts.x | bash - && \
-    apt-get install -y --no-install-recommends nodejs         && \
-    # Линтеры:
-    npm install -g markdownlint-cli dclint                    && \
-    # ИИ-агенты:
-    npm install -g @openai/codex openclaw@latest @opencode/cli
+    curl -fsSL https://deb.nodesource.com/setup_lts.x | bash - && \
+    apt-get install -y --no-install-recommends nodejs          && \
+    # Линтеры и ИИ-агент OpenCode:
+    npm install -g markdownlint-cli dclint @opencode/cli       && \
+    # Скиллы OpenCode: ставим под root, затем переносим в системный каталог
+    # /etc/opencode/skills — его OpenCode читает для всех пользователей:
+    npx -y skills@latest add mattpocock/skills -s '*' --copy -g   \
+    -y  -a opencode                                            && \
+    mkdir -p /etc/opencode                                     && \
+    mv /root/.agents/skills /etc/opencode/skills               && \
+    rm -rf /root/.agents /root/.npm/_npx
 
 # См. http://bugs.python.org/issue19846
 ENV LANG=C.UTF-8
@@ -174,6 +182,9 @@ ARG PYTHONMODULES_BASE="                                                 \
     # интерактивную сегментацию с SAM через ноутбук.                     \
     # xeus-python для отладки.                                           \
     # Jupyter-Beeper для озвучивания событий в Jupyter                   \
+                                                                         \
+    # Pygments для подсветки кода в minted (LaTeX):                      \
+    pygments                                                             \
                                                                          \
     # Отключает бОльшую часть мусора в stdout, генерируемого TensorFlow: \
     silence-tensorflow tensorflow-model-optimization                     \
@@ -313,7 +324,6 @@ RUN gosu "${USERNAME}" sh -c 'RUNZSH=no CHSH=no sh -c "$(curl -fsSL ${ZSHINSTALL
 # отображаются при использовании powerline-патченного шрифта в терминале.
 
 # Установка oh-my-zsh для root (тема agnoster) и его .zshrc:
-# hadolint ignore=DL4001
 RUN RUNZSH=no CHSH=no sh -c "$(curl -fsSL ${ZSHINSTALLER})"     && \
     sed -i 's/^ZSH_THEME=.*/ZSH_THEME="agnoster"/' /root/.zshrc && \
     sed -i '1i export ZSH_DISABLE_COMPFIX=true'    /root/.zshrc && \
