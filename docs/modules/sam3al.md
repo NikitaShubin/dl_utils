@@ -1,4 +1,4 @@
-# sam3al.py — загрузка SAM 3.1
+# 📥 sam3al.py — загрузка SAM 3.1
 
 Пока модуль отвечает только за скачивание весов SAM 3.1 с ModelScope.
 Инференс SAM3 живёт в ноутбуке [SAM3.ipynb](../../PreAnnotation/SAM3.ipynb)
@@ -6,7 +6,7 @@
 
 **Зависимости:** `modelscope` (опционально), `clip`, `utils.py`.
 
-## Скачать модель
+## ⬇️ Скачать модель
 
 ```python
 from sam3al import download_sam3
@@ -21,7 +21,7 @@ print(model_path)  # /home/user/models/sam3.1_multiplex.pt
 
 Без аргумента модель кладётся в `~/models/sam3.1_multiplex.pt`.
 
-## Запуск из консоли
+## 🚀 Запуск из консоли
 
 ```bash
 python sam3al.py
@@ -29,7 +29,7 @@ python sam3al.py
 
 Скачивает модель по умолчанию в `~/models`.
 
-## Ограничения
+## ⚠️ Ограничения
 
 - `modelscope` не входит в обязательные зависимости. Если пакета нет, а модели
   на диске тоже нет, `download_sam3` пробросит `ModuleNotFoundError`.

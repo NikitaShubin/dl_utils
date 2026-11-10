@@ -1,4 +1,4 @@
-# video_utils.py — видео, фильтры и оптический поток
+# 🎞️ video_utils.py — видео, фильтры и оптический поток
 
 Чтение и запись видео, конвейеры покадровой обработки, готовые фильтры,
 перепаковка битых файлов и геометрические искажения по оптическому потоку.
@@ -6,7 +6,7 @@
 **Зависимости:** `opencv-python`, `numpy`, `scipy`, `scikit-image`, `av`,
 `tqdm`, `utils.py`.
 
-## Прочитать видео
+## 📖 Прочитать видео
 
 ```python
 from video_utils import ViRead
@@ -21,7 +21,7 @@ with ViRead('data/video.mp4', colorspace='rgb') as frames:
 значения считаются от конца. `on_end` задаёт поведение на конце потока:
 `'close'` (по умолчанию), `'reset'` или `'repeat_last_frame'`.
 
-## Записать видео
+## 💾 Записать видео
 
 ```python
 from video_utils import ViRead, ViSave
@@ -34,7 +34,7 @@ with ViRead('data/video.mp4') as reader, ViSave('results/out.mp4', fps=30) as wr
 `ViSave` принимает RGB по умолчанию и сам переводит кадры в BGR. Папка
 назначения создаётся автоматически.
 
-## Собрать конвейер фильтров
+## 🧱 Собрать конвейер фильтров
 
 ```python
 from video_utils import Pipeline, Resize, AddCaption
@@ -50,7 +50,7 @@ pipeline.convert('data/video.mp4', 'results/preview.mp4', step=2)
 `step=2` обрабатывает каждый второй кадр. Строки в списке — синонимы готовых
 фильтров, числа — пороги бинаризации. Вложенные списки разворачиваются.
 
-## Применить фильтр к папке
+## 🧹 Применить фильтр к папке
 
 ```python
 from video_utils import apply2video
@@ -61,7 +61,7 @@ apply2video(Resize(512), 'data/videos', 'results/videos', step=1)
 Если `inp_file` — папка, обрабатываются все видео в ней. `skip_existed=True`
 пропускает уже готовые файлы. Для изображений есть `apply2image`.
 
-## Готовые фильтры
+## 🧹 Готовые фильтры
 
 ```python
 from video_utils import (
@@ -79,7 +79,7 @@ pipeline = Pipeline([
 `Res` и `Concat` собирают коллажи, `PutTime` пишет время или номер кадра,
 `CompareTwoFilters` и `CompareFiltersWithTarget` помогают сравнивать фильтры.
 
-## Перепаковать битое видео
+## 🗜️ Перепаковать битое видео
 
 ```python
 from video_utils import clean_remux
@@ -90,7 +90,7 @@ clean_remux('data/broken.mp4', 'results/fixed.mp4')
 Функция копирует пакеты без пересжатия и выбрасывает те, которые декодер не
 может превратить в кадр.
 
-## Пересжать в mp4
+## 🗜️ Пересжать в mp4
 
 ```python
 from video_utils import recomp2mp4
@@ -98,7 +98,7 @@ from video_utils import recomp2mp4
 recomp2mp4('results/tmp.avi', 'results/final.mp4')
 ```
 
-## Оптический поток
+## 🌊 Оптический поток
 
 ```python
 from video_utils import OptFlow
@@ -115,7 +115,7 @@ flows = OptFlow().seq_flows(frames)
 restored = OptFlow().apply_flows2img(flows, frames[0])
 ```
 
-## Повторяемое искажение
+## 🎲 Повторяемое искажение
 
 ```python
 from video_utils import ImDistort
@@ -129,7 +129,7 @@ mask_warped = distort(mask, mask_mode=True)
 применять к изображениям и маскам. `from_opt_flow` строит искажение по уже
 вычисленному потоку.
 
-## Ограничения
+## ⚠️ Ограничения
 
 - `ViRead` читает кадры BGR из OpenCV и конвертирует в выбранную схему;
   `colorspace='bgr'` оставляет как есть.

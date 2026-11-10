@@ -1,9 +1,9 @@
-# cvat: метки
+# 🏷️ cvat: метки
 
 `CVATLabel` и `CVATLabels` описывают схему классов CVAT: имена, цвета, типы,
 атрибуты и вложенные подметки.
 
-## Создать набор меток
+## ➕ Создать набор меток
 
 ```python
 from cvat import CVATLabels
@@ -14,7 +14,7 @@ print(labels.names())  # ['car', 'person', 'traffic_light']
 
 Из строк создаются метки типа `any` с автоматически подобранными цветами.
 
-## Прочитать `labels.json`
+## 📖 Прочитать `labels.json`
 
 ```python
 from cvat import CVATLabels
@@ -27,7 +27,7 @@ for label in labels:
 Файл — JSON-список словарей с полями `name`, `color`, `type`, `attributes`.
 Такой файл удобно хранить рядом с проектом.
 
-## Одна метка
+## 🏷️ Одна метка
 
 ```python
 from cvat import CVATLabel
@@ -49,7 +49,7 @@ print(label.to_dict())
 `to_dict()` возвращает словарь в формате CVAT. Цвет можно задать кортежем,
 списком или числом.
 
-## Радиокнопки в Jupyter
+## 🎛️ Радиокнопки в Jupyter
 
 ```python
 from ipy_utils import IPYRadioButtons
@@ -62,7 +62,7 @@ IPYRadioButtons(
 ).show()
 ```
 
-## Отсортировать и скопировать
+## 📋 Отсортировать и скопировать
 
 ```python
 sorted_labels = labels.sort()
@@ -72,7 +72,7 @@ copy_labels = labels.copy()
 `sort` возвращает новый набор, отсортированный по именам; вложенные подметки
 сортируются тоже. `copy` делает глубокую копию.
 
-## Экспортировать
+## 📤 Экспортировать
 
 ```python
 dicts = labels.to_dicts()
@@ -81,7 +81,7 @@ dicts = labels.to_dicts()
 Результат можно записать через `utils.obj2json`, чтобы получить
 `labels.json`.
 
-## Ограничения
+## ⚠️ Ограничения
 
 - `CVATLabel` строго проверяет ключи: незнакомое поле приводит к `ValueError`.
 - Тип метки (`any`, `rectangle`, `polygon`, `mask` и другие) не проверяется

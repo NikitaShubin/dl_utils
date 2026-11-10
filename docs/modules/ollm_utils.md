@@ -1,4 +1,4 @@
-# ollm_utils.py — Ollama и локальные LLM
+# 💬 ollm_utils.py — Ollama и локальные LLM
 
 Чат с моделями Ollama, классификация моделей по имени и автоматическая
 настройка Jupyter AI и OpenCode на локальный сервер.
@@ -6,7 +6,7 @@
 **Зависимости:** `requests`, `beautifulsoup4`, `utils.py`; опционально
 `jupyter-ai` и бинарник `opencode`.
 
-## Поговорить с моделью
+## 💬 Поговорить с моделью
 
 ```python
 import os
@@ -23,7 +23,7 @@ print(answer)
 `Chat` хранит историю диалога в `messages`, поэтому следующий вызов помнит
 предыдущие реплики. `chat.reset()` очищает историю.
 
-## Передать файлы
+## 📤 Передать файлы
 
 ```python
 answer = chat(
@@ -35,7 +35,7 @@ answer = chat(
 Содержимое файлов добавляется к сообщению с заголовками. Для одного файла
 можно передать строку или `Path`.
 
-## Классифицировать модели
+## 🏷️ Классифицировать модели
 
 ```python
 from ollm_utils import hosts2chat_embd_cmpl_models
@@ -53,7 +53,7 @@ print(list(cmpl_models))
 кодогенерирующие. Тип определяется по тегам страницы модели на `ollama.com`,
 затем по эвристикам имени (`embed`, `code`, `chat`).
 
-## Настроить Jupyter AI
+## ⚙️ Настроить Jupyter AI
 
 ```python
 from ollm_utils import set_jupyter_ai_settings
@@ -66,7 +66,7 @@ print(path)
 или v3. Если `jupyter-ai` не установлен, возвращается пустая строка. Адрес
 сервера берётся из `OLLAMA_HOST` или из аргумента `hosts`.
 
-## Настроить OpenCode
+## ⚙️ Настроить OpenCode
 
 ```python
 from ollm_utils import set_opencode_settings
@@ -78,7 +78,7 @@ print(path)
 Конфиг `~/.config/opencode/opencode.jsonc` дополняется провайдерами Ollama.
 Функция отключает генерацию заголовков на внешних серверах и sharing сессий.
 
-## Запустить настройку целиком
+## 🚀 Запустить настройку целиком
 
 ```bash
 python ollm_utils.py
@@ -87,7 +87,7 @@ python ollm_utils.py
 При запуске как скрипта вызываются обе настройки. Это удобно в
 `docker/cmd.sh`, где `OLLAMA_HOST` уже передан в контейнер.
 
-## Нормализовать адрес
+## 🔗 Нормализовать адрес
 
 ```python
 from ollm_utils import normalize_host
@@ -98,7 +98,7 @@ print(normalize_host('localhost'))  # http://localhost:11434
 Функция добавляет схему и порт по умолчанию. Пустая строка означает, что
 сервер не задан.
 
-## Ограничения
+## ⚠️ Ограничения
 
 - `model_name2type` ходит на `ollama.com`; без сети тип определяется только по
   эвристикам имени и может быть `unknown`.

@@ -1,4 +1,4 @@
-# keras_utils: модели
+# 🏗️ keras_utils: модели
 
 Готовые сегментационные архитектуры и обвязка вокруг предобученных
 backbone-ов из `keras.applications`.
@@ -6,7 +6,7 @@ backbone-ов из `keras.applications`.
 Данные и загрузчик описаны в разделе [«Данные»](data.md), метрики и
 колбеки — в [«Обучение»](training.md).
 
-## Рассчитать размеры backbone-а
+## 📏 Рассчитать размеры backbone-а
 
 ```python
 from keras_utils import BackboneShapes
@@ -24,7 +24,7 @@ print(shapes.output_shape)  # [23, 31]
 `BackboneShapes` подбирает входной размер так, чтобы после всех пулингов
 остались целые размеры, и считает размер выходной карты признаков.
 
-## Взять backbone с предобработкой
+## 📥 Взять backbone с предобработкой
 
 ```python
 from keras_utils import backbone_with_preprop
@@ -40,7 +40,7 @@ backbone = backbone_with_preprop(
 и по умолчанию замораживает веса. Предобученные веса берутся из
 `imagenet`; при отсутствии интернета конструктор упадёт.
 
-## Получить многомасштабные признаки
+## 📥 Получить многомасштабные признаки
 
 ```python
 import numpy as np
@@ -57,7 +57,7 @@ print([f.shape for f in features])
 `backbone2encoder` оставляет выходы слоёв, размер которых уменьшается ровно в
 два раза. Это входы для skip-соединений U-Net-подобных сетей.
 
-## Собрать U-Net
+## 🧱 Собрать U-Net
 
 ```python
 from keras_utils import UNet
@@ -96,7 +96,7 @@ model.summary()
 нужные слои и вызовите `recompile_model` — иначе Keras продолжит использовать
 старый граф обучения. Пример есть в разделе [«Обучение»](training.md).
 
-## Собрать Deeplabv3+
+## 🧱 Собрать Deeplabv3+
 
 ```python
 from keras_utils import Deeplabv3Plus
@@ -114,7 +114,7 @@ model = Deeplabv3Plus(
 пути. Отрицательное значение считается от конца списка признаков; `None`
 отключает обходной путь.
 
-## Заменить голову
+## ✏️ Заменить голову
 
 ```python
 from keras_utils import replace_head
@@ -126,7 +126,7 @@ model = replace_head(model, filters=10, activation='softmax')
 остальные слои замораживает. Если число фильтров совпадает, слой не
 пересобирается — меняется только активация.
 
-## Найти слои по имени
+## 🔍 Найти слои по имени
 
 ```python
 from keras_utils import get_all_layers, get_model_elements, layers
@@ -141,7 +141,7 @@ all_layers = get_all_layers(model)
 искать по части имени. `get_all_layers` разворачивает подмодели в плоский
 список.
 
-## Фрактальная U-Net
+## 🧱 Фрактальная U-Net
 
 ```python
 from keras_utils import make_fractal_unet
@@ -153,7 +153,7 @@ model = make_fractal_unet('MobileNetV3Large', im_size=(256, 256))
 Требует backbone ровно с шестью уровнями признаков и всегда выдаёт три
 класса.
 
-## Ограничения
+## ⚠️ Ограничения
 
 - `backbone2encoder` при неопределённом входе прогоняет нулевой тензор через
   модель; это замедляет сборку и требует памяти.

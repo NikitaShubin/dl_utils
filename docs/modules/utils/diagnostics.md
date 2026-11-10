@@ -1,9 +1,9 @@
-# utils: диагностика и граф зависимостей
+# 🩺 utils: диагностика и граф зависимостей
 
 Разбор импортов через AST, построение Mermaid-графа модулей и сравнение
 вложенных структур.
 
-## Сравнить две структуры
+## ⚖️ Сравнить две структуры
 
 ```python
 from utils import obj_diff
@@ -19,7 +19,7 @@ print(obj_diff(expected, actual))
 возвращает описание всех найденных расхождений. Пустая строка означает
 полное совпадение.
 
-## Найти импорты файла
+## 🔍 Найти импорты файла
 
 ```python
 from utils import ImportVisitor
@@ -31,7 +31,7 @@ print(visitor.unconditional_imports)  # импорты верхнего уров
 print(visitor.conditional_imports)    # импорты внутри условий и функций
 ```
 
-## Построить граф зависимостей репозитория
+## 🕸️ Построить граф зависимостей репозитория
 
 ```python
 from utils import draw_repo_dependency_graph
@@ -48,7 +48,7 @@ print(path)  # ./dependency_graph.mmd
 окольные пути не дублируются. Пунктирное ребро соответствует условному
 импорту.
 
-## Разобрать граф вручную
+## 🕸️ Разобрать граф вручную
 
 ```python
 from utils import ImportVisitor
@@ -65,7 +65,7 @@ print(visitor.to_mermaid(reduced))
 пути, `to_mermaid` раскладывает узлы по уровням, а `to_dot` оставляет
 Graphviz-вариант.
 
-## Ограничения
+## ⚠️ Ограничения
 
 - `ImportVisitor` смотрит только на синтаксис импортов: динамические
   `importlib.import_module('...')` в граф не попадают.

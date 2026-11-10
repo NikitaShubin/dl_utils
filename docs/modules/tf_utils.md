@@ -1,11 +1,11 @@
-# tf_utils.py — утилиты TensorFlow
+# 🧮 tf_utils.py — утилиты TensorFlow
 
 Инициализация TensorFlow, работа с несколькими GPU и готовые `tf.data`
 конвейеры для сегментационных датасетов.
 
 **Зависимости:** `tensorflow`, `alb_utils.py`, `utils.py`.
 
-## Инициализировать TensorFlow
+## ⚙️ Инициализировать TensorFlow
 
 ```python
 from tf_utils import TFInit
@@ -26,7 +26,7 @@ with TFInit(less_gpu_mem=True):
 `less_gpu_mem=True` включает рост памяти GPU по мере необходимости вместо
 захвата всей памяти сразу.
 
-## Учесть несколько GPU
+## 🖥️ Учесть несколько GPU
 
 ```python
 from tf_utils import MultiGPU
@@ -42,7 +42,7 @@ with gpus.strategy.scope():
 `batch_size_multiplier` умножает размер батча на число GPU. Если GPU нет,
 целое значение `default` задаёт новый размер, а дробное — коэффициент.
 
-## Загрузить датасет из папок
+## 📥 Загрузить датасет из папок
 
 Ожидается структура:
 
@@ -91,7 +91,7 @@ ds = get_dataset(
 )
 ```
 
-## Ограничения
+## ⚠️ Ограничения
 
 - `get_dataset` ориентирован на сегментацию: маска обязана быть одноканальным
   изображением, иначе `tf.one_hot` возьмёт только первый канал.

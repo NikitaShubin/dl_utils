@@ -1,4 +1,4 @@
-# ul_utils.py — Ultralytics YOLO
+# 🎯 ul_utils.py — Ultralytics YOLO
 
 Обёртка над моделями Ultralytics: инференс, трекинг, постобработка и
 конвертация результатов в CVAT-датафрейм.
@@ -6,7 +6,7 @@
 **Зависимости:** `ultralytics`, `cv_utils.py`, `cvat.py`, `video_utils.py`,
 `utils.py`, `numpy`, `pandas`, `tqdm`.
 
-## Разметить изображение
+## 🏷️ Разметить изображение
 
 ```python
 import cv2
@@ -24,7 +24,7 @@ print(df[['label', 'type', 'points']].head())
 `type`, `points`, `attributes` и остальные столбцы. Для детекции `type`
 равен `rectangle`, для сегментации — `polygon` или `mask`.
 
-## Показать превью
+## 👁️ Показать превью
 
 ```python
 model = UltralyticsModel('yolo11n-seg.pt', mode='preview')
@@ -35,7 +35,7 @@ cv2.imwrite('preview.jpg', preview[..., ::-1])
 В режиме `preview` вызов модели возвращает изображение с нарисованными
 объектами, а не датафрейм.
 
-## Трекинг в видео
+## 🎯 Трекинг в видео
 
 ```python
 from ul_utils import UltralyticsModel
@@ -53,7 +53,7 @@ df, file, true_frames = model.video2subtask('data/video.mp4', desc='Трекин
 датафрейм, путь к файлу и словарь соответствия кадров. Трекер сбрасывается
 перед началом.
 
-## Постобработка
+## ⚙️ Постобработка
 
 ```python
 from boxmot_utils import Tracker
@@ -69,7 +69,7 @@ model = UltralyticsModel(
 Фильтры применяются по очереди к списку объектов. Фильтр может принимать
 `(objs)` или `(objs, img)`; число аргументов определяется автоматически.
 
-## Ограничения
+## ⚠️ Ограничения
 
 - Модель ищется в `~/models`, если передано только имя файла и его нет рядом.
 - `video2subtask` держит все датафреймы кадров в памяти до конца обработки.

@@ -1,4 +1,4 @@
-# keras_utils: обучение
+# 🎓 keras_utils: обучение
 
 Метрики для сегментации, работа с историей, колбеки для прогрева, тонкой
 настройки и аккуратной остановки, дистилляция.
@@ -8,7 +8,7 @@
 Keras-совместимые датасеты: `SegDataLoader` или результат
 `tf_utils.get_datasets`.
 
-## Измерить максимальную F-меру
+## 📏 Измерить максимальную F-меру
 
 ```python
 from keras_utils import MaxFscore
@@ -25,7 +25,7 @@ model.compile(
 анализа, но не для штатного `ModelCheckpoint`: Keras не умеет сравнивать
 комплексные метрики.
 
-## F-мера для любых размерностей
+## 📏 F-мера для любых размерностей
 
 ```python
 from keras_utils import FBetaScore
@@ -45,7 +45,7 @@ model.compile(
 целочисленными масками без one-hot, замените лосс на
 `sparse_categorical_crossentropy`.
 
-## Переключить режим обучения
+## 🔁 Переключить режим обучения
 
 ```python
 from keras_utils import TrainingMode
@@ -58,7 +58,7 @@ with TrainingMode(training_mode=False):
 работать в инференс-режиме. В Keras 3 `learning_phase` отсутствует — используйте
 `training=False` в вызове модели.
 
-## Сохранить и показать историю
+## 💾 Сохранить и показать историю
 
 ```python
 from keras_utils import KerasHistory
@@ -81,7 +81,7 @@ kh = KerasHistory.from_csv('logs/history.csv')
 `group()` собирает метрики в словарь `имя → {train, val, test}`, а `show()`
 рисует графики и подсвечивает фоном изменение `lr`.
 
-## Прогрев скорости обучения
+## 🎛️ Прогрев скорости обучения
 
 ```python
 from keras_utils import Warmup
@@ -96,7 +96,7 @@ model.fit(
 Первые `steps` батчей скорость линейно растёт от нуля до исходного значения.
 `restart()` запускает прогрев заново в середине обучения.
 
-## Метрики на тестовой выборке
+## 📈 Метрики на тестовой выборке
 
 ```python
 from keras_utils import TestCallback
@@ -109,7 +109,7 @@ model.fit(train_ds, validation_data=val_ds, epochs=10, callbacks=[test_cb])
 `test_`. Для KerasTuner используйте `TestCallback.prepare_model(model, test_ds)`
 и `TestCallback()` без аргументов.
 
-## Рисовать графики по ходу обучения
+## 📈 Рисовать графики по ходу обучения
 
 ```python
 from keras_utils import PlotHistory
@@ -124,7 +124,7 @@ model.fit(
 Колбек сохраняет историю и перерисовывает графики в конце каждой эпохи. В
 ноутбуке это очищает вывод ячейки.
 
-## Тонкая настройка в два этапа
+## 🎛️ Тонкая настройка в два этапа
 
 ```python
 from keras_utils import AutoFinetune
@@ -150,7 +150,7 @@ model.fit(
 `lr_on_finetune='same'` сохраняет прежнюю скорость, `None` оставляет текущую.
 `do_on_restart` — функция, которая вызывается перед вторым этапом.
 
-## Остановка без потери истории
+## 🛑 Остановка без потери истории
 
 ```python
 from keras_utils import EndToEndEarlyStopping
@@ -165,7 +165,7 @@ model.fit(
 Отличие от обычного `EarlyStopping`: лучшие веса и метрики сохраняются между
 перезапусками `fit`, поэтому повторный вызов не сбрасывает прогресс.
 
-## Аккуратно завершить по сигналу
+## 🛑 Аккуратно завершить по сигналу
 
 ```python
 from keras_utils import CarefulStopping
@@ -197,7 +197,7 @@ callback = DoOnKill(
 )
 ```
 
-## TensorBoard
+## 📈 TensorBoard
 
 ```python
 from keras_utils import TensorBoardContext
@@ -209,7 +209,7 @@ with TensorBoardContext('logs/fit') as tb_callback:
 При входе в контекст запускается TensorBoard и возвращается колбек. При выходе
 печатается команда для повторного запуска; сам сервис не останавливается.
 
-## Перекомпилировать после разморозки
+## 🔁 Перекомпилировать после разморозки
 
 ```python
 from keras_utils import recompile_model
@@ -222,7 +222,7 @@ recompile_model(model, make_train_function=True)
 после изменения `trainable`, иначе Keras может продолжить использовать старый
 граф обучения.
 
-## Дистилляция знаний
+## 🎓 Дистилляция знаний
 
 ```python
 from keras_utils import Distiller
@@ -244,7 +244,7 @@ distiller.fit(train_ds, epochs=20)
 режиме инференса. Выходы обеих моделей должны быть логитами: `softmax` для
 дистилляционного лосса применяется внутри.
 
-## Сохранить модель и получить маску
+## 💾 Сохранить модель и получить маску
 
 ```python
 from keras_utils import models
@@ -267,7 +267,7 @@ masks = (model.predict(batch)[..., 0] > 0.5).astype('uint8')
 `.h5`. При загрузке без `compile=False` Keras попытается восстановить лосс и
 метрики, поэтому для инференса проще отключить компиляцию.
 
-## Ограничения
+## ⚠️ Ограничения
 
 - `MaxFscore` наследует `keras.metrics.AUC` и рассчитан на бинарную
   сегментацию; для многоклассовой нужен отдельный экземпляр на класс.

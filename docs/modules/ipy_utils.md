@@ -1,11 +1,11 @@
-# ipy_utils.py — интерактив в Jupyter
+# 📓 ipy_utils.py — интерактив в Jupyter
 
 Ссылки на файлы, виджеты и интерактивная сегментация прямо в ноутбуке.
 
 **Зависимости:** `ipywidgets`, `numpy`, `matplotlib`, `mpl-point-clicker`,
 `mpl-interactions`, `IPython`, `cv_utils.py`, `cvat.py`, `utils.py`.
 
-## Дать ссылку на файл
+## 🔗 Дать ссылку на файл
 
 ```python
 from ipy_utils import path2link
@@ -16,7 +16,7 @@ path2link('results/preview.mp4', 'Скачать превью')
 В JupyterLab появится ссылка на скачивание. Без второго аргумента текстом
 будет имя файла.
 
-## Показать видео
+## 👁️ Показать видео
 
 ```python
 from ipy_utils import show_video
@@ -27,7 +27,7 @@ show_video('results/preview.mp4', size=(480, 854))
 `size` — высота и ширина в пикселях; можно передать одно число (высота) или
 `None`, чтобы оставить исходный размер.
 
-## Чекбокс и кнопка
+## 🎛️ Чекбокс и кнопка
 
 ```python
 from ipy_utils import IPYCheckbox, IPYButton
@@ -53,7 +53,7 @@ button.show()
 
 По умолчанию кнопка очищает вывод ячейки перед вызовом действия.
 
-## Радиокнопки
+## 🎛️ Радиокнопки
 
 ```python
 from ipy_utils import IPYRadioButtons
@@ -64,7 +64,7 @@ mode.show()
 
 С колбеком выбранное значение сразу передаётся в `setter`.
 
-## Интерактивная сегментация
+## 🖱️ Интерактивная сегментация
 
 ```python
 from ipy_utils import IPYInteractiveSegmentation
@@ -80,7 +80,7 @@ viewer = IPYInteractiveSegmentation(**sam2.init_ipis_kwargs())
 вызывается при каждом изменении и возвращает список масок, которые тут же
 рисуются поверх изображения.
 
-## Объединить вывод ячеек
+## 🔗 Объединить вывод ячеек
 
 ```python
 from ipy_utils import concat
@@ -88,7 +88,7 @@ from ipy_utils import concat
 concat(output_1, output_2)
 ```
 
-## Ограничения
+## ⚠️ Ограничения
 
 - Модуль рассчитан на JupyterLab: `path2link` строит ссылку вида `/files/...`.
 - `IPYInteractiveSegmentation` требует `ipympl` и интерактивный бэкенд

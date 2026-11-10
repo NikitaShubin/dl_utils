@@ -1,11 +1,11 @@
-# alb_utils.py — расширения Albumentations
+# 🌫️ alb_utils.py — расширения Albumentations
 
 Пылевая взвесь и удобная обёртка для совместных преобразований изображения и
 маски.
 
 **Зависимости:** `albumentations`, `numpy`, `utils.py`.
 
-## Наложить пыль на изображение
+## 🌫️ Наложить пыль на изображение
 
 ```python
 import cv2
@@ -21,7 +21,7 @@ image_with_dust = dust(image=image)['image']
 принимает цвет пыли. `color` задаётся в RGB, `fog_coef_range` — доля
 запылённости.
 
-## Преобразовать изображение и маску вместе
+## 🔄 Преобразовать изображение и маску вместе
 
 ```python
 import albumentations as A
@@ -44,7 +44,7 @@ from utils import mpmap
 results = mpmap(transform.image_mask_func, images, masks, desc='Аугментация')
 ```
 
-## Ограничения
+## ⚠️ Ограничения
 
 - `AlbTransforms` не проверяет, что все преобразования поддерживают маску;
   `A.Compose` молча пропустит лишние цели.

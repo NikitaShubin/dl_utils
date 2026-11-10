@@ -1,11 +1,11 @@
-# labels.py — метки и суперметки
+# 🏷️ labels.py — метки и суперметки
 
 Конвертор между именами классов, их расшифровками, суперклассами и номерами
 суперклассов. Читает Excel, CSV и TSV, умеет работать со словарями.
 
 **Зависимости:** `pandas`, `treelib`, `openpyxl` (для `.xlsx`), `utils.py`.
 
-## Заменить метки по словарю
+## ✏️ Заменить метки по словарю
 
 ```python
 from labels import LabelsConvertor
@@ -23,7 +23,7 @@ print(converter('person'))  # people
 Экземпляр — обычный словарь: `converter['car']` тоже работает. Если метки нет
 в словаре, будет `KeyError`.
 
-## Применить к датафрейму
+## ⚙️ Применить к датафрейму
 
 ```python
 import pandas as pd
@@ -39,7 +39,7 @@ print(converted['label'].tolist())  # ['transport', 'transport']
 Исходный датафрейм не меняется: возвращается копия с заменённым столбцом
 `label`.
 
-## Применить к объектам
+## ⚙️ Применить к объектам
 
 ```python
 from cv_utils import BBox
@@ -55,7 +55,7 @@ print(objects[0].attribs['label'])  # transport
 Работает с любыми объектами, у которых есть `attribs['label']` и метод
 `copy()`.
 
-## Загрузить таблицу
+## 📥 Загрузить таблицу
 
 ```python
 from labels import LabelsConvertor
@@ -75,7 +75,7 @@ converter = LabelsConvertor('superlabels.xlsx')
 Для `.xlsx` нужен `openpyxl`. Старый `.xls` пересохраните в `.xlsx`: код
 пытается открыть его через `openpyxl`, а тот этот формат не читает.
 
-## Выбрать итоговое представление
+## 🎯 Выбрать итоговое представление
 
 ```python
 converter = LabelsConvertor(
@@ -92,7 +92,7 @@ print(converter('car'))  # номер суперкласса, например 2
 - `label2superind` — имя метки в номер суперметки (для YOLO и масок `seg`);
 - `auto` — самый длинный переход, который позволяют данные.
 
-## Удалить и запретить метки
+## 🏷️ Удалить и запретить метки
 
 ```python
 converter = LabelsConvertor(
@@ -107,7 +107,7 @@ converter = LabelsConvertor(
 `ForbiddenLabelError` при `values2raise`. Прямой вызов `converter('person')`
 запрет игнорирует.
 
-## Проверить неизвестные метки
+## ✅ Проверить неизвестные метки
 
 ```python
 unknown = converter.get_unknown_labels(df)
@@ -115,7 +115,7 @@ if unknown:
     print('Нет в словаре:', unknown)
 ```
 
-## Ограничения
+## ⚠️ Ограничения
 
 - `apply2df` меняет только столбец `label`; атрибуты внутри `attributes` не
   конвертируются.

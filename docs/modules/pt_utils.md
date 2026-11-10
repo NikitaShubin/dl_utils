@@ -1,11 +1,11 @@
-# pt_utils.py — утилиты PyTorch
+# 🔥 pt_utils.py — утилиты PyTorch
 
 Выбор устройства, безопасная дисперсия, датасет сегментации и пара слоёв для
 адресной передачи признаков.
 
 **Зависимости:** `torch`, `numpy`, `opencv-python`.
 
-## Выбрать устройство
+## 🎯 Выбрать устройство
 
 ```python
 from pt_utils import AutoDevice
@@ -24,7 +24,7 @@ device = AutoDevice('cpu')
 
 `AutoDevice` при инициализации настраивает TF32 для GPU Ampere и новее.
 
-## Загрузить датасет сегментации
+## 📥 Загрузить датасет сегментации
 
 ```python
 from pt_utils import SegDataset
@@ -39,7 +39,7 @@ print(image.shape, mask.shape)
 Перед кодированием маска делится на 255, поэтому в файлах должны быть только
 значения `0` и `255`; индексы классов `0..N-1` не поддерживаются.
 
-## Безопасная дисперсия
+## 🎲 Безопасная дисперсия
 
 ```python
 from pt_utils import safe_var
@@ -50,7 +50,7 @@ variance = safe_var(tensor, dim=-1, default_value=0.0)
 Обычный `torch.var` возвращает `NaN`, если элементов меньше двух. `safe_var`
 подставляет `default_value` вместо такого результата.
 
-## Слои Sender и Receiver
+## 🧱 Слои Sender и Receiver
 
 ```python
 import torch
@@ -67,7 +67,7 @@ restored = receiver(message)
 его обычной свёрткой. Пара полезна в архитектурах, где признаки передаются
 между ветками разного масштаба.
 
-## Ограничения
+## ⚠️ Ограничения
 
 - `AutoDevice.get_avliable_device` проверяет CUDA, затем MPS, затем CPU.
   Конкретный номер GPU не выбирается.

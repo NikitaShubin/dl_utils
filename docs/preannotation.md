@@ -1,4 +1,4 @@
-# PreAnnotation: готовые сценарии предразметки
+# ✨ PreAnnotation: готовые сценарии предразметки
 
 Ноутбуки для автоматической разметки изображений и видео с выгрузкой в CVAT.
 Внутри — те же модули `dl_utils`, но собранные в интерактивный процесс.
@@ -8,7 +8,7 @@
 [sam2al](modules/sam2al.md), [sam3al](modules/sam3al.md),
 [ipy_utils](modules/ipy_utils.md).
 
-## Запустить
+## 🚀 Запустить
 
 В основном Docker-контейнере `dl_utils` откройте ноутбук из
 `PreAnnotation/` и выполните первую ячейку: она добавляет `./..` и `./src` в
@@ -30,7 +30,7 @@ Grounding DINO; в образе `PreAnnotation` также заранее ска
 описано в [sam2al](modules/sam2al.md), для SAM 3 — в
 [sam3al](modules/sam3al.md).
 
-## Detection.ipynb
+## 🎯 Detection.ipynb
 
 Детекция и трекинг. Ноутбук поддерживает два варианта:
 
@@ -71,7 +71,7 @@ tasks = tasks_auto_annottation(
 [`CVATSRV`](modules/cvat_srv/README.md). Функции работы с задачами описаны в
 [cvat](modules/cvat/README.md).
 
-## Segmentation.ipynb
+## 🎭 Segmentation.ipynb
 
 Интерактивная сегментация видео через SAM 2. Модель и методы описаны в
 [sam2al](modules/sam2al.md), виджет подсказок — в
@@ -116,7 +116,7 @@ sam2.points2masks(
 Подсказки хранятся в TSV (по умолчанию рядом с видео), поэтому работу можно
 прервать и продолжить.
 
-## SAM3.ipynb
+## 🧠 SAM3.ipynb
 
 Сегментация через SAM 3 с текстовыми запросами. Ноутбук использует
 `SAM3VideoSemanticPredictor` из Ultralytics и обёртку
@@ -143,7 +143,7 @@ df, file, true_frames = sam3.video2subtask('project/people.mp4')
 [`LabelsConvertor`](modules/labels.md), превращает сегменты в прямоугольники,
 отбрасывает короткие треки и выгружает результат в CVAT.
 
-## Общие детали
+## 🧭 Общие детали
 
 - `dir2unlabeled_tasks` принимает файл, папку или список путей. Видео
   становится отдельной задачей, изображения группируются по папкам.
@@ -156,7 +156,7 @@ df, file, true_frames = sam3.video2subtask('project/people.mp4')
 - Долгие операции обёрнуты в `TimeIt` и `Beep`: по завершении раздаётся
   звуковой сигнал.
 
-## Ограничения
+## ⚠️ Ограничения
 
 - Ноутбуки рассчитаны на интерактивный запуск и не являются библиотечными
   модулями; переиспользуйте их код через соответствующие страницы модулей.

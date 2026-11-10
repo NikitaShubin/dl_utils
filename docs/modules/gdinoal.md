@@ -1,4 +1,4 @@
-# gdinoal.py — Grounding DINO
+# 🔍 gdinoal.py — Grounding DINO
 
 Открытая детекция по текстовым запросам: модель находит объекты по описанию и
 сразу переводит их в CVAT-датафрейм.
@@ -6,7 +6,7 @@
 **Зависимости:** `groundingdino`, `torch`, `opencv-python`, `matplotlib`,
 `pt_utils.py`, `cvat.py`, `cv_utils.py`, `ml_utils.py`, `utils.py`.
 
-## Найти объекты по описанию
+## 🔍 Найти объекты по описанию
 
 ```python
 import cv2
@@ -32,7 +32,7 @@ print(df[['label', 'points', 'attributes']])
 разметке. Один запрос может отображаться в несколько формулировок, и наоборот,
 несколько запросов могут давать одну метку.
 
-## Нарисовать результат
+## 🎨 Нарисовать результат
 
 ```python
 preview = model.draw(image)
@@ -42,7 +42,7 @@ cv2.imwrite('preview.jpg', preview[..., ::-1])
 model.show(image)
 ```
 
-## Один запрос строкой
+## 📝 Один запрос строкой
 
 ```python
 model = GDino(prompt2label='Person')
@@ -51,7 +51,7 @@ df = model(image)  # метка будет равна самому запрос�
 
 Если `prompt2label` — строка, она используется и как запрос, и как метка.
 
-## Постобработка
+## ⚙️ Постобработка
 
 ```python
 from boxmot_utils import Tracker
@@ -67,7 +67,7 @@ model = GDino(
 Фильтры применяются к списку `BBox`; фильтр может принимать `(objs)` или
 `(objs, img)`. `NMS` убирает дубли, `Tracker` добавляет `track_id`.
 
-## Пакетная обработка кадров
+## 🎞️ Пакетная обработка кадров
 
 ```python
 for frame in frames:
@@ -77,7 +77,7 @@ for frame in frames:
 
 `df_as_list_of_dfs=True` полезен, когда объекты нужно обрабатывать по одному.
 
-## Ограничения
+## ⚠️ Ограничения
 
 - Модель скачивается в `~/models`, если передано только имя файла.
   Поддерживаются `groundingdino_swint_ogc.pth` и

@@ -1,4 +1,4 @@
-# keras_utils.py — модели, слои и обучение Keras
+# 🧠 keras_utils.py — модели, слои и обучение Keras
 
 Сборка сегментационных моделей из backbone-ов `keras.applications`, готовые
 слои-блоки, метрики, колбеки и загрузчик датасета `inp`/`out`.
@@ -6,7 +6,7 @@
 **Зависимости:** `keras` (или `tf_keras`, `tf.keras` — см. ниже), `tensorflow`,
 `numpy`, `tensorboard`, `matplotlib`, `pandas`, `opencv-python`, `utils.py`.
 
-## Выбрать реализацию Keras
+## 🎯 Выбрать реализацию Keras
 
 Модуль читает переменную окружения `KERAS_MODULE` при импорте:
 
@@ -20,7 +20,7 @@ from keras_utils import UNet
 Значение по умолчанию — `keras`. Переменную нужно выставить до первого импорта
 `keras_utils`; позже она не перечитывается. `tfmot_utils` делает это сам.
 
-## Собрать модель сегментации
+## 🧱 Собрать модель сегментации
 
 ```python
 from keras_utils import SegDataLoader, UNet
@@ -51,14 +51,14 @@ model.fit(train_loader, epochs=20)
 Сохранение модели и получение маски из предсказания описаны в разделе
 [«Обучение»](training.md).
 
-## Разделы
+## 🗂️ Разделы
 
 - [Модели](models.md) — backbone-ы, `UNet`, `Deeplabv3Plus`, замена головы
 - [Слои](layers.md) — строительные блоки для собственных архитектур
 - [Обучение](training.md) — метрики, колбеки, история, дистилляция
 - [Данные](data.md) — `SegDataLoader` для папок `inp`/`out`
 
-## Как устроено
+## 🔧 Как устроено
 
 Модуль импортирует выбранный Keras и сразу выставляет короткие псевдонимы:
 `layers`, `models`, `applications`, `callbacks`, `optimizers`, `losses`,
@@ -73,7 +73,7 @@ out = layers.Conv2D(1, 1, activation='sigmoid')(inp)
 model = models.Model(inp, out)
 ```
 
-## Ограничения
+## ⚠️ Ограничения
 
 - `KERAS_MODULE=tf.keras` и `KERAS_MODULE=tfmot` дают разные API; часть
   колбеков (`TrainingMode`, `AutoFinetune`) рассчитана на старый `learning_phase`
