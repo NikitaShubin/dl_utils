@@ -6,7 +6,31 @@
 **Зависимости:** `ultralytics`, `cv_utils.py`, `cvat.py`, `video_utils.py`,
 `utils.py`, `numpy`, `pandas`, `tqdm`.
 
-## 🏷️ Разметить изображение
+## 🚀 Примеры
+
+```python
+# Разметить изображение
+from ul_utils import UltralyticsModel
+
+model = UltralyticsModel('yolo11n.pt', mode='preannotation')
+df = model.img2df(image)
+```
+
+```python
+# Показать превью
+model = UltralyticsModel('yolo11n-seg.pt', mode='preview')
+preview = model.draw(image)
+```
+
+```python
+# Собрать трек по видео
+model = UltralyticsModel('yolo11n.pt', tracker='bytetrack.yaml')
+df, file, true_frames = model.video2subtask('data/video.mp4')
+```
+
+## 🏷️ Разметка
+
+### Разметить изображение
 
 ```python
 import cv2
@@ -24,7 +48,7 @@ print(df[['label', 'type', 'points']].head())
 `type`, `points`, `attributes` и остальные столбцы. Для детекции `type`
 равен `rectangle`, для сегментации — `polygon` или `mask`.
 
-## 👁️ Показать превью
+### Показать превью
 
 ```python
 model = UltralyticsModel('yolo11n-seg.pt', mode='preview')
@@ -35,7 +59,9 @@ cv2.imwrite('preview.jpg', preview[..., ::-1])
 В режиме `preview` вызов модели возвращает изображение с нарисованными
 объектами, а не датафрейм.
 
-## 🎯 Трекинг в видео
+## 🎯 Трекинг
+
+### Трекинг в видео
 
 ```python
 from ul_utils import UltralyticsModel

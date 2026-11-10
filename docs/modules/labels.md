@@ -5,7 +5,57 @@
 
 **Зависимости:** `pandas`, `treelib`, `openpyxl` (для `.xlsx`), `utils.py`.
 
-## ✏️ Заменить метки по словарю
+## 🚀 Примеры
+
+```python
+# Заменить метки по словарю
+from labels import LabelsConvertor
+
+converter = LabelsConvertor({
+    'person': 'people',
+    'crowd': 'people',
+    'car': 'transport',
+    'plane': 'transport',
+})
+
+print(converter('person'))  # people
+```
+
+```python
+# Загрузить таблицы и получить номер суперкласса
+from labels import LabelsConvertor
+
+converter = LabelsConvertor(
+    'labels.xlsx',
+    'superlabels.xlsx',
+    main_dict='label2superind',
+)
+print(converter('car'))  # номер суперкласса, например 2
+```
+
+```python
+# Применить словарь к датафрейму
+import pandas as pd
+from labels import LabelsConvertor
+
+converter = LabelsConvertor({'car': 'transport', 'bus': 'transport'})
+df = pd.DataFrame({'label': ['car', 'bus'], 'frame': [0, 0]})
+print(converter.apply2df(df)['label'].tolist())  # ['transport', 'transport']
+```
+
+```python
+# Найти метки, которых нет в словаре
+import pandas as pd
+from labels import LabelsConvertor
+
+converter = LabelsConvertor({'car': 'transport'})
+df = pd.DataFrame({'label': ['car', 'bus']})
+print(converter.get_unknown_labels(df))  # {'bus'}
+```
+
+## ✏️ Преобразование
+
+### Заменить метки по словарю
 
 ```python
 from labels import LabelsConvertor
@@ -23,7 +73,7 @@ print(converter('person'))  # people
 Экземпляр — обычный словарь: `converter['car']` тоже работает. Если метки нет
 в словаре, будет `KeyError`.
 
-## ⚙️ Применить к датафрейму
+### Применить к датафрейму
 
 ```python
 import pandas as pd
@@ -39,7 +89,7 @@ print(converted['label'].tolist())  # ['transport', 'transport']
 Исходный датафрейм не меняется: возвращается копия с заменённым столбцом
 `label`.
 
-## ⚙️ Применить к объектам
+### Применить к объектам
 
 ```python
 from cv_utils import BBox
@@ -55,7 +105,9 @@ print(objects[0].attribs['label'])  # transport
 Работает с любыми объектами, у которых есть `attribs['label']` и метод
 `copy()`.
 
-## 📥 Загрузить таблицу
+## 📥 Загрузка
+
+### Загрузить таблицу
 
 ```python
 from labels import LabelsConvertor
@@ -75,7 +127,9 @@ converter = LabelsConvertor('superlabels.xlsx')
 Для `.xlsx` нужен `openpyxl`. Старый `.xls` пересохраните в `.xlsx`: код
 пытается открыть его через `openpyxl`, а тот этот формат не читает.
 
-## 🎯 Выбрать итоговое представление
+## 🎯 Представление
+
+### Выбрать итоговое представление
 
 ```python
 converter = LabelsConvertor(
@@ -92,7 +146,9 @@ print(converter('car'))  # номер суперкласса, например 2
 - `label2superind` — имя метки в номер суперметки (для YOLO и масок `seg`);
 - `auto` — самый длинный переход, который позволяют данные.
 
-## 🏷️ Удалить и запретить метки
+## 🏷️ Ограничения меток
+
+### Удалить и запретить метки
 
 ```python
 converter = LabelsConvertor(
@@ -107,7 +163,9 @@ converter = LabelsConvertor(
 `ForbiddenLabelError` при `values2raise`. Прямой вызов `converter('person')`
 запрет игнорирует.
 
-## ✅ Проверить неизвестные метки
+## ✅ Проверка
+
+### Проверить неизвестные метки
 
 ```python
 unknown = converter.get_unknown_labels(df)

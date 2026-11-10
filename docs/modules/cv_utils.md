@@ -7,11 +7,10 @@
 IPython, Pillow, `tqdm`. Matplotlib импортируется на уровне модуля, даже если
 графики не используются.
 
-## 🚀 Быстрый старт
-
-Маска из NumPy-массива, её площадь и обрамляющая рамка:
+## 🚀 Примеры
 
 ```python
+# Маска из NumPy-массива: площадь и обрамляющая рамка
 import numpy as np
 from cv_utils import Mask
 
@@ -21,6 +20,29 @@ mask.array[20:60, 30:70] = True
 print(mask.area())          # 1600
 print(mask.rectangle())     # (30, 20, 70, 60) — x0, y0, x1, y1
 print(mask.asbbox())        # (30, 20, 40, 40) — x, y, w, h
+```
+
+```python
+# Рамка из формата xywh и её IoU с рамкой из YOLO
+from cv_utils import BBox
+
+box = BBox.from_format((30, 20, 40, 40), format='xywh')
+other = BBox.from_yolo((0.5, 0.5, 0.2, 0.2), imsize=(100, 100))
+print(box.Jaccard_with(other))
+```
+
+```python
+# Подавить дубликаты детекций одного класса
+from cv_utils import BBox, NMS
+
+detections = [
+    BBox.from_format((10, 10, 50, 50), format='xywh',
+                     attribs={'label': 'car', 'confidence': 0.9}),
+    BBox.from_format((12, 12, 50, 50), format='xywh',
+                     attribs={'label': 'car', 'confidence': 0.7}),
+]
+kept = NMS(minIoU=0.5)(detections)
+print(len(kept))  # 1
 ```
 
 ## 🎭 Маски

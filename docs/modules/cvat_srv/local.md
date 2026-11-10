@@ -3,7 +3,44 @@
 `clone()` скачивает бекап и отдаёт объект, у которого разметка лежит в
 `pandas.DataFrame`. Меняйте `df` и `file`, затем вызывайте `push()`.
 
-## ✏️ Изменить разметку задачи
+## 🚀 Примеры
+
+```python
+# Скачать задачу, поправить разметку и отправить обратно
+local_task = srv['Project 1']['Task 1'].clone()
+
+for job in local_task.data:
+    job.df = job.df[job.df['label'] != 'person']
+
+updated_task = local_task.push()
+```
+
+```python
+# Изменить разметку всех задач проекта
+local_project = srv['Project 1'].clone()
+
+for local_task in local_project.data:
+    for job in local_task.data:
+        job.df = job.df[job.df['label'] != 'person']
+
+updated_project = local_project.push()
+```
+
+```python
+# Переставить кадры задачи из отдельных изображений
+local_task = srv['Project 1']['Task 1'].clone()
+local_task.reorder_frames([2, 0, 1])
+local_task.push()
+```
+
+```python
+# Сохранить правки только в локальной папке
+local_task.push(local_only=True)
+```
+
+## ✏️ Изменение задачи
+
+### Изменить разметку задачи
 
 ```python
 task = srv['Project 1']['Task 1']
@@ -24,27 +61,7 @@ print(updated_task.url)
 локальной копии. Возвращается уже новый серверный объект; старый `task`
 после этого устарел.
 
-## 📦 Что лежит внутри задачи
-
-```python
-local_task = srv['Project 1']['Task 1'].clone()
-
-print(local_task.info['name'])      # имя задачи
-print(local_task.info['labels'])    # CVATLabels
-print(len(local_task.data))         # число подзадач
-
-job = local_task.data[0]
-print(job.file)                     # видео или список изображений
-print(len(job))                     # число кадров
-print(job.df.columns)               # схема разметки
-```
-
-`job.df` — таблица аннотаций: `label`, `frame`, `type`, `points`, `outside`,
-`attributes` и другие столбцы. `job.true_frames` сопоставляет номера кадров
-исходного файла и прореженной последовательности. У неразмеченной задачи
-`df` может быть `None`.
-
-## ✏️ Изменить проект
+### Изменить проект
 
 ```python
 project = srv['Project 1']
@@ -66,7 +83,7 @@ updated_project = local_project.push()
 local_project = project.clone(parted=False)
 ```
 
-## ↔️ Переставить кадры
+### Переставить кадры
 
 Если задача собрана из отдельных изображений, порядок можно задать по номерам
 в именах файлов:
@@ -86,7 +103,29 @@ local_task.reorder_frames([2, 0, 1])
 Метод работает только для задачи с одной подзадачей и несколькими файлами
 изображений. Для видео он не нужен.
 
-## 💾 Сохранить изменения только локально
+## 📦 Устройство задачи
+
+```python
+local_task = srv['Project 1']['Task 1'].clone()
+
+print(local_task.info['name'])      # имя задачи
+print(local_task.info['labels'])    # CVATLabels
+print(len(local_task.data))         # число подзадач
+
+job = local_task.data[0]
+print(job.file)                     # видео или список изображений
+print(len(job))                     # число кадров
+print(job.df.columns)               # схема разметки
+```
+
+`job.df` — таблица аннотаций: `label`, `frame`, `type`, `points`, `outside`,
+`attributes` и другие столбцы. `job.true_frames` сопоставляет номера кадров
+исходного файла и прореженной последовательности. У неразмеченной задачи
+`df` может быть `None`.
+
+## 💾 Локальные изменения
+
+### Сохранить изменения только локально
 
 ```python
 local_task.push(local_only=True)
@@ -96,7 +135,9 @@ local_task.push(local_only=True)
 сервер ничего не отправляется. Полезно, чтобы забрать данные и обработать их
 другими инструментами.
 
-## 🗑️ Убрать временные файлы
+## 🗑️ Очистка
+
+### Убрать временные файлы
 
 ```python
 local_task.rm_all_paths2remove()

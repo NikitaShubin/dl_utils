@@ -3,7 +3,49 @@
 `mpmap` — параллельный аналог `map` — и пара помощников для матричных
 вычислений и перестановок.
 
-## ⚙️ Обработать список в несколько процессов
+## 🚀 Примеры
+
+```python
+from pathlib import Path
+from utils import mpmap
+
+
+def file_size(path):
+    return Path(path).stat().st_size
+
+
+# Посчитать размеры файлов параллельно
+files = ['frame_01.jpg', 'frame_02.jpg', 'frame_03.jpg']
+sizes = mpmap(file_size, files, num_procs=4, desc='Размеры файлов')
+```
+
+```python
+import numpy as np
+from utils import apply_on_cartesian_product
+
+
+def iou(a, b):
+    return np.sum(a & b) / np.sum(a | b)
+
+
+# Посчитать матрицу попарных IoU
+masks = [mask_a, mask_b, mask_c]
+matrix = apply_on_cartesian_product(iou, masks, symmetric=True, diag_val=1.0)
+```
+
+```python
+from utils import invzip, mpmap
+
+# Разложить пары аргументов для mpmap
+pairs = [(image_1, 'left'), (image_2, 'right')]
+images, sides = invzip(pairs)
+
+results = mpmap(process_side, images, sides)
+```
+
+## ⚙️ Параллельная обработка
+
+### Обработать список в несколько процессов
 
 ```python
 from pathlib import Path
@@ -40,7 +82,7 @@ mpmap(crop_and_save, images, boxes, suffixes, desc='Нарезка')
 текущем процессе без `multiprocessing`. Дробное значение трактуется как доля
 ядер: `num_procs=0.5`.
 
-## 🗂️ Сгруппировать мелкие задачи
+### Сгруппировать мелкие задачи
 
 Для коротких функций накладные расходы на процесс больше полезной работы.
 `batch_size` собирает несколько элементов в одну задачу:
@@ -51,7 +93,9 @@ from utils import mpmap
 areas = mpmap(compute_area, masks, batch_size=16, desc='Площади масок')
 ```
 
-## ↔️ Переставить аргументы для `mpmap`
+## ↔️ Перестановки
+
+### Переставить аргументы для `mpmap`
 
 `invzip` превращает список кортежей аргументов в список списков — ровно то,
 что ждёт `mpmap`:
@@ -65,7 +109,23 @@ images, sides = invzip(pairs)
 results = mpmap(process_side, images, sides)
 ```
 
-## 🔢 Матрица попарных значений
+### Переставить несколько списков одинаково
+
+```python
+from utils import reorder_lists
+
+names = ['car', 'person', 'bike']
+scores = [0.9, 0.6, 0.8]
+order = [2, 0, 1]
+
+names, scores = reorder_lists(order, names, scores)
+# names  == ['bike', 'car', 'person']
+# scores == [0.8, 0.9, 0.6]
+```
+
+## 📐 Матрицы
+
+### Матрица попарных значений
 
 `apply_on_cartesian_product` применяет функцию к каждой паре элементов и
 возвращает матрицу. Для симметричной функции (`symmetric=True`) считает только
@@ -84,20 +144,6 @@ matrix = apply_on_cartesian_product(iou, masks, symmetric=True, diag_val=1.0)
 
 Если `values2` не передан, функция работает с декартовым квадратом `values1`.
 Диагональ можно сразу заполнить через `diag_val`, не вызывая функцию.
-
-## ↔️ Переставить несколько списков одинаково
-
-```python
-from utils import reorder_lists
-
-names = ['car', 'person', 'bike']
-scores = [0.9, 0.6, 0.8]
-order = [2, 0, 1]
-
-names, scores = reorder_lists(order, names, scores)
-# names  == ['bike', 'car', 'person']
-# scores == [0.8, 0.9, 0.6]
-```
 
 ## ⚠️ Ограничения
 

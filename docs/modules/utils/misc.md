@@ -3,7 +3,45 @@
 Небольшие функции, которые не выросли в отдельные разделы: римские числа,
 индексы и перестановки, случайные зёрна, круговой индекс.
 
-## 🔢 Римские числа
+## 🚀 Примеры
+
+```python
+from utils import rim2arabic
+
+# Прочитать римское число
+print(rim2arabic('XIV'))  # 14
+```
+
+```python
+from utils import invert_index_vector, reorder_lists
+
+# Построить обратную перестановку и переставить списки
+order = [1, 3, 0, 2]
+print(invert_index_vector(order))  # [2, 0, 3, 1]
+names, scores = reorder_lists(order, ['car', 'person', 'bike'], [0.9, 0.6, 0.8])
+```
+
+```python
+from utils import CircleInd
+
+# Пройти по кругу и замкнуться на границе
+index = CircleInd(circle=4, ind=0)
+print(index.inc())  # 1
+```
+
+```python
+import random
+from utils import InternalRandomSeed
+
+# Зафиксировать random внутри блока
+seed = InternalRandomSeed(start_seed=42)
+with seed:
+    print(random.choice(['red', 'green', 'blue']))
+```
+
+## 🔢 Числа и коллекции
+
+### Римские числа
 
 ```python
 from utils import rim2arabic
@@ -15,7 +53,7 @@ print(rim2arabic('MCMXCIV'))  # 1994
 Обратного преобразования нет: функция нужна для чтения римских обозначений в
 именах файлов и папок.
 
-## 🔢 Индексы и перестановки
+### Индексы и перестановки
 
 ```python
 from utils import invert_index_vector, reorder_lists
@@ -32,7 +70,7 @@ names, scores = reorder_lists(order, names, scores)
 образуют полный диапазон `0..max`, в результате появятся `None` — это
 ожидаемо.
 
-## 🔢 Списки произвольной вложенности
+### Списки произвольной вложенности
 
 ```python
 from utils import flatten_list, unflatten_list
@@ -47,7 +85,7 @@ grid = unflatten_list(flat[:4], shape=[2, 2])
 вложенности. `unflatten_list` работает как `reshape` для списков; `-1`
 вычисляется автоматически.
 
-## 🔢 Круговой индекс
+### Круговой индекс
 
 ```python
 from utils import CircleInd
@@ -61,7 +99,7 @@ print(index.dec())  # 3
 `CircleInd` замыкается на границах и приводится к `int` — удобно для выбора
 цвета или кадра по кругу.
 
-## 🎲 Воспроизводимость случайных чисел
+### Воспроизводимость случайных чисел
 
 ```python
 import random
@@ -81,7 +119,7 @@ print(random.randint(0, 100))  # внешний генератор не сбит
 Внутри блока используется собственное состояние `random`, внешнее остаётся
 нетронутым.
 
-## 🔢 Привести значение к паре
+### Привести значение к паре
 
 ```python
 from utils import a2hw

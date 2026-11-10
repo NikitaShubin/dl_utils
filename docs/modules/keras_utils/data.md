@@ -3,7 +3,55 @@
 `SegDataLoader` — `keras.utils.Sequence` для сегментационных датасетов с
 папками `inp` и `out`.
 
-## 🗂️ Структура датасета
+## 🚀 Примеры
+
+```python
+# Загрузить датасет из папок inp/out
+from keras_utils import SegDataLoader
+
+train_loader = SegDataLoader(
+    'dataset/train',
+    num_classes=4,
+    batch_size=8,
+    shuffle=True,
+)
+
+model.fit(train_loader, epochs=20)
+```
+
+```python
+# Добавить аугментацию Albumentations
+import albumentations as A
+
+from keras_utils import SegDataLoader
+
+transforms = A.Compose([
+    A.HorizontalFlip(p=0.5),
+    A.RandomCrop(512, 512),
+])
+
+loader = SegDataLoader(
+    'dataset/train',
+    num_classes=4,
+    transforms=transforms,
+    batch_size=8,
+)
+```
+
+```python
+# Повторить семплы в эпохе и проверить батч
+loader = SegDataLoader(
+    'dataset/train',
+    num_classes=4,
+    batch_size=8,
+    epoch_multiplier=3,
+)
+loader.show()
+```
+
+## 🗂️ Датасет
+
+### Структура датасета
 
 ```text
 dataset/train/
@@ -23,7 +71,7 @@ dataset/train/
 незамеченным. Нумерация с ведущими нулями (`00000001.png`) сохраняет числовой
 порядок при лексикографической сортировке.
 
-## 📥 Загрузить датасет
+### Загрузить датасет
 
 ```python
 from keras_utils import SegDataLoader
@@ -68,7 +116,18 @@ num_classes = int(max_label) + 1
 255, поэтому бинарная маска должна храниться как `0/255`. Если у вас маска
 `0/1`, приведите её к `0/255` или используйте `num_classes=2` и one-hot.
 
-## 🎯 Выбрать лосс
+### Проверить батч
+
+```python
+loader.show()
+```
+
+Метод берёт случайный батч и рисует пары «изображение — маска» через
+`matplotlib`.
+
+## 🎯 Лосс
+
+### Выбрать лосс
 
 - `num_classes` задан → one-hot маска → `categorical_crossentropy`;
 - `num_classes` не задан → маска `0/255` после деления на 255 → `binary_crossentropy`.
@@ -118,7 +177,9 @@ one-hot по `num_classes`, ресайзит маску `nearest` и не под
 режим. Для `UNet(out_filters=1)` остаётся `SegDataLoader`; для многоклассовой
 сегментации подойдёт любой из двух конвейеров.
 
-## ➕ Увеличить эпоху
+## ➕ Эпоха
+
+### Увеличить эпоху
 
 ```python
 loader = SegDataLoader(
@@ -131,15 +192,6 @@ loader = SegDataLoader(
 
 Каждая эпоха повторяет семплы три раза в перемешанном порядке. Полезно для
 маленьких датасетов.
-
-## ✅ Проверить батч
-
-```python
-loader.show()
-```
-
-Метод берёт случайный батч и рисует пары «изображение — маска» через
-`matplotlib`.
 
 ## ⚠️ Ограничения
 

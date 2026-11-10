@@ -6,7 +6,42 @@
 **Зависимости:** `groundingdino`, `torch`, `opencv-python`, `matplotlib`,
 `pt_utils.py`, `cvat.py`, `cv_utils.py`, `ml_utils.py`, `utils.py`.
 
-## 🔍 Найти объекты по описанию
+## 🚀 Примеры
+
+```python
+# Найти объекты по описанию
+from gdinoal import GDino
+
+model = GDino(prompt2label={'Person': 'person', 'Car': 'car'})
+df = model.img2df(image)
+```
+
+```python
+# Нарисовать результат поверх кадра
+preview = model.draw(image)
+```
+
+```python
+# Добавить NMS и трекинг к результатам
+from boxmot_utils import Tracker
+from cv_utils import NMS
+from gdinoal import GDino
+
+model = GDino(
+    prompt2label={'Person': 'person'},
+    postprocess_filters=[NMS(), Tracker(tracker_type='ocsort')],
+)
+```
+
+```python
+# Задать запрос строкой
+model = GDino(prompt2label='Person')
+df = model(image)
+```
+
+## 🔍 Детекция
+
+### Найти объекты по описанию
 
 ```python
 import cv2
@@ -32,7 +67,28 @@ print(df[['label', 'points', 'attributes']])
 разметке. Один запрос может отображаться в несколько формулировок, и наоборот,
 несколько запросов могут давать одну метку.
 
-## 🎨 Нарисовать результат
+### Один запрос строкой
+
+```python
+model = GDino(prompt2label='Person')
+df = model(image)  # метка будет равна самому запросу
+```
+
+Если `prompt2label` — строка, она используется и как запрос, и как метка.
+
+### Пакетная обработка кадров
+
+```python
+for frame in frames:
+    df = model.img2df(frame, df_as_list_of_dfs=True)
+    # df — список однострочных датафреймов, по одному на объект
+```
+
+`df_as_list_of_dfs=True` полезен, когда объекты нужно обрабатывать по одному.
+
+## 🎨 Визуализация
+
+### Нарисовать результат
 
 ```python
 preview = model.draw(image)
@@ -41,15 +97,6 @@ cv2.imwrite('preview.jpg', preview[..., ::-1])
 # Или показать в ноутбуке:
 model.show(image)
 ```
-
-## 📝 Один запрос строкой
-
-```python
-model = GDino(prompt2label='Person')
-df = model(image)  # метка будет равна самому запросу
-```
-
-Если `prompt2label` — строка, она используется и как запрос, и как метка.
 
 ## ⚙️ Постобработка
 
@@ -66,16 +113,6 @@ model = GDino(
 
 Фильтры применяются к списку `BBox`; фильтр может принимать `(objs)` или
 `(objs, img)`. `NMS` убирает дубли, `Tracker` добавляет `track_id`.
-
-## 🎞️ Пакетная обработка кадров
-
-```python
-for frame in frames:
-    df = model.img2df(frame, df_as_list_of_dfs=True)
-    # df — список однострочных датафреймов, по одному на объект
-```
-
-`df_as_list_of_dfs=True` полезен, когда объекты нужно обрабатывать по одному.
 
 ## ⚠️ Ограничения
 

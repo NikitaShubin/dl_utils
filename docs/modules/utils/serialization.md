@@ -3,7 +3,38 @@
 JSON и YAML в одну строку, плюс `ManyToOne` — словарь с обратным индексом для
 классификаторов и справочников.
 
-## 📖 Прочитать и записать JSON/YAML
+## 🚀 Примеры
+
+```python
+from utils import obj2json, obj2yaml, json2obj
+
+# Сохранить словарь в JSON и прочитать обратно
+config = {'project': 'Project 1', 'labels': ['car', 'person']}
+obj2json(config, 'config.json')
+same = json2obj('config.json')
+```
+
+```python
+from utils import ManyToOne
+
+# Построить классификатор и обратный индекс
+classes = ManyToOne({'car': 'vehicle', 'bus': 'vehicle', 'cat': 'animal'})
+print(classes['car'])  # vehicle
+print(classes.one2many['vehicle'])  # ['car', 'bus']
+```
+
+```python
+from utils import ManyToOne
+
+# Сохранить классификатор и нарисовать связи
+classes = ManyToOne({'car': 'vehicle', 'bus': 'vehicle', 'cat': 'animal'})
+classes.save('classes.yaml')
+classes.to_mermaid('classes.mmd')
+```
+
+## 📖 JSON/YAML
+
+### Прочитать и записать JSON/YAML
 
 ```python
 from utils import obj2json, json2obj, obj2yaml, yaml2obj
@@ -20,7 +51,9 @@ same_yaml = yaml2obj('config.yaml')
 `obj2json(..., compact=True)` пишет JSON без отступов — удобно для больших
 файлов, которые читает только код.
 
-## 🏷️ Классификатор «многие к одному»
+## 🏷️ Классификатор
+
+### Классификатор «многие к одному»
 
 `ManyToOne` хранит соответствие `ключ → значение` и умеет отдавать обратный
 индекс `значение → [ключи]`:
@@ -50,7 +83,7 @@ classes = ManyToOne(
 print(classes['bus'])  # vehicle
 ```
 
-## 💾 Сохранить классификатор
+### Сохранить классификатор
 
 ```python
 from utils import ManyToOne
@@ -64,7 +97,9 @@ classes.save('classes.json', type='many2one')   # развёрнуто: car: veh
 Обратное чтение — обычный конструктор: тип определяется автоматически по
 структуре файла.
 
-## 🕸️ Нарисовать связи
+## 🕸️ Связи
+
+### Нарисовать связи
 
 ```python
 from utils import ManyToOne

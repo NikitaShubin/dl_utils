@@ -6,24 +6,31 @@
 **Зависимости:** NumPy, OpenCV, pandas, Matplotlib, PyYAML, tqdm, IPython;
 `jupyter-beeper` — опционально для `Beep`.
 
-## 🚀 Быстрый старт
+## 🚀 Примеры
 
-Замер времени, поиск файлов и параллельная обработка:
+```python
+from utils import TimeIt, get_file_list
+
+# Замерить время поиска файлов
+with TimeIt('поиск файлов') as timer:
+    files = get_file_list('data', '.jpg')
+
+print(len(files), timer())
+```
 
 ```python
 from pathlib import Path
-from utils import TimeIt, get_file_list, mpmap
+from utils import get_file_list, mpmap
 
 
 def file_size(path):
     return Path(path).stat().st_size
 
 
-with TimeIt('поиск и обработку') as timer:
-    files = get_file_list('data', '.jpg')
-    sizes = mpmap(file_size, files, desc='Размеры')
-
-print(len(files), sum(sizes), timer())
+# Посчитать размеры файлов параллельно
+files = get_file_list('data', '.jpg')
+sizes = mpmap(file_size, files, desc='Размеры')
+print(sum(sizes))
 ```
 
 ## 🗂️ Разделы

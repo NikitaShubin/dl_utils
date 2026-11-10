@@ -4,7 +4,34 @@
 любой вызываемый объект, который принимает RGB-кадр и возвращает датафрейм в
 формате CVAT.
 
-## 🏷️ Разметить задачу
+## 🚀 Примеры
+
+```python
+# Применить модель к готовой задаче
+from cvat import tasks_auto_annottation
+from gdinoal import GDino
+
+gdino = GDino(prompt2label={'Person': 'person'})
+tasks = tasks_auto_annottation(tasks, gdino.img2df, label='person')
+```
+
+```python
+# Разметить весь бекап: по XML на каждую задачу
+from cvat import cvat_backup_dir2auto_annotation_xmls
+from gdinoal import GDino
+
+gdino = GDino(prompt2label={'Person': 'person'})
+cvat_backup_dir2auto_annotation_xmls(
+    'backups/Project_1',
+    gdino.img2df,
+    label='person',
+    xml_dir='exports/auto',
+)
+```
+
+## 🎯 Разметка задач
+
+### Разметить задачу
 
 ```python
 from cvat import tasks_auto_annottation
@@ -25,7 +52,7 @@ tasks = tasks_auto_annottation(
 `False` заменяет её результатом модели. Параметр `label` заполняет пропущенные
 метки в ответе модели.
 
-## ⚙️ Постобработка подзадач
+### Постобработка подзадач
 
 ```python
 from cvat import hide_skipped_objects_in_subtask
@@ -41,7 +68,14 @@ tasks = tasks_auto_annottation(
 Фильтр получает и возвращает подзадачу `(df, file, true_frames)`. Так можно
 скрыть объекты в кадрах, где модель их не нашла.
 
-## 🏷️ Разметить одну задачу из бекапа
+### Сброс модели
+
+Если у `img2df` есть метод `reset`, он вызывается до и после обработки. Это
+важно для трекеров и моделей с состоянием.
+
+## 💾 Разметка бекапов
+
+### Разметить одну задачу из бекапа
 
 ```python
 from cvat import cvat_backup_task_dir2auto_annotation_xml
@@ -58,7 +92,7 @@ cvat_backup_task_dir2auto_annotation_xml(
 Функция читает распакованную задачу, применяет модель и сохраняет XML,
 совместимый с CVAT.
 
-## 🏷️ Разметить весь бекап
+### Разметить весь бекап
 
 ```python
 from cvat import cvat_backup_dir2auto_annotation_xmls
@@ -73,11 +107,6 @@ cvat_backup_dir2auto_annotation_xmls(
 ```
 
 Для каждой задачи создаётся отдельный XML в `xml_dir`.
-
-## ♻️ Сброс модели
-
-Если у `img2df` есть метод `reset`, он вызывается до и после обработки. Это
-важно для трекеров и моделей с состоянием.
 
 ## ⚠️ Ограничения
 

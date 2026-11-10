@@ -7,6 +7,37 @@
 **Зависимости:** `pandas`, `numpy`, `opencv-python`, `scipy`, `matplotlib`,
 `Pillow`, `tqdm`, `cv_utils.py`, `video_utils.py`, `utils.py`.
 
+## 🚀 Примеры
+
+```python
+# Создать пустой датафрейм CVAT
+from cvat import new_df
+
+df = new_df()
+print(df.columns.tolist())
+```
+
+```python
+# Собрать подзадачу из кадра и одного объекта
+import cv2
+from cvat import CVATPoints, add_row2df, new_df
+
+image = cv2.imread('frame_01.jpg')
+points = CVATPoints.from_yolobbox(0.5, 0.4, 0.2, 0.3, image.shape[:2])
+df = add_row2df(
+    new_df(), label='car', frame=0, true_frame=0,
+    points=points.flatten(), type='rectangle',
+)
+subtask = (df, 'frame_01.jpg', {0: 0})
+```
+
+```python
+# Прочитать распакованный бекап в список задач
+from cvat import cvat_backups2tasks
+
+tasks = cvat_backups2tasks('backups')
+```
+
 ## 🧬 Модель данных
 
 Задача CVAT — список подзадач. Каждая подзадача — кортеж из трёх элементов:
@@ -21,6 +52,29 @@ subtask = (df, file, true_frames)
 
 Задача нужна, чтобы группировать подзадачи одного видео или сцены: при
 разбиении на train/val/test единицей служит задача, а не отдельный кадр.
+
+### Собрать подзадачу вручную
+
+```python
+import cv2
+from cvat import CVATPoints, add_row2df, new_df
+
+image = cv2.imread('frame_01.jpg')
+height, width = image.shape[:2]
+
+df = new_df()
+points = CVATPoints.from_yolobbox(0.5, 0.4, 0.2, 0.3, (height, width))
+df = add_row2df(
+    df,
+    label='car',
+    frame=0,
+    true_frame=0,
+    points=points.flatten(),
+    type='rectangle',
+)
+
+subtask = (df, 'frame_01.jpg', {0: 0})
+```
 
 ## 📊 Датафрейм
 
@@ -45,29 +99,6 @@ row = points.to_dfrow()
 
 df = concat_dfs([new_df(), row])
 df['label'] = 'car'
-```
-
-## 🧱 Собрать подзадачу вручную
-
-```python
-import cv2
-from cvat import CVATPoints, add_row2df, new_df
-
-image = cv2.imread('frame_01.jpg')
-height, width = image.shape[:2]
-
-df = new_df()
-points = CVATPoints.from_yolobbox(0.5, 0.4, 0.2, 0.3, (height, width))
-df = add_row2df(
-    df,
-    label='car',
-    frame=0,
-    true_frame=0,
-    points=points.flatten(),
-    type='rectangle',
-)
-
-subtask = (df, 'frame_01.jpg', {0: 0})
 ```
 
 ## 🗂️ Разделы

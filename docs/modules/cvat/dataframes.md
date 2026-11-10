@@ -3,7 +3,38 @@
 Создание строк, изменение, сохранение и конвертация между датафреймом и
 объектами `Mask`/`BBox`.
 
-## ➕ Создать строку
+## 🚀 Примеры
+
+```python
+# Добавить прямоугольник в пустой датафрейм
+from cvat import CVATPoints, add_row2df, new_df
+
+points = CVATPoints.from_yolobbox(0.5, 0.4, 0.2, 0.3, imsize=(1080, 1920))
+df = add_row2df(
+    new_df(), label='car', frame=0, true_frame=0,
+    points=points.flatten(), type='rectangle',
+)
+```
+
+```python
+# Сохранить разметку в TSV и прочитать обратно
+from cvat import df_load, df_save
+
+df_save(df, 'annotations.tsv')
+same_df = df_load('annotations.tsv')
+```
+
+```python
+# Превратить датафрейм в объекты и обратно
+from cvat import df2objs, objs2df
+
+objects = df2objs(df, imsize=(1080, 1920))
+restored = objs2df(objects, label='car', frame=0)
+```
+
+## ➕ Создание и изменение
+
+### Создать строку
 
 ```python
 from cvat import CVATPoints, add_row2df, new_df
@@ -24,7 +55,7 @@ df = add_row2df(
 `add_row2df` заполняет незаданные поля значениями по умолчанию и приводит типы
 столбцов. Если `df` не передан, возвращается новый датафрейм с одной строкой.
 
-## ✏️ Изменить строку
+### Изменить строку
 
 ```python
 from cvat import update_row
@@ -37,7 +68,9 @@ df.iloc[0] = row
 `update_row` не меняет исходную строку, если `inplace=False` (по умолчанию).
 Незнакомые столбцам ключи попадают в `attribs`.
 
-## 💾 Сохранить и загрузить
+## 💾 Сохранение и объединение
+
+### Сохранить и загрузить
 
 ```python
 from cvat import df_load, df_save
@@ -49,7 +82,7 @@ same_df = df_load('annotations.tsv')
 Формат — TSV. Списки и словари сериализуются в строки и восстанавливаются при
 чтении; `track_id=None` переживает сохранение.
 
-## 🔗 Объединить датафреймы
+### Объединить датафреймы
 
 ```python
 from cvat import concat_dfs
@@ -63,7 +96,9 @@ full_df = concat_dfs([df_1, df_2], smart=True)
 `concat_dfs` принимает датафреймы, строки и вложенные списки. `smart=True`
 перенумеровывает `track_id` перед объединением.
 
-## 🔄 Конвертировать в объекты
+## 🔄 Конвертация
+
+### Конвертировать в объекты
 
 ```python
 from cvat import df2masks, df2objs
@@ -75,7 +110,7 @@ objects = df2objs(df, imsize=(1080, 1920))
 `df2objs` выбирает `Mask` для полигонов и `BBox` для прямоугольников.
 `df2masks` с `saving_memory=True` создаёт маски лениво.
 
-## 🔄 Конвертировать обратно
+### Конвертировать обратно
 
 ```python
 from cvat import objs2df
@@ -86,7 +121,7 @@ df = objs2df(objects, label='car', frame=0)
 Дополнительные аргументы становятся значениями столбцов; атрибуты объектов
 добавляются из `obj.attribs`.
 
-## 📥 Получить `annotations.json`
+### Получить `annotations.json`
 
 ```python
 from cvat import df2annotations
@@ -99,7 +134,9 @@ obj2json(annotations, 'annotations.json')
 Словарь содержит теги, формы и треки в формате CVAT. Обратное чтение
 выполняется парсером бекапа.
 
-## ✅ Проверить корректность
+## ✅ Проверка
+
+### Проверить корректность
 
 ```python
 from cvat import check_df

@@ -6,7 +6,42 @@ Quantization-aware training и прунинг через TensorFlow Model Optimi
 **Зависимости:** `tensorflow-model-optimization`, `keras_utils.py`,
 `tensorflow`.
 
-## 🗜️ Подготовить модель к квантизации
+## 🚀 Примеры
+
+```python
+# Подготовить модель к quantization-aware training
+from tfmot_utils import Quantize
+
+quantized_model, prepared_model = Quantize()(model)
+quantized_model.compile(optimizer='adam', loss='sparse_categorical_crossentropy')
+```
+
+```python
+# Загрузить сохранённую QAT-модель
+from tfmot_utils import Quantize
+
+model = Quantize.load_model('models/qat_model.keras')
+```
+
+```python
+# Включить прунинг и колбеки для TensorBoard
+from tfmot_utils import prune_low_magnitude, get_pruning_callbacks
+
+pruned_model = prune_low_magnitude(model)
+callbacks = get_pruning_callbacks('logs/pruning')
+pruned_model.fit(train_ds, epochs=10, callbacks=callbacks)
+```
+
+```python
+# Проверить квантизацию приложений Keras
+from tfmot_utils import test_aplications
+
+test_aplications(include_top=False)
+```
+
+## 🗜️ Квантизация
+
+### Подготовить модель к квантизации
 
 ```python
 from tfmot_utils import Quantize
@@ -25,7 +60,7 @@ quantized_model.fit(train_ds, epochs=5)
 
 Параметры компиляции исходной модели переносятся автоматически.
 
-## 📥 Загрузить сохранённую QAT-модель
+### Загрузить сохранённую QAT-модель
 
 ```python
 from tfmot_utils import Quantize
@@ -36,7 +71,7 @@ model = Quantize.load_model('models/qat_model.keras')
 При загрузке подключаются кастомные конфигурации квантизации, иначе Keras не
 найдёт классы.
 
-## 🗜️ Прунинг
+## ✂️ Прунинг
 
 ```python
 from tfmot_utils import prune_low_magnitude, get_pruning_callbacks
@@ -52,7 +87,9 @@ pruned_model.fit(train_ds, epochs=10, callbacks=callbacks)
 оставляет как есть. Колбеки обновляют маску прунинга и пишут события в
 TensorBoard.
 
-## ✅ Проверить приложения Keras
+## ✅ Проверка
+
+### Проверить приложения Keras
 
 ```python
 from tfmot_utils import test_aplications

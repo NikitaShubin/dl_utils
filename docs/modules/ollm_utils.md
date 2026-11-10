@@ -6,7 +6,54 @@
 **Зависимости:** `requests`, `beautifulsoup4`, `utils.py`; опционально
 `jupyter-ai` и бинарник `opencode`.
 
-## 💬 Поговорить с моделью
+## 🚀 Примеры
+
+```python
+# Поговорить с моделью
+import os
+
+os.environ['OLLAMA_HOST'] = 'http://localhost:11434'
+
+from ollm_utils import Chat
+
+chat = Chat(model='qwen2.5-coder:7b', temperature=0.0)
+answer = chat('Объясни, что делает функция mpmap.')
+print(answer)
+```
+
+```python
+# Разделить модели на диалоговые, эмбеддинговые и кодогенерирующие
+from ollm_utils import hosts2chat_embd_cmpl_models
+
+chat_models, embd_models, cmpl_models = hosts2chat_embd_cmpl_models(
+    ['http://localhost:11434'],
+)
+
+print(list(chat_models))
+print(list(embd_models))
+print(list(cmpl_models))
+```
+
+```python
+# Настроить Jupyter AI и OpenCode
+from ollm_utils import set_jupyter_ai_settings, set_opencode_settings
+
+path = set_jupyter_ai_settings()
+print(path)
+path = set_opencode_settings()
+print(path)
+```
+
+```python
+# Нормализовать адрес сервера
+from ollm_utils import normalize_host
+
+print(normalize_host('localhost'))  # http://localhost:11434
+```
+
+## 💬 Запросы
+
+### Поговорить с моделью
 
 ```python
 import os
@@ -23,7 +70,7 @@ print(answer)
 `Chat` хранит историю диалога в `messages`, поэтому следующий вызов помнит
 предыдущие реплики. `chat.reset()` очищает историю.
 
-## 📤 Передать файлы
+### Передать файлы
 
 ```python
 answer = chat(
@@ -35,7 +82,9 @@ answer = chat(
 Содержимое файлов добавляется к сообщению с заголовками. Для одного файла
 можно передать строку или `Path`.
 
-## 🏷️ Классифицировать модели
+## 🏷️ Классификация моделей
+
+### Классифицировать модели
 
 ```python
 from ollm_utils import hosts2chat_embd_cmpl_models
@@ -53,7 +102,9 @@ print(list(cmpl_models))
 кодогенерирующие. Тип определяется по тегам страницы модели на `ollama.com`,
 затем по эвристикам имени (`embed`, `code`, `chat`).
 
-## ⚙️ Настроить Jupyter AI
+## ⚙️ Настройка
+
+### Настроить Jupyter AI
 
 ```python
 from ollm_utils import set_jupyter_ai_settings
@@ -66,7 +117,7 @@ print(path)
 или v3. Если `jupyter-ai` не установлен, возвращается пустая строка. Адрес
 сервера берётся из `OLLAMA_HOST` или из аргумента `hosts`.
 
-## ⚙️ Настроить OpenCode
+### Настроить OpenCode
 
 ```python
 from ollm_utils import set_opencode_settings
@@ -78,7 +129,7 @@ print(path)
 Конфиг `~/.config/opencode/opencode.jsonc` дополняется провайдерами Ollama.
 Функция отключает генерацию заголовков на внешних серверах и sharing сессий.
 
-## 🚀 Запустить настройку целиком
+### Запустить настройку целиком
 
 ```bash
 python ollm_utils.py
@@ -87,7 +138,9 @@ python ollm_utils.py
 При запуске как скрипта вызываются обе настройки. Это удобно в
 `docker/cmd.sh`, где `OLLAMA_HOST` уже передан в контейнер.
 
-## 🔗 Нормализовать адрес
+## 🔗 Адрес
+
+### Нормализовать адрес
 
 ```python
 from ollm_utils import normalize_host

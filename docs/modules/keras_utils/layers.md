@@ -3,7 +3,43 @@
 Функции, собирающие фрагменты вычислительного графа Keras. Все они принимают
 тензоры и возвращают тензоры, поэтому встраиваются в функциональную модель.
 
-## 🏷️ Дать тензору имя
+## 🚀 Примеры
+
+```python
+# Назвать тензор для поиска в графе
+from keras_utils import NamingLayer, layers
+
+inp = layers.Input((256, 256, 3))
+named = NamingLayer('features')(inp)
+```
+
+```python
+# Собрать остаточный блок из готовых слоёв
+from keras_utils import layers, res_block
+
+inp = layers.Input((64, 64, 64))
+out = res_block(inp, lambda x: layers.Conv2D(64, 3, padding='same')(x))
+```
+
+```python
+# Масштабировать глубокий тензор под skip-соединение
+from keras_utils import Resizing2DLike, layers
+
+skip = layers.Input((128, 128, 64))
+deep = layers.Input((32, 32, 256))
+resized = Resizing2DLike(skip)(deep)
+```
+
+```python
+# Подключить вход модели к чужой предобработке
+from keras_utils import InputModel
+
+img_input, inputs = InputModel(input_shape=(512, 512, 3))
+```
+
+## 🧱 Слои
+
+### Дать тензору имя
 
 ```python
 from keras_utils import NamingLayer, layers, models
@@ -18,7 +54,7 @@ print(model.get_layer('features'))
 `NamingLayer` — `Lambda`-слой без вычислений. Имя пригодится для поиска узла
 в графе через `get_model_elements`.
 
-## 🧱 Глобальный пулинг с bottleneck
+### Глобальный пулинг с bottleneck
 
 ```python
 from keras_utils import global_pool_2D_with_bottleneck, layers
@@ -35,7 +71,7 @@ out = global_pool_2D_with_bottleneck(
 Дробные `bottleneck_size` и `out_size` считаются как доли от числа каналов
 входа. `mode` выбирает `avg`, `max` или `both`.
 
-## 🧱 Res-блок
+### Res-блок
 
 ```python
 from keras_utils import layers, res_block
@@ -47,7 +83,7 @@ out = res_block(inp, lambda x: layers.Conv2D(64, 3, padding='same')(x))
 `res_block` складывает вход и результат переданной функции. Число каналов и
 размер должны совпадать, иначе `Add` бросит ошибку.
 
-## 🧱 Пирамидальный пулинг
+### Пирамидальный пулинг
 
 ```python
 from keras_utils import layers, spatial_pyramid_pooling
@@ -65,7 +101,7 @@ out = spatial_pyramid_pooling(
 прореживанием. Пустой список отключает пирамиду, оставляя только глобальный
 пулинг.
 
-## 🗺️ Глобальная карта признаков
+### Глобальная карта признаков
 
 ```python
 from keras_utils import global_pool_conv2D, layers
@@ -77,7 +113,7 @@ out = global_pool_conv2D(inp, mode='both', filters=512)
 Функция строит вектор из `GlobalAvgPool` и `GlobalMaxPool`, прогоняет его
 через `Conv2D + BN + ReLU` и растягивает обратно до размера входа.
 
-## ↔️ Масштабировать под образец
+### Масштабировать под образец
 
 ```python
 from keras_utils import Resizing2DLike, layers
@@ -91,7 +127,7 @@ resized = Resizing2DLike(skip)(deep)
 Слой приводит пространственные размеры `deep` к размерам `skip`, не меняя
 число каналов. Требует полностью определённых размеров у образца.
 
-## 🧱 Узел фрактальной U-Net
+### Узел фрактальной U-Net
 
 ```python
 from keras_utils import fractal_unet_node, layers
@@ -113,7 +149,7 @@ out, new_skip = fractal_unet_node(
 вместе с новым skip-тензором. Имя параметра `donwsampled` сохранено как в
 исходном коде.
 
-## 🚪 Универсальный вход
+### Универсальный вход
 
 ```python
 from keras_utils import InputModel

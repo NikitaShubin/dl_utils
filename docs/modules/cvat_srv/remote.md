@@ -3,7 +3,45 @@
 Навигация по CVAT, создание проектов и задач, бекапы, экспорт и импорт
 разметки. Все операции идут через сервер, локальных копий здесь нет.
 
-## 🔌 Подключиться и найти объект
+## 🚀 Примеры
+
+```python
+# Подключиться и найти задачу по именам
+from cvat_srv import CVATSRV
+
+srv = CVATSRV(
+    host='http://localhost:8080',
+    username='admin',
+    password='admin',
+)
+task = srv['Project 1']['Task 1']
+job = task[0]
+```
+
+```python
+# Создать проект и задачу с видео
+project = srv.new('Project 2', ['car', 'person'])
+task = project.new(
+    'Task 2',
+    'data/video.mp4',
+    annotation_file='annotations.xml',
+)
+```
+
+```python
+# Скачать бекапы задачи и проекта
+task_path = task.backup('./backups', desc='Бекап задачи')
+project_path = project.backup('./backups', desc='Бекап проекта')
+```
+
+```python
+# Выгрузить разметку задачи в XML
+task.get_annotations('exports/Task 1.xml', format_name='CVAT for video 1.1')
+```
+
+## 🔌 Подключение
+
+### Подключиться и найти объект
 
 ```python
 from cvat_srv import CVATSRV
@@ -26,7 +64,7 @@ job = task[0]  # первая подзадача; подзадачи адрес�
 task = srv.from_url('http://localhost:8080/tasks/42')
 ```
 
-## 🧭 Пройти по иерархии
+### Пройти по иерархии
 
 ```python
 print(srv.keys())          # имена проектов
@@ -40,7 +78,9 @@ print(len(project))        # число задач в проекте
 Имена — это реальные имена объектов в CVAT. Если в проекте две задачи с
 одинаковым именем, `project['Task 1']` вызовет `IndexError`.
 
-## ➕ Создать проект и задачу
+## ➕ Создание
+
+### Создать проект и задачу
 
 ```python
 project = srv.new('Project 2', ['car', 'person'])
@@ -56,7 +96,9 @@ task = project.new(
 метками проекта; видео должно быть единственным файлом, изображения можно
 передавать списком.
 
-## ⬇️ Скачать бекап
+## 💾 Бекапы
+
+### Скачать бекап
 
 ```python
 task_path = task.backup('./backups', desc='Бекап задачи')
@@ -71,7 +113,7 @@ project_path = project.backup('./backups', desc='Бекап проекта')
 paths = project.backup('./backups', name=['Task 1', 'Task 2'])
 ```
 
-## ♻️ Восстановить из бекапа
+### Восстановить из бекапа
 
 ```python
 new_project = srv.restore('./backups/Project 1.zip')
@@ -89,7 +131,9 @@ restored = srv.restore_all('./backups', return_id_only=False)
 `restore_all` принимает папку с архивами или список путей и возвращает
 объекты, если `return_id_only=False`.
 
-## 🔄 Экспорт и импорт разметки
+## 🔄 Экспорт и импорт
+
+### Экспорт и импорт разметки
 
 ```python
 task.get_annotations('exports/Task 1.xml', format_name='CVAT for video 1.1')
@@ -106,7 +150,9 @@ task.set_annotations('exports/Task 1.xml', format_name='CVAT 1.1')
 task.export('exports/Task 1.zip', format='YOLO 1.1', include_images=True)
 ```
 
-## 📝 Описание задачи
+## 📝 Описание
+
+### Описание задачи
 
 ```python
 task.guide = 'Размечайте только автомобили и пешеходов.'
@@ -116,7 +162,9 @@ print(task.guide)
 Гайд хранится в Markdown. Вместо строки можно передать путь к файлу — он
 прочитается при установке.
 
-## 📖 Прочитать задачи без локального редактора
+## 📖 Чтение задач
+
+### Прочитать задачи без локального редактора
 
 `ReadTasks` скачивает бекапы, распаковывает их и возвращает сырые задачи. По
 завершении контекста временные папки удаляются:
@@ -132,7 +180,9 @@ with ReadTasks('./tmp/cvat_backup', './tmp/cvat_extract', project) as raw_tasks:
 Если вызвать объект без `with`, удаления не будет — это удобно, когда
 результат нужен после завершения чтения.
 
-## 🗑️ Удалить объект
+## 🗑️ Удаление
+
+### Удалить объект
 
 ```python
 task.delete()

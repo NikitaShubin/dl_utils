@@ -3,7 +3,39 @@
 `CVATLabel` и `CVATLabels` описывают схему классов CVAT: имена, цвета, типы,
 атрибуты и вложенные подметки.
 
-## ➕ Создать набор меток
+## 🚀 Примеры
+
+```python
+# Создать набор меток из списка имён
+from cvat import CVATLabels
+
+labels = CVATLabels(['car', 'person', 'traffic_light'])
+```
+
+```python
+# Прочитать схему классов из labels.json
+from cvat import CVATLabels
+
+labels = CVATLabels('project/labels.json')
+for label in labels:
+    print(label.name, label.color, label.type)
+```
+
+```python
+# Создать одну метку с атрибутом
+from cvat import CVATLabel
+
+label = CVATLabel({
+    'name': 'car',
+    'color': '#ff0000',
+    'type': 'any',
+    'attributes': [{'name': 'occluded', 'input_type': 'checkbox'}],
+})
+```
+
+## 🏷️ Метки
+
+### Создать набор меток
 
 ```python
 from cvat import CVATLabels
@@ -14,20 +46,7 @@ print(labels.names())  # ['car', 'person', 'traffic_light']
 
 Из строк создаются метки типа `any` с автоматически подобранными цветами.
 
-## 📖 Прочитать `labels.json`
-
-```python
-from cvat import CVATLabels
-
-labels = CVATLabels('project/labels.json')
-for label in labels:
-    print(label.name, label.color, label.type)
-```
-
-Файл — JSON-список словарей с полями `name`, `color`, `type`, `attributes`.
-Такой файл удобно хранить рядом с проектом.
-
-## 🏷️ Одна метка
+### Одна метка
 
 ```python
 from cvat import CVATLabel
@@ -49,7 +68,43 @@ print(label.to_dict())
 `to_dict()` возвращает словарь в формате CVAT. Цвет можно задать кортежем,
 списком или числом.
 
-## 🎛️ Радиокнопки в Jupyter
+### Отсортировать и скопировать
+
+```python
+sorted_labels = labels.sort()
+copy_labels = labels.copy()
+```
+
+`sort` возвращает новый набор, отсортированный по именам; вложенные подметки
+сортируются тоже. `copy` делает глубокую копию.
+
+## 📖 Файлы
+
+### Прочитать `labels.json`
+
+```python
+from cvat import CVATLabels
+
+labels = CVATLabels('project/labels.json')
+for label in labels:
+    print(label.name, label.color, label.type)
+```
+
+Файл — JSON-список словарей с полями `name`, `color`, `type`, `attributes`.
+Такой файл удобно хранить рядом с проектом.
+
+### Экспортировать
+
+```python
+dicts = labels.to_dicts()
+```
+
+Результат можно записать через `utils.obj2json`, чтобы получить
+`labels.json`.
+
+## 🎛️ Jupyter
+
+### Радиокнопки в Jupyter
 
 ```python
 from ipy_utils import IPYRadioButtons
@@ -61,25 +116,6 @@ IPYRadioButtons(
     setter=print,
 ).show()
 ```
-
-## 📋 Отсортировать и скопировать
-
-```python
-sorted_labels = labels.sort()
-copy_labels = labels.copy()
-```
-
-`sort` возвращает новый набор, отсортированный по именам; вложенные подметки
-сортируются тоже. `copy` делает глубокую копию.
-
-## 📤 Экспортировать
-
-```python
-dicts = labels.to_dicts()
-```
-
-Результат можно записать через `utils.obj2json`, чтобы получить
-`labels.json`.
 
 ## ⚠️ Ограничения
 

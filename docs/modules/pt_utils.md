@@ -5,7 +5,44 @@
 
 **Зависимости:** `torch`, `numpy`, `opencv-python`.
 
-## 🎯 Выбрать устройство
+## 🚀 Примеры
+
+```python
+# Выбрать доступное устройство и перенести тензор
+from pt_utils import AutoDevice
+
+device = AutoDevice()
+tensor = device.to(tensor)
+```
+
+```python
+# Загрузить сегментационный датасет
+from pt_utils import SegDataset
+
+dataset = SegDataset('dataset/train', num_classes=4)
+image, mask = dataset[0]
+```
+
+```python
+# Посчитать дисперсию без NaN на коротких осях
+from pt_utils import safe_var
+
+variance = safe_var(tensor, dim=-1, default_value=0.0)
+```
+
+```python
+# Передать признаки между ветками разного масштаба
+import torch
+from pt_utils import Receiver, Sender
+
+sender = Sender(in_channels=64, out_channels=128, kernel_size=2)
+receiver = Receiver(in_channels=128, out_channels=64, kernel_size=2)
+message = receiver(sender(torch.randn(1, 64, 32, 32)))
+```
+
+## 🎯 Устройство
+
+### Выбрать устройство
 
 ```python
 from pt_utils import AutoDevice
@@ -24,7 +61,9 @@ device = AutoDevice('cpu')
 
 `AutoDevice` при инициализации настраивает TF32 для GPU Ampere и новее.
 
-## 📥 Загрузить датасет сегментации
+## 📥 Датасет
+
+### Загрузить датасет сегментации
 
 ```python
 from pt_utils import SegDataset
@@ -39,7 +78,9 @@ print(image.shape, mask.shape)
 Перед кодированием маска делится на 255, поэтому в файлах должны быть только
 значения `0` и `255`; индексы классов `0..N-1` не поддерживаются.
 
-## 🎲 Безопасная дисперсия
+## 🎲 Дисперсия
+
+### Безопасная дисперсия
 
 ```python
 from pt_utils import safe_var
@@ -50,7 +91,9 @@ variance = safe_var(tensor, dim=-1, default_value=0.0)
 Обычный `torch.var` возвращает `NaN`, если элементов меньше двух. `safe_var`
 подставляет `default_value` вместо такого результата.
 
-## 🧱 Слои Sender и Receiver
+## 🧱 Слои
+
+### Слои Sender и Receiver
 
 ```python
 import torch

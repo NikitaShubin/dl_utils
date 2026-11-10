@@ -7,11 +7,10 @@
 **Зависимости:** `cvat.py`, `utils.py`, `video_utils.py`, `cvat_sdk`,
 `pandas`, `numpy`, `Pillow`, `urllib3`, `tqdm`.
 
-## 🚀 Быстрый старт
-
-Подключиться к серверу и открыть задачу по её настоящему имени в CVAT:
+## 🚀 Примеры
 
 ```python
+# Подключиться к серверу и открыть задачу по имени в CVAT
 from cvat_srv import CVATSRV
 
 srv = CVATSRV(
@@ -22,6 +21,21 @@ srv = CVATSRV(
 
 task = srv['Project 1']['Task 1']
 print(task.url)
+```
+
+```python
+# Скачать бекап задачи
+task_path = task.backup('./backups', desc='Бекап задачи')
+```
+
+```python
+# Изменить разметку в локальной копии и отправить обратно
+local_task = srv['Project 1']['Task 1'].clone()
+
+for job in local_task.data:
+    job.df = job.df[job.df['label'] != 'person']
+
+updated_task = local_task.push()
 ```
 
 Экземпляр `CVATSRV` ведёт себя как словарь: `srv['Project 1']` — проект,

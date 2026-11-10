@@ -2,7 +2,42 @@
 
 Создание и удаление путей, поиск файлов, упаковка и распаковка архивов.
 
-## 📁 Создать и удалить путь
+## 🚀 Примеры
+
+```python
+from utils import mkdirs, rmpath
+
+# Создать и удалить папку результатов
+mkdirs('results/run_01')
+rmpath('results/run_01')
+```
+
+```python
+from utils import get_file_list
+
+# Найти изображения рекурсивно
+images = get_file_list('data', ['.jpg', '.png'])
+```
+
+```python
+from utils import Zipper
+
+# Упаковать папку и распаковать архив
+Zipper.compress('dataset', 'dataset.zip')
+Zipper.extract('dataset.zip', 'dataset_copy')
+```
+
+```python
+from utils import str2filename, filename2str
+
+# Сделать безопасное имя файла и вернуть исходное
+safe = str2filename('Project 1: task/2')
+print(filename2str(safe))
+```
+
+## 📁 Пути
+
+### Создать и удалить путь
 
 ```python
 from utils import mkdirs, rmpath
@@ -14,7 +49,22 @@ rmpath(['a.tmp', 'b.tmp']) # список путей удаляется посл
 
 Обе функции не падают, если путь уже существует или уже удалён.
 
-## 🔍 Найти файлы
+### Временные и пустые папки
+
+```python
+from utils import get_empty_dir, first_existed_path
+
+tmp = get_empty_dir()                    # новая временная папка
+cache = get_empty_dir('cache', clear=True)  # очистить, если не пуста
+model = first_existed_path(['/mnt/models', './models', 'models'])
+```
+
+`get_empty_dir` по умолчанию падает, если папка не пуста; `clear=True`
+разрешает очистку.
+
+## 🔍 Поиск
+
+### Найти файлы
 
 ```python
 from utils import get_file_list
@@ -28,7 +78,9 @@ dirs = get_file_list('data', 'dir')
 или множеством; регистр не важен. `'.*'` или пустой список означают «все
 файлы».
 
-## 🗜️ Архивировать и распаковать
+## 🗜️ Архивы
+
+### Архивировать и распаковать
 
 ```python
 from utils import Zipper
@@ -50,7 +102,7 @@ zipper.extract()
 `remove_source=True` удаляет исходник после успешной операции,
 `rewrite_target=True` разрешает перезаписать цель.
 
-## 🗜️ Распаковать папку с архивами
+### Распаковать папку с архивами
 
 ```python
 from utils import unzip_dir
@@ -61,7 +113,9 @@ unzipped_dirs = unzip_dir('backups', 'unzipped', desc='Распаковка бе
 Каждый `*.zip` распаковывается в подпапку с именем архива. Функция не
 рекурсивна: смотрит только файлы верхнего уровня.
 
-## 🏷️ Имена файлов
+## 🏷️ Имена
+
+### Имена файлов
 
 ```python
 from utils import str2filename, filename2str, split_dir_name_ext
@@ -74,19 +128,6 @@ path, name, ext = split_dir_name_ext('data/video.mp4')
 `str2filename` оставляет без изменений только латинские буквы, цифры, `-` и
 `_`, а всё остальное кодирует в процентах с префиксом `f_`. `filename2str`
 восстанавливает исходную строку.
-
-## 📁 Временные и пустые папки
-
-```python
-from utils import get_empty_dir, first_existed_path
-
-tmp = get_empty_dir()                    # новая временная папка
-cache = get_empty_dir('cache', clear=True)  # очистить, если не пуста
-model = first_existed_path(['/mnt/models', './models', 'models'])
-```
-
-`get_empty_dir` по умолчанию падает, если папка не пуста; `clear=True`
-разрешает очистку.
 
 ## ⚠️ Ограничения
 

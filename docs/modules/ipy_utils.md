@@ -5,7 +5,41 @@
 **Зависимости:** `ipywidgets`, `numpy`, `matplotlib`, `mpl-point-clicker`,
 `mpl-interactions`, `IPython`, `cv_utils.py`, `cvat.py`, `utils.py`.
 
-## 🔗 Дать ссылку на файл
+## 🚀 Примеры
+
+```python
+# Дать ссылку на скачивание файла
+from ipy_utils import path2link
+
+path2link('results/preview.mp4', 'Скачать превью')
+```
+
+```python
+# Показать видео в ноутбуке
+from ipy_utils import show_video
+
+show_video('results/preview.mp4', size=(480, 854))
+```
+
+```python
+# Прочитать значение чекбокса
+from ipy_utils import IPYCheckbox
+
+fit_segments = IPYCheckbox(description='Подгонять контуры')
+fit_segments.show()
+print(fit_segments.value.val)
+```
+
+```python
+# Запустить интерактивную сегментацию
+from ipy_utils import IPYInteractiveSegmentation
+
+viewer = IPYInteractiveSegmentation(**sam2.init_ipis_kwargs())
+```
+
+## 🔗 Ссылки и вывод
+
+### Дать ссылку на файл
 
 ```python
 from ipy_utils import path2link
@@ -16,7 +50,17 @@ path2link('results/preview.mp4', 'Скачать превью')
 В JupyterLab появится ссылка на скачивание. Без второго аргумента текстом
 будет имя файла.
 
-## 👁️ Показать видео
+### Объединить вывод ячеек
+
+```python
+from ipy_utils import concat
+
+concat(output_1, output_2)
+```
+
+## 👁️ Медиа
+
+### Показать видео
 
 ```python
 from ipy_utils import show_video
@@ -27,7 +71,9 @@ show_video('results/preview.mp4', size=(480, 854))
 `size` — высота и ширина в пикселях; можно передать одно число (высота) или
 `None`, чтобы оставить исходный размер.
 
-## 🎛️ Чекбокс и кнопка
+## 🎛️ Виджеты
+
+### Чекбокс и кнопка
 
 ```python
 from ipy_utils import IPYCheckbox, IPYButton
@@ -53,7 +99,7 @@ button.show()
 
 По умолчанию кнопка очищает вывод ячейки перед вызовом действия.
 
-## 🎛️ Радиокнопки
+### Радиокнопки
 
 ```python
 from ipy_utils import IPYRadioButtons
@@ -64,7 +110,7 @@ mode.show()
 
 С колбеком выбранное значение сразу передаётся в `setter`.
 
-## 🖱️ Интерактивная сегментация
+### Интерактивная сегментация
 
 ```python
 from ipy_utils import IPYInteractiveSegmentation
@@ -79,14 +125,6 @@ viewer = IPYInteractiveSegmentation(**sam2.init_ipis_kwargs())
 точки маски, рамки и положительные/отрицательные подсказки. `points2masks`
 вызывается при каждом изменении и возвращает список масок, которые тут же
 рисуются поверх изображения.
-
-## 🔗 Объединить вывод ячеек
-
-```python
-from ipy_utils import concat
-
-concat(output_1, output_2)
-```
 
 ## ⚠️ Ограничения
 

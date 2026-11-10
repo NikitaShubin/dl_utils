@@ -6,7 +6,23 @@
 
 **Зависимости:** `modelscope` (опционально), `clip`, `utils.py`.
 
-## ⬇️ Скачать модель
+## 🚀 Примеры
+
+```python
+# Скачать веса в ~/models
+from sam3al import download_sam3
+
+model_path = download_sam3('~/models')
+```
+
+```bash
+# Скачать модель по умолчанию из консоли
+python sam3al.py
+```
+
+## ⬇️ Модель
+
+### Скачать модель
 
 ```python
 from sam3al import download_sam3
@@ -21,7 +37,7 @@ print(model_path)  # /home/user/models/sam3.1_multiplex.pt
 
 Без аргумента модель кладётся в `~/models/sam3.1_multiplex.pt`.
 
-## 🚀 Запуск из консоли
+## 🚀 Запуск
 
 ```bash
 python sam3al.py

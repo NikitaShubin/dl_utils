@@ -7,7 +7,41 @@
 `numpy`, `tqdm`, `ml_utils.py`, `utils.py`; `tf2onnx` — только для
 `keras2onnx`.
 
-## 🔄 Конвертировать Keras-модель
+## 🚀 Примеры
+
+```python
+# Конвертировать Keras-модель в набор ONNX-вариантов
+from onnx_utils import keras2onnx
+
+f32, f16, dyn, stc = keras2onnx(
+    model,
+    f32='exports/model_f32.onnx',
+    f16='exports/model_f16.onnx',
+    dyn='exports/model_uint8.onnx',
+)
+```
+
+```python
+# Запустить инференс ONNX-модели на изображении
+import cv2
+from onnx_utils import ONNXModel
+
+model = ONNXModel('exports/model_f16.onnx')
+image = cv2.imread('frame_01.jpg')[..., ::-1]
+mask = model(image)
+```
+
+```python
+# Достать веса из ONNX-файла
+from onnx_utils import get_weights
+
+weights = get_weights('exports/model_f32.onnx')
+print([w.shape for w in weights])
+```
+
+## 🔄 Модели ONNX
+
+### Конвертировать Keras-модель
 
 ```python
 from onnx_utils import keras2onnx
@@ -30,7 +64,7 @@ f32, f16, dyn, stc = keras2onnx(
 
 Чтобы отключить вариант, передайте `None` вместо пути.
 
-## 🗜️ Статическая квантизация
+### Статическая квантизация
 
 ```python
 from onnx_utils import keras2onnx
@@ -49,7 +83,7 @@ f32, f16, dyn, stc = keras2onnx(
 по одному. Калибровочных примеров должно быть достаточно, чтобы покрыть
 диапазоны активаций.
 
-## ⚡ Инференс ONNX-модели
+### Инференс ONNX-модели
 
 ```python
 import cv2
@@ -63,7 +97,7 @@ mask = model(image)
 `ONNXModel` сам определяет порядок осей входа и приводит изображение к нужному
 типу. Результат возвращается в том же порядке осей, что и вход.
 
-## 📥 Достать веса
+### Достать веса
 
 ```python
 from onnx_utils import get_weights

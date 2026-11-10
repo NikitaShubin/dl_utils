@@ -6,7 +6,46 @@
 **Зависимости:** `pandas`, `numpy`, `opencv-python`, `tqdm`, `labels.py`,
 `cvat.py`, `cv_utils.py`, `utils.py`.
 
-## 📊 Собрать статистику и разбить задачи
+## 🚀 Примеры
+
+```python
+# Собрать статистику и разбить задачи
+from labels import LabelsConvertor
+from yolo import sources2statistic_and_train_val_test_tasks
+
+converter = LabelsConvertor('labels.xlsx', 'superlabels.xlsx')
+train_tasks, val_tasks, test_tasks = (
+    sources2statistic_and_train_val_test_tasks(
+        {'cvat': [project_1_tasks]}, 'dataset/yolo', converter,
+        val_size=0.2, test_size=0.1,
+    )
+)
+```
+
+```python
+# Сохранить датасет в формате YOLO
+from yolo import tasks2yolo
+
+tasks2yolo(
+    mode='box',
+    tasks=train_tasks,
+    labels_convertor=converter,
+    images_dir='dataset/yolo/images/train',
+    lablels_dir='dataset/yolo/labels/train',
+)
+```
+
+```python
+# Нарисовать метки на кадре
+from yolo import YOLOLabels
+
+labels = YOLOLabels('labels/train/00000001.txt', imsize=(1080, 1920))
+preview = labels.draw_labels(image)
+```
+
+## 📊 Статистика
+
+### Собрать статистику и разбить задачи
 
 ```python
 from labels import LabelsConvertor
@@ -30,7 +69,21 @@ train_tasks, val_tasks, test_tasks = (
 проверочную выборку. Статистика сохраняется в `dataset/yolo/statistics`
 (CSV, Excel и PNG).
 
-## 💾 Сохранить YOLO-датасет
+### Посчитать статистику отдельно
+
+```python
+from yolo import tasks2statistic
+
+stat = tasks2statistic(tasks, 'cvat', converter)
+print(stat.head())
+```
+
+`df2statistic` делает то же для одного датафрейма. `superclass_statistic`
+схлопывает статистику классов в суперклассы.
+
+## 💾 Датасет
+
+### Сохранить YOLO-датасет
 
 ```python
 from yolo import tasks2yolo
@@ -53,7 +106,7 @@ tasks2yolo(
 может быть числом, списком масштабов или множеством, из которого масштаб
 выбирается случайно для каждого кадра.
 
-## ➕ Сгенерировать `data.yaml`
+### Сгенерировать `data.yaml`
 
 ```python
 from yolo import gen_yaml
@@ -75,7 +128,9 @@ gen_yaml(
 Файл содержит абсолютный путь к датасету, относительные пути к выборкам и
 словарь `index → имя класса`.
 
-## 🎨 Нарисовать метки
+## 🎨 Визуализация
+
+### Нарисовать метки
 
 ```python
 from yolo import YOLOLabels
@@ -86,18 +141,6 @@ preview = labels.draw_labels(image)
 
 `YOLOLabels` читает один `.txt`-файл разметки и умеет наносить рамки или
 полигоны на изображение.
-
-## 📊 Посчитать статистику отдельно
-
-```python
-from yolo import tasks2statistic
-
-stat = tasks2statistic(tasks, 'cvat', converter)
-print(stat.head())
-```
-
-`df2statistic` делает то же для одного датафрейма. `superclass_statistic`
-схлопывает статистику классов в суперклассы.
 
 ## ⚠️ Ограничения
 

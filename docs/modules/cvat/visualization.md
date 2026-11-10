@@ -3,7 +3,43 @@
 Отрисовка разметки на кадре и сборка превью-видео для подзадачи или списка
 задач.
 
-## 🎨 Нарисовать кадр
+## 🚀 Примеры
+
+```python
+# Нарисовать разметку кадра с полупрозрачной заливкой
+import cv2
+from cvat import ergonomic_draw_df_frame
+from utils import get_n_colors
+
+image = cv2.imread('frame_01.jpg')[..., ::-1]
+labels = sorted(df['label'].unique())
+label2color = dict(zip(labels, get_n_colors(len(labels))))
+frame_df = df[df['frame'] == 0]
+preview = ergonomic_draw_df_frame(frame_df, image, label2color=label2color)
+```
+
+```python
+# Нарисовать все сегменты на пустом холсте
+from cvat import df2img
+
+canvas = df2img(df, label2color, imsize=(1080, 1920))
+```
+
+```python
+# Собрать превью-видео подзадачи
+from cvat import subtask2preview
+
+subtask2preview(
+    subtask,
+    out_file='results/preview.mp4',
+    label2color=label2color,
+    fps=3,
+)
+```
+
+## 🎨 Рисование
+
+### Нарисовать кадр
 
 ```python
 import cv2
@@ -29,7 +65,7 @@ cv2.imwrite('preview.jpg', preview[..., ::-1])
 контуры. Для строгой отрисовки без заливки используйте `draw_df_frame` с
 `thickness`.
 
-## 🎨 Нарисовать все сегменты на пустом холсте
+### Нарисовать все сегменты на пустом холсте
 
 ```python
 from cvat import df2img
@@ -39,7 +75,9 @@ canvas = df2img(df, label2color, imsize=(1080, 1920))
 
 Если передать `img`, разметка ляжет поверх него.
 
-## 👁️ Превью подзадачи
+## 👁️ Превью
+
+### Превью подзадачи
 
 ```python
 from cvat import subtask2preview
@@ -58,7 +96,7 @@ subtask2preview(
 цветные сегменты и номер кадра. Для `.mp4` автоматически выполняется
 пересжатие.
 
-## 👁️ Превью списка задач
+### Превью списка задач
 
 ```python
 from cvat import tasks2preview
@@ -75,7 +113,9 @@ tasks2preview(
 Каждая задача пишется в отдельный файл `all_preview_00000000.mp4`, затем они
 склеиваются в один.
 
-## ⚙️ Постобработка кадров
+## ⚙️ Постобработка
+
+### Постобработка кадров
 
 ```python
 from video_utils import AddCaption, Resize

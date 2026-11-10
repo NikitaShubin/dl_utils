@@ -5,7 +5,47 @@
 
 **Зависимости:** `boxmot`, `cv_utils.py`, `numpy`, `opencv-python`, `loguru`.
 
-## 🎯 Отследить объекты в видео
+## 🚀 Примеры
+
+```python
+# Отследить детекции на кадре и получить track_id
+import cv2
+from boxmot_utils import Tracker
+from cv_utils import BBox
+
+tracker = Tracker(tracker_type='ocsort')
+frame = cv2.imread('frame_01.jpg')
+objects = [BBox.from_yolo([0.5, 0.4, 0.2, 0.3], imsize=frame.shape[:2],
+                          attribs={'label': 'car', 'confidence': 0.87})]
+tracked = tracker.update(objects, frame)
+print(tracked[0].attribs['track_id'])
+```
+
+```python
+# Вернуть и объекты без назначенного трека
+tracker = Tracker(tracker_type='ocsort', store_untracked=True)
+tracked = tracker.update(objects, frame)
+print(tracked[0].attribs['track_id'])  # int или None
+```
+
+```python
+# Настроить трекер с ReID-моделью
+tracker = Tracker(
+    tracker_type='botsort',
+    reid_weights='~/models/osnet_x0_25_msmt17.pt',
+    device='cuda',
+    half=True,
+)
+```
+
+```python
+# Сбросить нумерацию треков
+tracker.reset()
+```
+
+## 🎯 Трекинг
+
+### Отследить объекты в видео
 
 ```python
 import cv2
@@ -34,19 +74,7 @@ while cap.isOpened():
 Трекер работает по кадрам: вызывайте `update` для каждого кадра подряд, начиная
 с первого. Изображение передаётся в RGB.
 
-## 📋 Что нужно объекту
-
-У каждого объекта должны быть атрибуты:
-
-- `attribs['label']` — строка, имя класса;
-- `attribs['confidence']` — уверенность детектора;
-- геометрия — `xyxy` для `BBox` или маска для `Mask`.
-
-`Tracker` сам переводит метки в числовые классы и запоминает соответствие.
-Повторно трекать объект с уже заполненным `track_id` нельзя — будет
-`AttributeError`.
-
-## 🚫 Объекты без трека
+### Объекты без трека
 
 По умолчанию возвращаются только объекты, которым назначен трек. Чтобы
 получить весь список:
@@ -58,7 +86,7 @@ for obj in objects:
     print(obj.attribs['track_id'])  # int или None
 ```
 
-## 🎯 Трекеры с ReID
+### Трекеры с ReID
 
 Трекерам вроде `botsort` нужны веса ReID-модели. По умолчанию ожидается
 `~/models/osnet_x0_25_msmt17.pt`; путь и устройство можно переопределить:
@@ -72,7 +100,21 @@ tracker = Tracker(
 )
 ```
 
-## ♻️ Сбросить трекер
+## 📋 Требования
+
+У каждого объекта должны быть атрибуты:
+
+- `attribs['label']` — строка, имя класса;
+- `attribs['confidence']` — уверенность детектора;
+- геометрия — `xyxy` для `BBox` или маска для `Mask`.
+
+`Tracker` сам переводит метки в числовые классы и запоминает соответствие.
+Повторно трекать объект с уже заполненным `track_id` нельзя — будет
+`AttributeError`.
+
+## ♻️ Сброс
+
+### Сбросить трекер
 
 ```python
 tracker.reset()

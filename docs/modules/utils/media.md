@@ -3,7 +3,44 @@
 Бытовые операции с кадрами: прочитать нужный кадр, вписать в размер, собрать
 превью, наложить подпись или водяной знак.
 
-## 📖 Прочитать кадр из видео или папки
+## 🚀 Примеры
+
+```python
+from utils import ImReadBuffer
+
+# Прочитать кадр из видео и из папки изображений
+with ImReadBuffer() as frames:
+    first = frames('video.mp4', frame=0)
+    frame = frames('frames_dir', frame=5)
+```
+
+```python
+import cv2
+from utils import resize_with_pad
+
+# Вписать кадр в квадрат с полями
+img = cv2.imread('frame.jpg')
+square = resize_with_pad(img, (512, 512), padding_color=(0, 0, 0))
+```
+
+```python
+from utils import img_dir2video
+
+# Собрать видео из папки кадров
+img_dir2video('frames', video_file='preview.mp4', fps=5, desc='Сборка превью')
+```
+
+```python
+from utils import draw_contrast_text, overlap_with_alpha
+
+# Наложить подпись и водяной знак
+img = draw_contrast_text(img, 'Кадр 42\nПроверка')
+img = overlap_with_alpha(img, watermark_rgba)
+```
+
+## 📖 Чтение
+
+### Прочитать кадр из видео или папки
 
 `ImReadBuffer` держит файл открытым и умеет читать как видео, так и набор
 изображений:
@@ -20,7 +57,9 @@ with ImReadBuffer() as frames:
 Кадры возвращаются в RGB. Для изображений `frame` — индекс в отсортированном
 списке файлов.
 
-## ↔️ Вписать изображение в размер
+## ↔️ Изображение
+
+### Вписать изображение в размер
 
 `resize_with_pad` сохраняет пропорции и добавляет поля:
 
@@ -32,7 +71,23 @@ img = cv2.imread('frame.jpg')
 square = resize_with_pad(img, (512, 512), padding_color=(0, 0, 0))
 ```
 
-## 🧱 Собрать видео из папки
+### Обрезка полей и плёнка
+
+```python
+from utils import autocrop, Img2Film
+
+cropped = autocrop(img)          # убирает однотонные края
+film = Img2Film()(cropped)       # обрамляет кадром фотоплёнки
+```
+
+`autocrop` сравнивает верхний и левый края с цветом левого верхнего пикселя,
+а нижний и правый — с цветом правого нижнего. Если изображение однотонное,
+функция возвращает `None`. `Img2Film` удобен для превью и демонстраций, но
+добавляет поля и меняет размер изображения.
+
+## 🧱 Видео
+
+### Собрать видео из папки
 
 ```python
 from utils import img_dir2video
@@ -48,7 +103,18 @@ img_dir2video(
 Функция сама масштабирует кадры разных размеров и по умолчанию пересжимает
 результат в H.264.
 
-## 🏷️ Подписи и водяные знаки
+### Параметры видео
+
+```python
+from utils import get_video_info
+
+info = get_video_info('video.mp4')
+print(info['width'], info['height'], info['length'], info['fps'])
+```
+
+## 🏷️ Подписи
+
+### Подписи и водяные знаки
 
 ```python
 from utils import draw_contrast_text, overlap_with_alpha
@@ -60,29 +126,6 @@ img = overlap_with_alpha(img, watermark_rgba)
 `draw_contrast_text` рисует белый текст с тёмной обводкой в левом верхнем углу.
 `overlap_with_alpha` ждёт водяной знак с альфа-каналом (`RGBA` или `LA`),
 совпадающий с изображением по высоте и ширине.
-
-## 🎞️ Параметры видео
-
-```python
-from utils import get_video_info
-
-info = get_video_info('video.mp4')
-print(info['width'], info['height'], info['length'], info['fps'])
-```
-
-## ✂️ Обрезка полей и плёнка
-
-```python
-from utils import autocrop, Img2Film
-
-cropped = autocrop(img)          # убирает однотонные края
-film = Img2Film()(cropped)       # обрамляет кадром фотоплёнки
-```
-
-`autocrop` сравнивает верхний и левый края с цветом левого верхнего пикселя,
-а нижний и правый — с цветом правого нижнего. Если изображение однотонное,
-функция возвращает `None`. `Img2Film` удобен для превью и демонстраций, но
-добавляет поля и меняет размер изображения.
 
 ## ⚠️ Ограничения
 

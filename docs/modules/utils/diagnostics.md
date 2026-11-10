@@ -3,7 +3,39 @@
 Разбор импортов через AST, построение Mermaid-графа модулей и сравнение
 вложенных структур.
 
-## ⚖️ Сравнить две структуры
+## 🚀 Примеры
+
+```python
+from utils import obj_diff
+
+# Сравнить две вложенные структуры
+expected = {'labels': ['car', 'person'], 'frames': 100}
+actual = {'labels': ['car'], 'frames': 100}
+print(obj_diff(expected, actual))
+# Несовпадение размеров [labels]: 2 != 1!
+```
+
+```python
+from utils import ImportVisitor
+
+# Собрать импорты файла
+visitor = ImportVisitor()
+visitor.analyze_file('cvat_srv.py')
+print(visitor.unconditional_imports)  # импорты верхнего уровня
+print(visitor.conditional_imports)    # импорты внутри условий и функций
+```
+
+```python
+from utils import draw_repo_dependency_graph
+
+# Построить Mermaid-граф репозитория
+path = draw_repo_dependency_graph('.')
+print(path)  # ./dependency_graph.mmd
+```
+
+## ⚖️ Сравнение
+
+### Сравнить две структуры
 
 ```python
 from utils import obj_diff
@@ -19,7 +51,9 @@ print(obj_diff(expected, actual))
 возвращает описание всех найденных расхождений. Пустая строка означает
 полное совпадение.
 
-## 🔍 Найти импорты файла
+## 🔍 Импорты
+
+### Найти импорты файла
 
 ```python
 from utils import ImportVisitor
@@ -31,7 +65,9 @@ print(visitor.unconditional_imports)  # импорты верхнего уров
 print(visitor.conditional_imports)    # импорты внутри условий и функций
 ```
 
-## 🕸️ Построить граф зависимостей репозитория
+## 🕸️ Граф
+
+### Построить граф зависимостей репозитория
 
 ```python
 from utils import draw_repo_dependency_graph
@@ -48,7 +84,7 @@ print(path)  # ./dependency_graph.mmd
 окольные пути не дублируются. Пунктирное ребро соответствует условному
 импорту.
 
-## 🕸️ Разобрать граф вручную
+### Разобрать граф вручную
 
 ```python
 from utils import ImportVisitor

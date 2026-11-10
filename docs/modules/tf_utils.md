@@ -5,7 +5,43 @@
 
 **Зависимости:** `tensorflow`, `alb_utils.py`, `utils.py`.
 
-## ⚙️ Инициализировать TensorFlow
+## 🚀 Примеры
+
+```python
+# Инициализировать TensorFlow с ростом памяти GPU
+from tf_utils import TFInit
+
+TFInit(less_gpu_mem=True, log_level='ERROR')
+```
+
+```python
+# Собрать модель под все доступные GPU
+from tf_utils import MultiGPU
+
+gpus = MultiGPU()
+with gpus.strategy.scope():
+    model = build_model()
+```
+
+```python
+# Прочитать train/val/test из папки датасета
+from tf_utils import get_datasets
+
+train_ds, val_ds, test_ds = get_datasets(
+    'dataset', num_classes=4, im_size=(608, 800)
+)
+```
+
+```python
+# Прочитать один датасет без разбиения
+from tf_utils import get_dataset
+
+ds = get_dataset('dataset/train', num_classes=4, target_size=(608, 800))
+```
+
+## ⚙️ Инициализация
+
+### Инициализировать TensorFlow
 
 ```python
 from tf_utils import TFInit
@@ -26,7 +62,7 @@ with TFInit(less_gpu_mem=True):
 `less_gpu_mem=True` включает рост памяти GPU по мере необходимости вместо
 захвата всей памяти сразу.
 
-## 🖥️ Учесть несколько GPU
+### Учесть несколько GPU
 
 ```python
 from tf_utils import MultiGPU
@@ -42,7 +78,9 @@ with gpus.strategy.scope():
 `batch_size_multiplier` умножает размер батча на число GPU. Если GPU нет,
 целое значение `default` задаёт новый размер, а дробное — коэффициент.
 
-## 📥 Загрузить датасет из папок
+## 📥 Датасет
+
+### Загрузить датасет из папок
 
 Ожидается структура:
 
@@ -77,7 +115,7 @@ train_ds, val_ds, test_ds = get_datasets(
 `uint8` до деления на 255; в `SegDataLoader` порядок другой — сначала
 нормализация в `[0, 1]`, потом преобразования.
 
-Один датасет без разбиения:
+### Один датасет без разбиения
 
 ```python
 from tf_utils import get_dataset

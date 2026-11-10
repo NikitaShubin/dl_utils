@@ -7,7 +7,39 @@ Segment Anything Model HQ для разметки изображений: мод
 `pandas`, `tqdm`, `cvat.py`, `cv_utils.py`, `pt_utils.py`, `ml_utils.py`,
 `utils.py`.
 
-## 🏷️ Разметить изображение
+## 🚀 Примеры
+
+```python
+# Разметить изображение
+from samal import SAM
+
+sam = SAM(model_path='sam_hq_vit_h.pth')
+df = sam.img2df(image)
+```
+
+```python
+# Собрать CVAT-подзадачу из файла
+subtask = sam.img_file2subtask('frame_01.jpg')
+```
+
+```python
+# Отфильтровать маски после модели
+from seg import DropByArea, Morphology
+
+sam = SAM(
+    model_path='sam_hq_vit_h.pth',
+    postprocess_filters=[DropByArea(min_area=0.001), Morphology('close', 5)],
+)
+```
+
+```python
+# Объединить несколько моделей
+sam = SAM(model_path=['sam_hq_vit_h.pth', 'sam_hq_vit_l.pth'])
+```
+
+## 🏷️ Разметка
+
+### Разметить изображение
 
 ```python
 import cv2
@@ -24,7 +56,7 @@ print(df[['label', 'points', 'attributes']])
 включён TTA: изображение отражается и поворачивается, результаты совмещаются.
 Это точнее, но примерно в 8 раз медленнее.
 
-## 🧱 Собрать CVAT-подзадачу из файла
+### Собрать CVAT-подзадачу из файла
 
 ```python
 subtask = sam.img_file2subtask('frame_01.jpg')
@@ -52,7 +84,9 @@ sam = SAM(
 Фильтры получают список `Mask` и возвращают новый список. Фильтр может
 принимать `(masks)` или `(masks, img)`.
 
-## 🧩 Несколько моделей
+## 🧩 Модели
+
+### Несколько моделей
 
 ```python
 sam = SAM(model_path=['sam_hq_vit_h.pth', 'sam_hq_vit_l.pth'])
@@ -61,7 +95,7 @@ sam = SAM(model_path=['sam_hq_vit_h.pth', 'sam_hq_vit_l.pth'])
 Маски всех моделей складываются в один список. Имена файлов должны содержать
 тип модели (`vit_h`, `vit_l`, `vit_b`, `vit_tiny`).
 
-## ♻️ Сбросить состояние
+### Сбросить состояние
 
 ```python
 sam.reset()

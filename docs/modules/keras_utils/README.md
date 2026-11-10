@@ -6,11 +6,12 @@
 **Зависимости:** `keras` (или `tf_keras`, `tf.keras` — см. ниже), `tensorflow`,
 `numpy`, `tensorboard`, `matplotlib`, `pandas`, `opencv-python`, `utils.py`.
 
-## 🎯 Выбрать реализацию Keras
+## 🚀 Примеры
 
 Модуль читает переменную окружения `KERAS_MODULE` при импорте:
 
 ```python
+# Выбрать реализацию Keras до первого импорта
 import os
 
 os.environ['KERAS_MODULE'] = 'tf_keras'  # keras | tf_keras | tf.keras | tfmot
@@ -20,9 +21,8 @@ from keras_utils import UNet
 Значение по умолчанию — `keras`. Переменную нужно выставить до первого импорта
 `keras_utils`; позже она не перечитывается. `tfmot_utils` делает это сам.
 
-## 🧱 Собрать модель сегментации
-
 ```python
+# Собрать и обучить U-Net на датасете inp/out
 from keras_utils import SegDataLoader, UNet
 
 train_loader = SegDataLoader('dataset/train', num_classes=4, batch_size=8)

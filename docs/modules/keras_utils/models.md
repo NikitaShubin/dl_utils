@@ -3,10 +3,62 @@
 Готовые сегментационные архитектуры и обвязка вокруг предобученных
 backbone-ов из `keras.applications`.
 
+## 🚀 Примеры
+
+```python
+# Собрать U-Net на MobileNetV3
+from keras_utils import UNet
+
+model = UNet(
+    backbone='MobileNetV3Large',
+    input_shape=(512, 512, 3),
+    out_filters=4,
+    feat_filters=16,
+    pool_filters=256,
+    dropout_rate=0.1,
+)
+model.summary()
+```
+
+```python
+# Собрать Deeplabv3+ с пирамидальным пулингом
+from keras_utils import Deeplabv3Plus
+
+model = Deeplabv3Plus(
+    backbone='MobileNetV3Large',
+    input_shape=(512, 512, 3),
+    out_filters=4,
+    en_lvl_4_dec=2,
+    spp_dilations=[0, 6, 12, 18],
+)
+```
+
+```python
+# Рассчитать размер входа backbone-а
+from keras_utils import BackboneShapes
+
+shapes = BackboneShapes(
+    true_input_shape=(1200, 1600),
+    desirable_scale=1 / 1.6,
+    num_poolings=5,
+)
+print(shapes.input_shape, shapes.output_shape)
+```
+
+```python
+# Заменить голову и найти свёрточные слои
+from keras_utils import get_model_elements, layers, replace_head
+
+model = replace_head(model, filters=10, activation='softmax')
+convs = get_model_elements(model, element_class=layers.Conv2D)
+```
+
 Данные и загрузчик описаны в разделе [«Данные»](data.md), метрики и
 колбеки — в [«Обучение»](training.md).
 
-## 📏 Рассчитать размеры backbone-а
+## 📏 Backbone
+
+### Рассчитать размеры backbone-а
 
 ```python
 from keras_utils import BackboneShapes
@@ -24,7 +76,7 @@ print(shapes.output_shape)  # [23, 31]
 `BackboneShapes` подбирает входной размер так, чтобы после всех пулингов
 остались целые размеры, и считает размер выходной карты признаков.
 
-## 📥 Взять backbone с предобработкой
+### Взять backbone с предобработкой
 
 ```python
 from keras_utils import backbone_with_preprop
@@ -40,7 +92,7 @@ backbone = backbone_with_preprop(
 и по умолчанию замораживает веса. Предобученные веса берутся из
 `imagenet`; при отсутствии интернета конструктор упадёт.
 
-## 📥 Получить многомасштабные признаки
+### Получить многомасштабные признаки
 
 ```python
 import numpy as np
@@ -57,7 +109,9 @@ print([f.shape for f in features])
 `backbone2encoder` оставляет выходы слоёв, размер которых уменьшается ровно в
 два раза. Это входы для skip-соединений U-Net-подобных сетей.
 
-## 🧱 Собрать U-Net
+## 🧱 Модели
+
+### Собрать U-Net
 
 ```python
 from keras_utils import UNet
@@ -96,7 +150,7 @@ model.summary()
 нужные слои и вызовите `recompile_model` — иначе Keras продолжит использовать
 старый граф обучения. Пример есть в разделе [«Обучение»](training.md).
 
-## 🧱 Собрать Deeplabv3+
+### Собрать Deeplabv3+
 
 ```python
 from keras_utils import Deeplabv3Plus
@@ -114,7 +168,7 @@ model = Deeplabv3Plus(
 пути. Отрицательное значение считается от конца списка признаков; `None`
 отключает обходной путь.
 
-## ✏️ Заменить голову
+### Заменить голову
 
 ```python
 from keras_utils import replace_head
@@ -126,7 +180,21 @@ model = replace_head(model, filters=10, activation='softmax')
 остальные слои замораживает. Если число фильтров совпадает, слой не
 пересобирается — меняется только активация.
 
-## 🔍 Найти слои по имени
+### Фрактальная U-Net
+
+```python
+from keras_utils import make_fractal_unet
+
+model = make_fractal_unet('MobileNetV3Large', im_size=(256, 256))
+```
+
+Экспериментальная архитектура с несколькими проходами по skip-соединениям.
+Требует backbone ровно с шестью уровнями признаков и всегда выдаёт три
+класса.
+
+## 🔍 Поиск слоёв
+
+### Найти слои по имени
 
 ```python
 from keras_utils import get_all_layers, get_model_elements, layers
@@ -140,18 +208,6 @@ all_layers = get_all_layers(model)
 `get_model_elements` возвращает словарь `путь_индексов → слой` и умеет
 искать по части имени. `get_all_layers` разворачивает подмодели в плоский
 список.
-
-## 🧱 Фрактальная U-Net
-
-```python
-from keras_utils import make_fractal_unet
-
-model = make_fractal_unet('MobileNetV3Large', im_size=(256, 256))
-```
-
-Экспериментальная архитектура с несколькими проходами по skip-соединениям.
-Требует backbone ровно с шестью уровнями признаков и всегда выдаёт три
-класса.
 
 ## ⚠️ Ограничения
 

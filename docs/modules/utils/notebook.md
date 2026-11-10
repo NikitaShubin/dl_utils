@@ -3,7 +3,46 @@
 Контексты для замеров и подписей в Jupyter, звуковое уведомление, отложенная
 инициализация и декоратор `Retry`.
 
-## ⏱️ Замерить время
+## 🚀 Примеры
+
+```python
+from utils import TimeIt
+
+# Замерить время загрузки модели
+with TimeIt('загрузку модели') as timer:
+    model = load_model()
+
+print(timer())  # время в секундах
+```
+
+```python
+from utils import Beep
+
+# Просигналить звуком после долгой операции
+with Beep(60, 300):
+    train_model()
+```
+
+```python
+from utils import DelayedInit
+
+# Создать модель при первом обращении
+model = DelayedInit(MyModel, kwargs={'device': 'cuda'})
+result = model.predict(frame)
+```
+
+```python
+from utils import Retry
+
+# Повторить загрузку при сетевой ошибке
+@Retry(max_attempts=5, exception=ConnectionError, sleep_s=1, backoff=2)
+def download(url):
+    ...
+```
+
+## ⏱️ Тайминг
+
+### Замерить время
 
 ```python
 from utils import TimeIt
@@ -17,7 +56,7 @@ print(timer())  # время в секундах
 Если заголовок не нужен, создавайте `TimeIt()` без аргумента — контекст всё
 равно сохранит время в `timer.time_spent`.
 
-## 🏷️ Подписать начало и конец
+### Подписать начало и конец
 
 ```python
 from utils import AnnotateIt
@@ -29,7 +68,9 @@ with AnnotateIt('Обработка кадров...', 'Кадры обработ
 `AnnotateIt` печатает первую строку перед блоком и заменяет её второй после
 завершения — удобно в долгих ноутбуках.
 
-## 🔔 Звук по завершении
+## 🔔 Уведомления
+
+### Звук по завершении
 
 ```python
 from utils import Beep
@@ -42,7 +83,9 @@ with Beep(60, 300):
 будет; от 60 до 300 — один гудок; больше 300 — два. Требуется пакет
 `jupyter_beeper`; вне Jupyter контекст просто ничего не делает.
 
-## ⏳ Отложенная инициализация
+## ⏳ Инициализация
+
+### Отложенная инициализация
 
 ```python
 from utils import DelayedInit
@@ -57,7 +100,9 @@ result = model.predict(frame)  # создаётся здесь, при перв�
 передать `args_func` и `kwargs_func` — функции, которые вычислят аргументы в
 момент инициализации.
 
-## ♻️ Повторить операцию при ошибке
+## ♻️ Повтор
+
+### Повторить операцию при ошибке
 
 ```python
 from utils import Retry

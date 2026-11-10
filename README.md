@@ -61,9 +61,8 @@ docker/restart.sh
 ```
 
 `restart.sh` пересобирает образ и открывает консоль от пользователя хоста.
-Войти под root можно через `docker/openroot.sh`, повторно открыть обычную
-консоль — через `docker/open.sh`. Корень основного проекта монтируется в
-`/workspace`, поэтому пути внутри контейнера совпадают с путями на хосте.
+Подробнее о запуске, входе и монтировании — в
+[Docker-окружении](docs/docker.md).
 
 ## 🧩 Основные модули
 
@@ -327,6 +326,8 @@ draw_repo_dependency_graph()
 
 ## 📚 Документация
 
+- [Правила документации](docs/documentation.md): как писать и обновлять
+  страницы
 - [Идеология репозитория](docs/about.md): устройство модулей и принципы
   расширения
 - [Добавление модуля](docs/development.md): стиль кода, проверки и граф
@@ -386,6 +387,6 @@ IPython и `tqdm`, `pt_utils.py` — PyTorch, `cvat_srv.py` — CVAT SDK,
 
 ---
 
-👨‍💻 Автор: **[Никита Шубин](https://github.com/NikitaShubin/CurriculumVitae)**
+Автор: **[Никита Шубин](https://github.com/NikitaShubin/CurriculumVitae)**
 
 Лицензия: [MIT](LICENSE)

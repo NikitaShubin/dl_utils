@@ -10,7 +10,42 @@
 отдельно. Для примера сохранения нужен ещё [`labels.py`](labels.md) с
 `openpyxl`; сам `seg.py` его не импортирует.
 
-## 🧹 Фильтровать маски
+## 🚀 Примеры
+
+```python
+# Отфильтровать маски по площади
+from seg import DropByArea, Morphology
+
+masks = Morphology('close', kernel=5)(masks)
+masks = DropByArea(min_area=0.001, max_area=0.4)(masks)
+```
+
+```python
+# Разложить вложенные маски
+from seg import Cutter, Decompose
+
+masks = Cutter(min_overlap=0.9)(masks)
+```
+
+```python
+# Подогнать контуры в датафрейме
+from seg import fit_segments_in_df
+
+df = fit_segments_in_df(df, imsize=(1080, 1920), fuse_by_groups=True)
+```
+
+```python
+# Сохранить задачи в датасет segmentation
+from seg import save_tasks2segmentation_dataset
+
+save_tasks2segmentation_dataset(
+    train_tasks, 'dataset/segmentation/train', labels_convertor,
+)
+```
+
+## 🧹 Фильтрация
+
+### Фильтровать маски
 
 ```python
 from seg import DropByArea, Morphology
@@ -26,7 +61,7 @@ masks = DropByArea(min_area=0.001, max_area=0.4)(masks)
 CVAT-датафрейма можно через [`df2masks`](cvat/dataframes.md); фильтры не
 принимают голые numpy-массивы.
 
-## 🧹 Убрать дубликаты
+### Убрать дубликаты
 
 ```python
 from seg import DropDuplicates
@@ -37,7 +72,9 @@ masks = DropDuplicates(max_iou=0.85)(masks)
 Фильтр сравнивает пары масок по площади и IoU и оставляет одну из почти
 совпадающих.
 
-## 🧩 Разложить вложенные маски
+## 🧩 Вложенные маски
+
+### Разложить вложенные маски
 
 ```python
 from seg import Cutter, Decompose
@@ -49,7 +86,7 @@ masks = Decompose(min_overlap=0.9, steps=2)(masks)
 `Cutter` вычитает меньшие сегменты из больших. `Decompose` перебирает
 варианты вычитания и может сильно увеличить число масок.
 
-## 🎯 Выбрать главный сегмент
+### Выбрать главный сегмент
 
 ```python
 from seg import MajorSegment
@@ -60,7 +97,9 @@ masks = MajorSegment(mask_of_interest)(masks)
 Оставляется маска с максимальным IoU к шаблону; вложенные в неё меньшие
 сегменты удаляются, а из больших она вычитается.
 
-## ✏️ Подогнать контуры в датафрейме
+## ✏️ Контуры
+
+### Подогнать контуры в датафрейме
 
 ```python
 from seg import fit_segments_in_df
@@ -78,7 +117,9 @@ df = fit_segments_in_df(
 Работает с датафреймами без интерполяции или после
 [`interpolate_df`](cvat/processing.md).
 
-## 💾 Сохранить датасет
+## 💾 Датасет
+
+### Сохранить датасет
 
 ```python
 from cvat import cvat_backups2tasks
@@ -147,7 +188,7 @@ print(max_label)  # num_classes = max_label + 1
 
 Дальше датасет читает [`SegDataLoader`](keras_utils/data.md).
 
-## 👁️ Построить превью готового датасета
+### Построить превью готового датасета
 
 ```python
 from seg import make_seg_dataset_colored_preview

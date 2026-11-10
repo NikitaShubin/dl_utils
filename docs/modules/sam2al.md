@@ -9,7 +9,32 @@
 [`video_utils.py`](video_utils.md), [`ml_utils.py`](ml_utils.md),
 [`utils.py`](utils/README.md).
 
-## ⚙️ Установить модель
+## 🚀 Примеры
+
+```python
+# Загрузить видео и поставить подсказки
+from sam2al import SAM2
+
+sam2 = SAM2(half=False)
+sam2.load_video('data/video.mp4', prompts_file='prompts/Project 1.tsv')
+sam2.go_to(frame=120, obj_id='new', label='car')
+sam2.points2masks(box_points=[[100, 200, 300, 400]])
+```
+
+```python
+# Собрать разметку и выгрузить её в CVAT
+df, file, true_frames = sam2.build_subtask(fit_segments=True)
+url = sam2.export2cvat(project, fit_segments=True)
+```
+
+```python
+# Сохранить разметку в XML
+sam2.save2cvat_xml('results/annotation.xml', fit_segments=True)
+```
+
+## ⚙️ Модель и видео
+
+### Установить модель
 
 В Docker-образах `dl_utils` и `PreAnnotation` пакет `sam2`, декодер `decord` и
 веса уже установлены. Вне Docker:
@@ -36,7 +61,7 @@ sam2 = SAM2(model_path='/data/models/sam2.1_hiera_large.pt')
 устройство. Для файла с другим именем укажите `config` явно. `half=True`
 включает `bfloat16` и ускоряет работу на подходящей GPU.
 
-## 📥 Загрузить видео
+### Загрузить видео
 
 ```python
 from sam2al import SAM2
@@ -55,7 +80,9 @@ sam2.load_video(
 `df_save` не создаёт её сам. Подсказки сохраняются автоматически, поэтому
 разметку можно прервать и продолжить.
 
-## 💡 Поставить подсказки
+## 💡 Подсказки
+
+### Поставить подсказки
 
 ```python
 # Новый объект в середине видео:
@@ -81,7 +108,7 @@ sam2.points2masks(
 Пустой список означает, что подсказка этого типа не используется. Координаты —
 в пикселях исходного кадра.
 
-## 🧭 Перейти к объекту
+### Перейти к объекту
 
 ```python
 sam2.go_to(frame=0, obj_id=0)       # конкретный объект
@@ -91,7 +118,9 @@ sam2.set_label('person')            # сменить метку текущего
 
 `obj_id` — номер трека, а не индекс в датафрейме.
 
-## 🧱 Собрать разметку
+## 🧱 Разметка
+
+### Собрать разметку
 
 ```python
 df, file, true_frames = sam2.build_subtask(fit_segments=True)
@@ -110,7 +139,7 @@ df, file, true_frames = sam2.build_subtask(fit_segments=True)
 разметки, путь к видео и словарь соответствия кадров. Формат описан в
 [cvat: датафрейм](cvat/dataframes.md).
 
-## 👁️ Превью
+### Превью
 
 ```python
 sam2.render_preview('results/Project 1 preview.mp4', fps=3)
@@ -123,7 +152,7 @@ for frame in sam2.gen_preview():
     ...
 ```
 
-## 📤 Выгрузить в CVAT
+### Выгрузить в CVAT
 
 ```python
 from cvat_srv import CVATSRV
@@ -158,7 +187,7 @@ job; у задачи может быть несколько job, остальн�
 `Segmentation.ipynb`. Серверные объекты описаны в [cvat_srv](cvat_srv/README.md),
 готовый сценарий — в [предразметке](../preannotation.md).
 
-## 💾 Сохранить XML
+### Сохранить XML
 
 ```python
 sam2.save2cvat_xml('results/annotation.xml', fit_segments=True)

@@ -3,7 +3,33 @@
 Парсинг распакованных CVAT-бекапов, сохранение разметки в XML и подготовка
 задач без разметки.
 
-## 📖 Прочитать распакованный бекап
+## 🚀 Примеры
+
+```python
+# Прочитать все задачи из распакованного бекапа
+from cvat import cvat_backups2tasks
+
+tasks = cvat_backups2tasks('backups')
+```
+
+```python
+# Сохранить подзадачу в XML для импорта в CVAT
+from cvat import subtask2xml
+
+subtask = (df, 'data/video.mp4', {0: 0, 1: 1})
+subtask2xml(subtask, 'exports/annotation.xml')
+```
+
+```python
+# Подготовить задачу без разметки из папки с изображениями
+from cvat import file2unlabeled_subtask
+
+subtask = file2unlabeled_subtask('data/images')
+```
+
+## 📖 Чтение бекапов
+
+### Прочитать распакованный бекап
 
 ```text
 backups/
@@ -36,7 +62,7 @@ from cvat import cvat_backups2raw_tasks
 raw_tasks = cvat_backups2raw_tasks('backups', desc='Парсинг')
 ```
 
-## 📖 Прочитать одну задачу
+### Прочитать одну задачу
 
 ```python
 from cvat import cvat_backup_task_dir2task
@@ -47,7 +73,9 @@ print(len(task))  # число подзадач
 
 Вернётся список кортежей `(df, file, true_frames)`.
 
-## 💾 Сохранить подзадачу в XML
+## 💾 Сохранение и создание
+
+### Сохранить подзадачу в XML
 
 ```python
 from cvat import subtask2xml
@@ -59,7 +87,7 @@ subtask2xml(subtask, 'exports/annotation.xml')
 XML можно импортировать в CVAT как разметку задачи. Если `xml_file` не
 указан, функция возвращает XML-элемент и ничего не пишет на диск.
 
-## ➕ Создать задачу без разметки
+### Создать задачу без разметки
 
 ```python
 from cvat import file2unlabeled_subtask
@@ -74,7 +102,7 @@ print(len(true_frames))
 оценивается по метаданным; `check_frames=True` декодирует их, чтобы проверить
 читаемость. В возвращаемой подзадаче датафрейм равен `None`.
 
-## 🧱 Собрать задачи из папки
+### Собрать задачи из папки
 
 ```python
 from cvat import dir2unlabeled_tasks
@@ -85,7 +113,9 @@ tasks = dir2unlabeled_tasks('data/unlabeled', check_frames=True)
 Каждый видеофайл становится отдельной задачей, изображения группируются по
 папкам. `check_frames=True` проверяет, что кадры действительно читаются.
 
-## 🏷️ Разметка Яндекс Крауда
+## 🏷️ Служебные поля
+
+### Разметка Яндекс Крауда
 
 ```python
 from cvat import yandex2subtask
@@ -95,7 +125,7 @@ subtask = yandex2subtask('crowd/annotation.json', 'data/video.mp4')
 
 Функция переводит JSON Яндекс Крауда в формат CVAT-подзадачи.
 
-## 🏷️ Имя проекта и задачи
+### Имя проекта и задачи
 
 ```python
 from cvat import cvat_backup_task_dir2info
@@ -106,7 +136,7 @@ print(info['proj_name'], info['task_name'])
 
 Функция понимает пути к папке задачи, папке `data` и к файлу внутри неё.
 
-## 🔗 Связанные файлы
+### Связанные файлы
 
 ```python
 from cvat import get_related_files
