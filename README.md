@@ -332,8 +332,8 @@ draw_repo_dependency_graph()
   расширения
 - [Добавление модуля](docs/development.md): стиль кода, проверки и граф
   зависимостей
-- [Проверки](docs/check.md): запуск и флаги `check.sh`, `check-py.sh` и
-  `check-infra.sh`
+- [Проверки](docs/check-common.md): цели, режимы, флаги и коды возврата
+  чекеров
 - [Docker-окружение](docs/docker.md): запуск контейнера, вход и переменные
   окружения
 - [Предразметка](docs/preannotation.md): сценарии Detection и Segmentation

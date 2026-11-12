@@ -42,8 +42,8 @@
   `check-infra.sh`, синхронность проверяет `tests/test_check_infra.py`
 - `./utils.sh` — общий модуль утилит (цвета, разделители, функции вывода);
   подключается через source в check-py.sh, check-infra.sh и других скриптах
-- подробная документация для пользователей: `docs/check-py.md`,
-  `docs/check-infra.md` и `docs/check.md`
+- подробная документация для пользователей: `docs/check-common.md` (общие
+  правила), `docs/check-py.md`, `docs/check-infra.md` и `docs/check.md`
 - любые изменения в коде в конечном счёте должны проходить все проверки из ./check-*.sh
 
 ## Коммиты
